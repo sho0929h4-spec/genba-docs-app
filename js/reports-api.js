@@ -9,9 +9,12 @@ const ReportsApi = (() => {
   const REPORT_COLS = ['work_type', 'room', 'work_date', 'time_start', 'time_end', 'worker_id', 'worker_name', 'data', 'photos'];
   const MAIL_COLS = ['to_email', 'cc', 'subject', 'body'];
   const SHARE_COLS = 'id, report_id, vendor_name, expires_at, revoked_at, submitted_at, created_by, created_at'; // token_hash は返さない
-  const SHARE_DAYS = [3, 7, 14];
+  const SHARE_DAYS = [null, 7, 14, 30]; // null = 期限なし（提出・無効化まで有効。migration 012）
   const VENDOR_MAX = 60; // DB: report_shares_vendor_len（migration 011）
-  const PDF_URL_SECONDS = 1209600; // 14日
+  // 送付PDFは公開バケット public-pdfs の {org}/{乱数uuid}/report.pdf（期限のない公開URL。migration 012）。
+  // 以前の送付（files バケットの {org}/cases/... の署名URL）と区別する
+  const PUBLIC_PDF_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/report\.pdf$/;
+  const isPublicPdfPath = p => PUBLIC_PDF_RE.test(String(p || ''));
   const CONFIRM_TITLE = '報告書を確認する';
 
   const pick = (obj, cols) => {
@@ -206,11 +209,11 @@ const ReportsApi = (() => {
       const name = String(vendorName == null ? '' : vendorName).trim();
       if (!name) throw new Error('協力業者名を入力してください');
       if (Array.from(name).length > VENDOR_MAX) throw new Error(`協力業者名は${VENDOR_MAX}文字以内で入力してください`);
-      if (!SHARE_DAYS.includes(days)) throw new Error('有効期限は3日・7日・14日から選んでください');
+      if (days === undefined || !SHARE_DAYS.includes(days)) throw new Error('有効期限は「期限なし」・7日・14日・30日から選んでください');
       if (report.status && report.status !== 'draft') throw new Error('提出済みの報告書にはURLを発行できません');
       const token = newToken();
       const token_hash = await hashToken(token);
-      const expires_at = new Date(Date.now() + days * 86400000).toISOString();
+      const expires_at = days === null ? null : new Date(Date.now() + days * 86400000).toISOString();
       const share = must(await sb.from('report_shares')
         .insert({ report_id: report.id, token_hash, vendor_name: name, expires_at }).select(SHARE_COLS).single());
       // index.html と同じ場所の r.html（サブパス配信でも動くように、今のページ基準で組み立てる）
@@ -231,7 +234,7 @@ const ReportsApi = (() => {
     },
     hashToken,
     // 協力業者が入力中（無効化・提出・期限切れのどれでもない）か。入力中の報告書は社内から更新できない（migration 011 のトリガー）
-    shareActive: sh => !!sh && !sh.revoked_at && !sh.submitted_at && Date.parse(sh.expires_at) > Date.now(),
+    shareActive: sh => !!sh && !sh.revoked_at && !sh.submitted_at && (!sh.expires_at || Date.parse(sh.expires_at) > Date.now()),
 
     /* ===== 送付メール ===== */
     async listDrafts(caseId) {
@@ -251,24 +254,57 @@ const ReportsApi = (() => {
       const rows = must(await sb.from('mail_drafts').delete().eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした（未送信の下書きのみ削除できます）');
     },
-    // report.pdf を上書き保存し、14日有効の署名URLを返す。使用量は旧ファイルとの差分だけ動かす
+    // 報告書PDFを公開バケット public-pdfs に保存し、期限のない公開URLを返す。使用量は旧ファイルとの差分だけ動かす。
+    // 保存先は {org}/{乱数uuid}/report.pdf（推測できない）。同じ下書きを再送するときは同じ場所に上書きして、URLを変えない
     async preparePdfLink(draft, pdfBlob) {
       if (!draft.report_id) throw new Error('元の報告書が見つかりません');
       if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
-      const path = `${reportDir(draft.case_id, draft.report_id)}/report.pdf`;
-      const oldSize = await AppStorage.sizeOf(path);
+      const own = isPublicPdfPath(draft.pdf_path) && draft.pdf_path.split('/')[0] === ctx.org.id;
+      const path = own ? draft.pdf_path : `${ctx.org.id}/${CryptoUtil.uuid()}/report.pdf`;
+      const bucket = AppStorage.PUBLIC_PDF_BUCKET;
+      const oldSize = own ? await AppStorage.sizeOf(path, bucket) : 0;
       const diff = pdfBlob.size - oldSize;
       if (diff > 0) {
         const q = await checkQuota(diff, 0);
         if (!q.ok) throw new Error(q.reason);
       }
-      await AppStorage.upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true });
+      // 下書きに紐づけられなかったとき、今回新しく作ったファイルだけは消して使用量を戻す（既存の場所への上書きは残す）
+      const dropNew = async err => {
+        if (!own) {
+          try { await AppStorage.remove(path, bucket); await bumpUsage(-pdfBlob.size); }
+          catch (e2) { console.warn('孤立したPDFの削除に失敗', e2); }
+        }
+        if (err) throw err;
+      };
+      await AppStorage.upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true, bucket });
       await bumpUsage(diff);
-      const rows = must(await sb.from('mail_drafts').update({ pdf_path: path })
-        .eq('id', draft.id).eq('status', 'draft').select('id, pdf_path'));
-      if (!rows || rows.length === 0) throw new Error('この下書きは送信済みです');
+      let rows;
+      try {
+        rows = must(await sb.from('mail_drafts').update({ pdf_path: path })
+          .eq('id', draft.id).eq('status', 'draft').select('id, pdf_path'));
+      } catch (e) { rows = null; await dropNew(e); }
+      if (!rows || rows.length === 0) { await dropNew(); throw new Error('この下書きは送信済みです'); }
       draft.pdf_path = path;
-      return AppStorage.getUrl(path, PDF_URL_SECONDS);
+      return AppStorage.getPublicUrl(path, bucket);
+    },
+    isPublicPdfPath,
+    // 送付済みメールのPDFリンクの状態: { kind: 'none' | 'alive' | 'gone', url? }
+    //   none = このメールにPDFリンクはない／以前の方式（期限つきの署名URL）。gone = ファイルを削除して無効にした後
+    async pdfLinkState(draft) {
+      if (!draft || !isPublicPdfPath(draft.pdf_path)) return { kind: 'none' };
+      const bucket = AppStorage.PUBLIC_PDF_BUCKET;
+      const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
+      return size > 0 ? { kind: 'alive', url: AppStorage.getPublicUrl(draft.pdf_path, bucket), size } : { kind: 'gone' };
+    },
+    // 送付済みのPDFリンクを止める: 公開バケットのファイルを削除して使用量を戻す（pdf_path は残す）
+    async revokePdfLink(draft) {
+      if (!isPublicPdfPath(draft.pdf_path)) throw new Error('このメールのPDFリンクは無効にできません');
+      const bucket = AppStorage.PUBLIC_PDF_BUCKET;
+      const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
+      if (size <= 0) return 0; // すでに無効
+      await AppStorage.remove(draft.pdf_path, bucket);
+      await bumpUsage(-size);
+      return size;
     },
     async markSent(draft) {
       const rows = must(await sb.from('mail_drafts')

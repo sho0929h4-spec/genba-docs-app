@@ -3,15 +3,16 @@
 // mk() は case-list.js、dBtn / errText は case-detail.js、edField / edInput / edTextarea / edHm は report-form.js、
 // rpdfLoadOpts は report-ui.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
 //
-// 送信は「リンク方式」: 送信時に報告書PDFを作って Storage に置き、14日有効の署名URLを本文に入れた mailto: を開く。
+// 送信は「リンク方式」: 送信時に報告書PDFを作って公開バケット public-pdfs に置き、期限のない公開URLを本文に入れた mailto: を開く（推測できない乱数フォルダ）。
 //   実際の送信はユーザーのメールアプリが行う。メールアプリで送れたら「送信済みにする」→ markSent（案件のタイムラインに記録）。
+//   送付済みの画面の「PDFリンクを無効にする」で公開バケットのファイルを消せば、そのリンクは開けなくなる。
 // openMailDraft が定義されていると、⑤（js/report-ui.js）の「送信待ちの下書き」・案件詳細のバナー・確認後の遷移が有効になる。
 //
 // 画面遷移は location.hash の変更だけ（hashchange → routeFromHash → openMailDraft）。
 // 世代番号 mlSeq: 古い読み込み応答や、画面を離れた後の送信処理の結果は捨てる。保存は直列（s.chain）。
 
 const ML_DELAY = 1000;                       // 入力から保存までの待ち（ミリ秒）
-const ML_LINK_LABEL = '報告書PDF（14日間有効）: ';
+const ML_LINK_LABEL = '報告書PDF: ';
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 let ml = null;      // 表示中の画面の状態
 let mlSeq = 0;      // openMailDraft のたびに増やす
@@ -28,7 +29,7 @@ const mlEmailsOk = v => String(v || '').split(',').map(x => x.trim()).filter(Boo
 /* ---------- localStorage（使えない環境でも画面は動かす） ---------- */
 const mlWaitKey = id => 'mail-wait-' + id;     // 「送信済みにする」待ちの状態（PDFリンク・mailto・時刻）
 const mlDraftKey = id => 'mail-draft-' + id;   // 保存できていない入力の退避
-const ML_WAIT_MAX = 14 * 86400000;             // PDFリンクの有効期間（14日）。過ぎた待ち状態は破棄
+const ML_WAIT_MAX = 14 * 86400000;             // 「送信済みにする」待ちの端末内の保持期間（14日）。PDFリンク自体に期限はない。過ぎた待ち状態は破棄
 function mlLsDel(key) { try { localStorage.removeItem(key); } catch (e) { /* 何もしない */ } }
 function mlWaitSet(s) {
   try { localStorage.setItem(mlWaitKey(s.id), JSON.stringify(Object.assign({ t: Date.now() }, s.mail))); } catch (e) { /* 容量不足など */ }
@@ -182,8 +183,8 @@ function mlAttachment(s) {
   const info = mk('div');
   info.appendChild(mk('b', null, name));
   info.appendChild(mk('div', 'rep-sub', s.ro
-    ? '送付時に作成した報告書PDF（14日間有効のダウンロードリンクとして本文に入れました）'
-    : (s.report ? '送信時にPDFを作成し、14日間有効のダウンロードリンクを本文に入れます'
+    ? '送付時に作成した報告書PDF（ダウンロードリンク・期限なしとして本文に入れました）'
+    : (s.report ? '送信時にPDFを作成し、ダウンロードリンク（期限なし）を本文に入れます'
       : '元の報告書が見つからないため、PDFのリンクは入れられません')));
   box.append(mk('span', 'ic', 'PDF'), info);
   return box;
@@ -251,7 +252,71 @@ function mlBuildSent(s) {
   rows.forEach(([k, v]) => { dl.append(mk('dt', null, k), mk('dd', null, v)); });
   dl.id = 'ml-sent-info';
   info.append(mk('div', 'ml-sent-row', 'このメールは送付済みです。内容は変更できません（読み取り専用）'), dl);
-  return [mlHeadRow(s), info, mlComposeCard(s)];
+  const nodes = [mlHeadRow(s), info];
+  const pl = mlPdfLinkCard(s);
+  if (pl) nodes.push(pl);
+  nodes.push(mlComposeCard(s));
+  return nodes;
+}
+
+/* ---------- 送付済みPDFリンクの管理 ---------- */
+// s.pdf = { kind: 'checking' | 'alive' | 'gone' | 'none', url, busy, err }。kind が none のメール（PDFなし・以前の期限つき方式）はカードを出さない
+function mlPdfLinkCard(s) {
+  if (!s.pdf || s.pdf.kind === 'none') return null;
+  const card = mk('div', 'rep-card');
+  card.id = 'ml-pdflink';
+  mlFillPdfLink(s, card);
+  return card;
+}
+
+function mlFillPdfLink(s, card) {
+  const p = s.pdf;
+  const nodes = [mk('b', null, '報告書PDFのリンク')];
+  if (p.kind === 'checking') {
+    nodes.push(mk('div', 'rep-sub', '確認中…'));
+  } else if (p.kind === 'gone') {
+    const g = mk('div', 'rep-sub', '無効化済み（このリンクからはPDFを開けません）');
+    g.id = 'ml-pdflink-gone';
+    nodes.push(g);
+  } else {
+    nodes.push(mk('div', 'rep-sub', '期限はありません。メールを受け取った人が開けます。止めたいときは無効にしてください'));
+    const url = document.createElement('input');
+    url.type = 'text';
+    url.id = 'ml-pdflink-url';
+    url.className = 'ml-url';
+    url.readOnly = true;
+    url.value = p.url;
+    url.setAttribute('aria-label', '報告書PDFの公開リンク');
+    url.addEventListener('focus', () => url.select());
+    const off = dBtn('PDFリンクを無効にする', 'btn sm ghost inline danger', () => mlRevokePdf(s));
+    off.id = 'ml-pdflink-off';
+    off.disabled = !!p.busy;
+    nodes.push(url, off);
+  }
+  if (p.err) { const e = mk('div', 'err', p.err); e.id = 'ml-pdflink-err'; nodes.push(e); }
+  card.replaceChildren(...nodes);
+}
+
+async function mlLoadPdfLink(s) {
+  try { s.pdf = Object.assign({ busy: false, err: '' }, await ReportsApi.pdfLinkState(s.draft)); }
+  catch (e) { s.pdf = { kind: 'none', busy: false, err: '' }; return; } // 確認できなければ何も出さない
+  if (ml !== s) return;
+  mlRender(s);
+}
+
+async function mlRevokePdf(s) {
+  if (!s.pdf || s.pdf.busy || s.pdf.kind !== 'alive' || !mlAlive(s)) return;
+  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。報告書そのものは消えません）。')) return;
+  s.pdf.busy = true; s.pdf.err = '';
+  mlFillPdfLink(s, $('ml-pdflink'));
+  try {
+    await ReportsApi.revokePdfLink(s.draft);
+    s.pdf = { kind: 'gone', url: '', busy: false, err: '' };
+  } catch (e) {
+    s.pdf.busy = false;
+    s.pdf.err = '無効にできませんでした: ' + errText(e);
+  }
+  if (ml === s && $('ml-pdflink')) mlFillPdfLink(s, $('ml-pdflink'));
 }
 
 // メールアプリを開いた後: 「送信済みにする」を待つ状態 + 開かない環境向けのコピー用
@@ -293,7 +358,7 @@ function mlBuildWaiting(s) {
     url.className = 'ml-url';
     url.readOnly = true;
     url.value = m.url;
-    url.setAttribute('aria-label', '報告書PDFのダウンロードリンク（14日間有効）');
+    url.setAttribute('aria-label', '報告書PDFのダウンロードリンク（期限なし）');
     url.addEventListener('focus', () => url.select());
     card.appendChild(url);
   }
@@ -534,6 +599,8 @@ async function mlOpen(id) {
     }
   }
   ml = s;
+  if (s.ro && ReportsApi.isPublicPdfPath(draft.pdf_path)) s.pdf = { kind: 'checking', url: '', busy: false, err: '' };
   mlRender(s);
+  if (s.pdf) mlLoadPdfLink(s);
   if (s.dirty) mlFlush(s);
 }

@@ -181,8 +181,8 @@ function edBuild(s) {
   nodes.push(els.val);
 
   if (s.lock) {
-    const d = new Date(s.lock.expires_at);
-    const box = mk('div', 'rep-ro', s.lock.vendor_name + '様が入力中（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）。編集するにはURLを無効にしてください ');
+    const d = s.lock.expires_at ? new Date(s.lock.expires_at) : null; // 期限なしは null
+    const box = mk('div', 'rep-ro', s.lock.vendor_name + '様が入力中' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '') + '。編集するにはURLを無効にしてください ');
     box.id = 'rp-lock';
     const a = mk('a', null, '協力業者URLの管理へ');
     a.href = '#case/' + s.report.case_id + '/share';

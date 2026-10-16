@@ -153,11 +153,14 @@
     const nodes = [];
     const head = el('div', 'rep-card');
     const top = el('div', 'rep-between');
-    const due = el('span', 'rep-pill', '入力期限 ' + fmtDue(info.expires_at));
-    due.id = 'v-due';
     const vname = el('b', null, (info.vendor_name || '') + ' 様');
     vname.id = 'v-vendor';
-    top.append(vname, due);
+    top.appendChild(vname);
+    if (info.expires_at) { // 期限なし（null）のURLは期限を出さない
+      const due = el('span', 'rep-pill', '入力期限 ' + fmtDue(info.expires_at));
+      due.id = 'v-due';
+      top.appendChild(due);
+    }
     head.appendChild(top);
     const dl = el('dl', 'rep-auto');
     dl.id = 'v-info';

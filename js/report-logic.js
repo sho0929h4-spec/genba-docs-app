@@ -293,7 +293,7 @@
     q.push('body=' + encBody(body));
     return `mailto:${addr}?${q.join('&')}`;
   }
-  // body は {{PDF_LINK}} を含んだまま渡し、link（例「報告書PDF（14日間有効）: URL」）で差し込む。
+  // body は {{PDF_LINK}} を含んだまま渡し、link（例「報告書PDF: URL」）で差し込む。
   // 長すぎる URL はメールアプリ側で切れるので、本文を短縮（宛名・{{PDF_LINK}} の行は残す）。
   // 第1段階: 宛名 / 詳細は〜 / リンク行、第2段階: 宛名も落とす
   // 戻り値は { url, shortened }。shortened = 本文を短縮した（全文は入っていない）

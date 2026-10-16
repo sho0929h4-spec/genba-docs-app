@@ -13,7 +13,8 @@ let shrReports = [];
 let shrShares = [];
 let shrBusy = false;     // 無効化の実行中
 
-const SHR_DAYS = [[7, '7日間'], [3, '3日間'], [14, '14日間']];
+// 値 'none' = 期限なし（提出・無効化まで有効）。既定
+const SHR_DAYS = [['none', '期限なし（提出まで有効）'], ['7', '7日間'], ['14', '14日間'], ['30', '30日間']];
 const shrMD = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : (d.getMonth() + 1) + '/' + d.getDate(); };
 const shrHash = caseId => '#case/' + caseId + '/share';
 
@@ -91,7 +92,7 @@ function buildShare() {
   vendor.autocomplete = 'off';
   vendor.placeholder = '例：山本設備';
   const type = edSelect('shr-type', Object.entries(ReportLogic.WORK_TYPE_LABEL), 'investigate', () => {});
-  const days = edSelect('shr-days', SHR_DAYS.map(([d, l]) => [String(d), l]), '7', () => {});
+  const days = edSelect('shr-days', SHR_DAYS, 'none', () => {});
   const form = mk('div');
   form.style.marginTop = '10px';
   form.appendChild(edField('協力業者名 *', vendor));
@@ -142,7 +143,7 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl) {
     }
     let res;
     try {
-      res = await ReportsApi.createShare(report, name, Number(daysEl.value));
+      res = await ReportsApi.createShare(report, name, daysEl.value === 'none' ? null : Number(daysEl.value));
     } catch (e) {
       try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ }
       setMsg('shr-err', 'URLを発行できませんでした: ' + errText(e));
@@ -159,12 +160,12 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl) {
 function renderShareResult(res, vendorName) {
   const box = $('shr-result');
   const url = res.url;
-  const due = shrMD(res.share.expires_at);
+  const due = res.share.expires_at ? shrMD(res.share.expires_at) : ''; // 期限なしは ''
   const wrap = mk('div', 'rep-card');
   wrap.style.margin = '12px 0 0';
   wrap.style.borderColor = 'var(--navy)';
   const head = mk('div', 'rep-between');
-  head.append(mk('b', null, vendorName + ' 様あてのURL'), mk('span', 'rep-pill p-wait', '有効・' + due + 'まで'));
+  head.append(mk('b', null, vendorName + ' 様あてのURL'), mk('span', 'rep-pill p-wait', due ? '有効・' + due + 'まで' : '有効（提出まで）'));
   wrap.appendChild(head);
 
   const line = mk('div', 'shr-link');
@@ -196,7 +197,7 @@ function renderShareResult(res, vendorName) {
   const acts = mk('div', 'rep-acts');
   acts.style.marginTop = '8px';
   const orgName = (ctx && ctx.org && ctx.org.name) || '';
-  const msg = orgName + 'です。' + (shrSummary ? shrSummary.name : '') + 'の作業報告書の入力をお願いします（' + due + 'まで）\n' + url;
+  const msg = orgName + 'です。' + (shrSummary ? shrSummary.name : '') + 'の作業報告書の入力をお願いします' + (due ? '（' + due + 'まで）' : '') + '\n' + url;
   const a = mk('a', 'shr-line', 'LINEで送る');
   a.id = 'shr-line';
   a.href = 'https://line.me/R/msg/text/?' + encodeURIComponent(msg);
@@ -213,9 +214,9 @@ function renderShareResult(res, vendorName) {
 function shareState(sh, rep) {
   if (sh.submitted_at) return ['提出済み', 'p-ok', false];
   if (sh.revoked_at) return ['無効', 'p-red', false];
-  if (!(Date.parse(sh.expires_at) > Date.now())) return ['期限切れ', 'p-draft', false];
+  if (sh.expires_at && !(Date.parse(sh.expires_at) > Date.now())) return ['期限切れ', 'p-draft', false];
   if (rep && rep.status !== 'draft') return ['使用不可（報告書は提出済み）', 'p-draft', false];
-  return ['有効・' + shrMD(sh.expires_at) + 'まで', 'p-wait', true];
+  return [sh.expires_at ? '有効・' + shrMD(sh.expires_at) + 'まで' : '有効（提出まで）', 'p-wait', true];
 }
 
 function renderShareList() {
