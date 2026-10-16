@@ -305,6 +305,25 @@
   .rep-pdf-head .chip.on,.rep-pdf-fit .chip.on{color:#fff;}
   .rep-pdf-fit{margin-bottom:8px;}
   #rpdf-preview{border-radius:12px;min-height:120px;}
+  /* ===== 工事掲示（⑪ 一覧 js/notice-ui.js / ⑫ 作成・編集 js/notice-edit.js。入力欄は報告書の .rep-* を共用） ===== */
+  #screen-notices [hidden],#screen-notice [hidden]{display:none !important;}
+  #screen-notice{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px));}
+  .wrap.nu-wide{max-width:1180px;}
+  #notices-root .back,#notice-root .back{min-height:36px;}
+  .nu-layout{display:block;min-width:0;}
+  .nu-form,.nu-pv-col{min-width:0;}
+  .nu-pv-col{margin-top:4px;}
+  .nu-pv-col .rep-between{margin-bottom:8px;}
+  .nu-g3{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);gap:0 10px;}
+  .nu-chk{display:flex;align-items:center;gap:10px;min-height:40px;font-size:14px;color:var(--text);cursor:pointer;overflow-wrap:anywhere;}
+  .nu-chk input{width:22px;height:22px;flex:none;margin:0;accent-color:var(--navy);}
+  .nu-extra{margin:2px 0 8px 32px;}
+  .rep-ff input[type=color]{height:44px;padding:4px;}
+  @media(min-width:960px){
+    .nu-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;}
+    .nu-pv-col{position:sticky;top:12px;max-height:calc(100vh - 90px);overflow-y:auto;margin-top:0;}
+  }
+  @media(max-width:560px){ .nu-g3{grid-template-columns:minmax(0,1fr) minmax(0,1fr);} .nu-g3>*:last-child{grid-column:1 / -1;} }
   /* ===== ⑨ 送付メールの下書き（js/mail-ui.js） ===== */
   #screen-mail [hidden]{display:none !important;}
   #screen-mail{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px));}
@@ -537,6 +556,36 @@
   </div>
 </section>
 
+<!-- NOTICES ⑪ 案件内の工事掲示一覧（#case/{id}/notices。中身は js/notice-ui.js が作る） -->
+<section class="screen" id="screen-notices">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="notices-root"></div>
+</section>
+
+<!-- NOTICE ⑫ 工事掲示の作成・編集（#notice/{id}。中身は js/notice-edit.js が作る） -->
+<section class="screen" id="screen-notice">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap nu-wide" id="notice-root"></div>
+  <div class="rep-bar" id="notice-bar" hidden>
+    <button class="btn" id="nt-pdf" type="button">PDFをダウンロード</button>
+    <button class="btn ghost" id="nt-dup" type="button">複製して別の号室を作る</button>
+  </div>
+</section>
+
 <!-- REPORT PDF ⑩ PDFプレビュー（#report/{id}/pdf） -->
 <section class="screen" id="screen-report-pdf">
   <div class="hdr">
@@ -658,6 +707,8 @@
 <script src="js/report-share.js"></script>
 <script src="js/report-edit.js"></script>
 <script src="js/mail-ui.js"></script>
+<script src="js/notice-ui.js"></script>
+<script src="js/notice-edit.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -15,6 +15,17 @@ const ReportsApi = (() => {
   // 以前の送付（files バケットの {org}/cases/... の署名URL）と区別する
   const PUBLIC_PDF_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/report\.pdf$/;
   const isPublicPdfPath = p => PUBLIC_PDF_RE.test(String(p || ''));
+  // 公開PDFのファイルを削除して使用量を戻す（実際に消えた1件のときだけ）。消えなかった（まだ残っている）ときはエラー
+  async function removePublicPdf(path) {
+    const bucket = AppStorage.PUBLIC_PDF_BUCKET;
+    const size = await AppStorage.sizeOf(path, bucket);
+    if (size <= 0) return 0; // すでに無い
+    const removed = await AppStorage.remove(path, bucket);
+    if (removed === 1) { await bumpUsage(-size); return size; }
+    // 消えた件数が1でない: まだ残っていれば失敗。もう無ければ誰かが先に消したので使用量は触らない
+    if (await AppStorage.sizeOf(path, bucket) > 0) throw new Error('PDFを削除できませんでした。もう一度お試しください');
+    return 0;
+  }
   const CONFIRM_TITLE = '報告書を確認する';
 
   const pick = (obj, cols) => {
@@ -251,25 +262,25 @@ const ReportsApi = (() => {
       return rows[0];
     },
     async deleteDraft(id) {
-      const cur = must(await sb.from('mail_drafts').select('id, pdf_path').eq('id', id).maybeSingle());
+      const cur = must(await sb.from('mail_drafts').select('id, status, pdf_path').eq('id', id).maybeSingle());
+      if (!cur || cur.status !== 'draft') throw new Error('削除できませんでした（未送信の下書きのみ削除できます）');
+      // 送信待ちで作った公開PDFを先に消す（失敗したら行は消さずにエラー → リンクだけ残って管理できなくなるのを防ぐ）
+      if (isPublicPdfPath(cur.pdf_path)) await removePublicPdf(cur.pdf_path);
       const rows = must(await sb.from('mail_drafts').delete().eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした（未送信の下書きのみ削除できます）');
-      // 送信待ちで作った公開PDFも消す（リンクが残らないように。使用量も戻す）
-      if (cur && isPublicPdfPath(cur.pdf_path)) {
-        try { await api.revokePdfLink({ pdf_path: cur.pdf_path }); }
-        catch (e) { console.warn('公開PDFの削除に失敗', e); }
-      }
     },
     // 報告書PDFを公開バケット public-pdfs に保存し、期限のない公開URLを返す。使用量は旧ファイルとの差分だけ動かす。
     // 保存先は {org}/{乱数uuid}/report.pdf（推測できない）。同じ下書きを再送するときは同じ場所に上書きして、URLを変えない
+    // （送信待ちで「PDFリンクを無効にする」を押した後は pdf_path が空なので、再送は新しい乱数フォルダ＝新しいURL）
     async preparePdfLink(draft, pdfBlob) {
-      if (!draft.report_id) throw new Error('元の報告書が見つかりません');
+      if (!draft.report_id && !draft.estimate_id) throw new Error('元の書類が見つかりません');
       if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
-      // アップロードの前に、まだ送信前の下書きか確認する（古いタブから再送して、無効化したPDFのURLが復活しないように）
-      const cur = must(await sb.from('mail_drafts').select('id, status').eq('id', draft.id).maybeSingle());
+      // アップロードの前に、DBの今の状態を確認する（古いタブから再送して、無効化したPDFのURLが復活しないように）。
+      // 保存先は画面の draft ではなく、DBの pdf_path を正とする
+      const cur = must(await sb.from('mail_drafts').select('id, status, pdf_path').eq('id', draft.id).maybeSingle());
       if (!cur || cur.status !== 'draft') throw new Error('この下書きは送信済みです');
-      const own = isPublicPdfPath(draft.pdf_path) && draft.pdf_path.split('/')[0] === ctx.org.id;
-      const path = own ? draft.pdf_path : `${ctx.org.id}/${CryptoUtil.uuid()}/report.pdf`;
+      const own = isPublicPdfPath(cur.pdf_path) && cur.pdf_path.split('/')[0] === ctx.org.id;
+      const path = own ? cur.pdf_path : `${ctx.org.id}/${CryptoUtil.uuid()}/report.pdf`;
       const bucket = AppStorage.PUBLIC_PDF_BUCKET;
       const oldSize = own ? await AppStorage.sizeOf(path, bucket) : 0;
       const diff = pdfBlob.size - oldSize;
@@ -277,12 +288,15 @@ const ReportsApi = (() => {
         const q = await checkQuota(diff, 0);
         if (!q.ok) throw new Error(q.reason);
       }
-      // 下書きに紐づけられなかったとき、今回新しく作ったファイル（元々ファイルが無かった場所を含む）は消して使用量を戻す。
-      // 既に中身があった場所への上書きだけは残す
-      const dropNew = async err => {
-        if (!own || oldSize === 0) {
-          try { await AppStorage.remove(path, bucket); await bumpUsage(-pdfBlob.size); }
-          catch (e2) { console.warn('孤立したPDFの削除に失敗', e2); }
+      // 今回アップロードしたファイルを消して使用量を戻す。
+      //   force（下書きの状態が変わっていて紐づけられなかった）: 場所に関係なく必ず消す（無効化済み・送信済みのURLを生かさない）
+      //   それ以外（通信エラー）: 新しい場所か、元々ファイルが無かった場所だけ消す。既に中身があった場所への上書きは残す
+      const dropNew = async (force, err) => {
+        if (force || !own || oldSize === 0) {
+          try {
+            const removed = await AppStorage.remove(path, bucket);
+            if (removed === 1) await bumpUsage(-pdfBlob.size);
+          } catch (e2) { console.warn('孤立したPDFの削除に失敗', e2); }
         }
         if (err) throw err;
       };
@@ -291,10 +305,14 @@ const ReportsApi = (() => {
       await bumpUsage(diff);
       let rows;
       try {
-        rows = must(await sb.from('mail_drafts').update({ pdf_path: path })
-          .eq('id', draft.id).eq('status', 'draft').select('id, pdf_path'));
-      } catch (e) { rows = null; await dropNew(e); }
-      if (!rows || rows.length === 0) { await dropNew(); throw new Error('この下書きは送信済みです'); }
+        // 確認したときの pdf_path のままのときだけ紐づける（別のタブが無効化・再送していたら 0 件）
+        const q = sb.from('mail_drafts').update({ pdf_path: path }).eq('id', cur.id).eq('status', 'draft');
+        rows = must(await (cur.pdf_path == null ? q.is('pdf_path', null) : q.eq('pdf_path', cur.pdf_path)).select('id, pdf_path'));
+      } catch (e) { rows = null; await dropNew(false, e); }
+      if (!rows || rows.length === 0 || rows[0].pdf_path !== path) {
+        await dropNew(true);
+        throw new Error('この下書きは送信済みか、別の画面で更新されました。開き直してからやり直してください');
+      }
       draft.pdf_path = path;
       return AppStorage.getPublicUrl(path, bucket);
     },
@@ -307,17 +325,17 @@ const ReportsApi = (() => {
       const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
       return size > 0 ? { kind: 'alive', url: AppStorage.getPublicUrl(draft.pdf_path, bucket), size } : { kind: 'gone' };
     },
-    // 送付済みのPDFリンクを止める: 公開バケットのファイルを削除して使用量を戻す（pdf_path は残す）
+    // PDFリンクを止める: 公開バケットのファイルを削除して使用量を戻す。
+    // まだ送信前の下書き（送信待ち）なら pdf_path も空にする（再送で同じURLが復活しない）。送付済みは pdf_path を残す（「無効化済み」の表示に使う）
     async revokePdfLink(draft) {
       if (!isPublicPdfPath(draft.pdf_path)) throw new Error('このメールのPDFリンクは無効にできません');
-      const bucket = AppStorage.PUBLIC_PDF_BUCKET;
-      const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
-      if (size <= 0) return 0; // すでに無効
-      const removed = await AppStorage.remove(draft.pdf_path, bucket);
-      if (removed === 1) { await bumpUsage(-size); return size; } // 実際に消えたときだけ使用量を戻す
-      // 消えた件数が1でない: まだ残っていれば失敗（無効になっていない）。もう無ければ誰かが先に消したので使用量は触らない
-      if (await AppStorage.sizeOf(draft.pdf_path, bucket) > 0) throw new Error('PDFを削除できませんでした。もう一度お試しください');
-      return 0;
+      const size = await removePublicPdf(draft.pdf_path);
+      if (draft.id) {
+        const rows = must(await sb.from('mail_drafts').update({ pdf_path: null })
+          .eq('id', draft.id).eq('status', 'draft').eq('pdf_path', draft.pdf_path).select('id'));
+        if (rows && rows.length) draft.pdf_path = null;
+      }
+      return size;
     },
     async markSent(draft) {
       const rows = must(await sb.from('mail_drafts')

@@ -1,5 +1,5 @@
 // js/notice-pdf.js — 工事掲示の A4 縦1枚を描画し、プレビュー・PDF（Blob）にする
-// グローバル: window.NoticePdf = { buildSheet, fit, check, preview, fitPreview, toBlob, fileName }
+// グローバル: window.NoticePdf = { buildSheet, fit, check, preview, fitPreview, dispose, toBlob, fileName }
 // レイアウト・文言・書式は旧「工事掲示PDF作成ツール」(/Users/s/koji-keiji-pdf/ styles.css 277-376 / app.js 396-464, 646-666, 1206-1238)
 // を写したもの。CSS は .nt- 接頭辞に付け替えている。
 // ユーザー入力が入るので、描画はすべて createElement + textContent（innerHTML は使わない）。
@@ -243,5 +243,13 @@
 
   const fileName = (data, caseRow) => NL().fileName(viewData(data, caseRow), (caseRow || {}).name);
 
-  window.NoticePdf = { buildSheet, fit, check, preview, fitPreview, toBlob, fileName };
+  // 画面を離れるとき: preview() が container に付けた ResizeObserver を解除する（残すと消えた要素を見張り続ける）
+  function dispose(container) {
+    if (container && container._ntRo) {
+      container._ntRo.disconnect();
+      container._ntRo = null;
+    }
+  }
+
+  window.NoticePdf = { buildSheet, fit, check, preview, fitPreview, dispose, toBlob, fileName };
 })();

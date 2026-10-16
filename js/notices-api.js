@@ -37,8 +37,15 @@ const NoticesApi = (() => {
       work_date_tbd: !!d.workDateTbd
     };
   }
+  // DB の制約（migration 015）: room / work_name は80字まで、work_date_end は work_date 以降。違反は保存前に分かりやすく止める
+  const MAX_LEN = 80;
+  function checkCols(c) {
+    if (c.room && Array.from(c.room).length > MAX_LEN) throw new Error('号室は' + MAX_LEN + '文字までです');
+    if (c.work_name && Array.from(c.work_name).length > MAX_LEN) throw new Error('工事名称は' + MAX_LEN + '文字までです');
+    if (c.work_date && c.work_date_end && c.work_date_end < c.work_date) throw new Error('工事日の終了は開始日以降にしてください');
+  }
   // 保存する行（data ＋ 一覧用の列）を allowlist 越しに作る
-  const patchOf = data => pick({ ...listCols(data), data }, NOTICE_COLS);
+  const patchOf = data => { const c = listCols(data); checkCols(c); return pick({ ...c, data }, NOTICE_COLS); };
 
   // 会社マスタ（ctx.org）のスナップショット。後で会社情報を変えても過去の掲示は変わらない
   function contactSnapshot() {

@@ -183,6 +183,7 @@ const CASE_REPORTS_HASH_RE = new RegExp('^#case/' + UUID_RE + '/reports$', 'i');
 const CASE_SHARE_HASH_RE = new RegExp('^#case/' + UUID_RE + '/share$', 'i');
 const REPORT_HASH_RE = new RegExp('^#report/' + UUID_RE + '$', 'i');
 const MAIL_HASH_RE = new RegExp('^#mail/' + UUID_RE + '$', 'i');
+const CASE_NOTICES_HASH_RE = new RegExp('^#case/' + UUID_RE + '/notices$', 'i');
 const REPORT_PDF_HASH_RE = new RegExp('^#report/' + UUID_RE + '/pdf$', 'i');
 function routeFromHash() {
   const h = location.hash;
@@ -191,6 +192,8 @@ function routeFromHash() {
   else if ((m = h.match(CASE_REPORTS_HASH_RE))) openReports(m[1]);      // ⑤ 案件内の報告書一覧（js/report-ui.js）
   else if ((m = h.match(CASE_SHARE_HASH_RE)) && typeof openShareScreen === 'function') openShareScreen(m[1]); // ⑦ 協力業者URLの発行
   else if ((m = h.match(MAIL_HASH_RE)) && typeof openMailDraft === 'function') openMailDraft(m[1]); // ⑨ 送付メールの下書き（js/mail-ui.js）
+  else if ((m = h.match(CASE_NOTICES_HASH_RE)) && typeof openNotices === 'function') openNotices(m[1].toLowerCase()); // ⑪ 案件内の工事掲示一覧（js/notice-ui.js）
+  else if ((m = h.match(NOTICE_HASH_RE)) && typeof openNotice === 'function') openNotice(m[1].toLowerCase());       // ⑫ 工事掲示の作成・編集（js/notice-edit.js。NOTICE_HASH_RE もそこで定義）
   else if ((m = h.match(REPORT_PDF_HASH_RE))) openReportPdf(m[1]);      // ⑩ PDFプレビュー
   else if ((m = h.match(REPORT_HASH_RE))) openReport(m[1]);             // ⑥ 報告書の入力
   else if (h === '#team') openTeam();

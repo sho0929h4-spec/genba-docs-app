@@ -276,7 +276,7 @@ function mlFillPdfLink(s, card) {
     nodes.push(mk('div', 'rep-sub', '確認中…'));
   } else if (p.kind === 'gone') {
     const g = mk('div', 'rep-sub', '無効化済み（このリンクからはPDFを開けません）' +
-      (s.phase === 'waiting' ? '。メールを送り直すときは「内容を直す（編集に戻る）」から送信し直してください' : ''));
+      (s.phase === 'waiting' ? '。メールを送り直すときは「内容を直す（編集に戻る）」から送信し直してください（新しいリンクが作られます）' : ''));
     g.id = 'ml-pdflink-gone';
     nodes.push(g);
   } else {
@@ -455,6 +455,19 @@ function mlBackToEdit(s) {
 }
 
 /* ---------- 送る ---------- */
+// 送付PDFの差し替え口: 見積の下書きなら EstimatePdf、報告書なら ReportPdf
+async function mlMakePdf(s) {
+  if (s.draft.estimate_id) {
+    if (!s.estimate || typeof EstimatePdf === 'undefined') throw new Error('元の見積書が見つかりません');
+    const org = ctx.org || {};
+    const logo = org.logo_path ? await AppStorage.getUrl(org.logo_path).catch(() => '') : '';
+    return EstimatePdf.toBlob(s.estimate, s.caseRow, org, logo || '');
+  }
+  if (!s.report) throw new Error('元の報告書が見つかりません');
+  const opts = await rpdfLoadOpts(s.report);
+  if (!mlAlive(s)) throw new Error('画面が切り替わりました');
+  return ReportPdf.toBlob(Object.assign({}, opts, { perPage: 4, fit: 'contain' }));
+}
 async function mlSend(s) {
   if (s.busy || s.ro || s.phase !== 'edit' || !mlAlive(s)) return;
   mlClearVal(s);
@@ -481,10 +494,7 @@ async function mlSend(s) {
     } else {
       send.textContent = 'PDFを作成中…';
       try {
-        if (!s.report) throw new Error('元の報告書が見つかりません');
-        const opts = await rpdfLoadOpts(s.report);
-        if (!mlAlive(s)) return;
-        const blob = await ReportPdf.toBlob(Object.assign({}, opts, { perPage: 4, fit: 'contain' }));
+        const blob = await mlMakePdf(s);
         if (!mlAlive(s)) return;
         url = await ReportsApi.preparePdfLink(s.draft, blob);
       } catch (e) {
@@ -529,6 +539,10 @@ async function mlMarkSent(s) {
       if (ml === s) mlShowVal(s, '送信済みにできませんでした: ' + errText(e));
       return;
     }
+    // 見積書の送付: 見積を送付済みに・紐付けた依頼を対応済みに（失敗しても送信済みは取り消さない）
+    if (s.estimate && typeof EstimatesApi !== 'undefined') {
+      try { await EstimatesApi.onMailSent(s.estimate); } catch (e) { console.warn('見積書の送付済み更新に失敗', e); }
+    }
     // 送信済みになったので端末の退避は先に消す（別の画面へ移っていても残さない）
     mlLsDel(mlWaitKey(s.id));
     mlLsDel(mlDraftKey(s.id));
@@ -561,7 +575,7 @@ async function mlOpen(id) {
   if (seq !== mlSeq) return;
   ml = null;
 
-  let draft, caseRow, report = null;
+  let draft, caseRow, report = null, estimate = null;
   try {
     draft = await ReportsApi.getDraft(id);
     if (draft) {
@@ -569,6 +583,7 @@ async function mlOpen(id) {
         CasesApi.getSummary(draft.case_id),
         draft.report_id ? ReportsApi.get(draft.report_id) : Promise.resolve(null)
       ]);
+      if (draft.estimate_id && typeof EstimatesApi !== 'undefined') estimate = await EstimatesApi.get(draft.estimate_id);
     }
   } catch (e) {
     if (seq !== mlSeq) return;
@@ -579,7 +594,7 @@ async function mlOpen(id) {
   if (!draft) { mlMessage('メールの下書きが見つかりません', false); return; }
 
   const s = {
-    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report,
+    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate,
     ro: draft.status !== 'draft', phase: 'edit', mail: null,
     f: { to: draft.to_email || '', cc: draft.cc || '', subject: draft.subject || '', body: draft.body || '' },
     dirty: false, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null, busy: false, restored: false, els: {}
@@ -612,6 +627,8 @@ async function mlOpen(id) {
   // 送付済み、または送信待ち（リンクつき）の再開: PDFリンクの状態を確認して「無効にする」を出す
   if ((s.ro || (s.phase === 'waiting' && s.mail && s.mail.url)) && ReportsApi.isPublicPdfPath(draft.pdf_path)) {
     s.pdf = { kind: 'checking', url: '', busy: false, err: '' };
+  } else if (s.phase === 'waiting' && s.mail && s.mail.url && draft.pdf_path == null) {
+    s.pdf = { kind: 'gone', url: '', busy: false, err: '' }; // 送信待ちで無効にした後（pdf_path は空になる）
   }
   mlRender(s);
   if (s.pdf) mlLoadPdfLink(s);

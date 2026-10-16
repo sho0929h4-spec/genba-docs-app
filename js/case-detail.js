@@ -212,6 +212,11 @@ function buildDetail() {
       if (wait > 0) ct.classList.add('hot');
       b.id = 'case-tool-reports';
       b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/reports'; });
+    } else if (nm === '工事掲示') {
+      // 件数は case_summaries の notice_count（migration 013）
+      ct.textContent = (Number(currentCase.notice_count) || 0) + '件';
+      b.id = 'case-tool-notices';
+      b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/notices'; });
     } else {
       b.addEventListener('click', () => { $('case-tools-note').hidden = false; });
     }
