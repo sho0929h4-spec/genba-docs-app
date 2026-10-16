@@ -116,6 +116,10 @@ function buildShare() {
 
   const listCard = mk('div', 'rep-card');
   listCard.appendChild(mk('h3', null, '発行済みのURL'));
+  const cnt = mk('div', 'rep-sub');
+  cnt.id = 'shr-active-count';
+  cnt.setAttribute('role', 'status');
+  listCard.appendChild(cnt);
   listCard.appendChild(mk('div', 'rep-sub', 'URLそのものは発行した直後にしか表示できません。分からなくなったら、無効にして発行し直してください。'));
   const listErr = mk('div', 'err');
   listErr.id = 'shr-list-err';
@@ -222,6 +226,12 @@ function shareState(sh, rep) {
 function renderShareList() {
   const box = $('shr-list');
   if (!box) return;
+  // 期限なしのURLは出しっぱなしになりやすいので、今も使えるURLの件数を見せる
+  const cnt = $('shr-active-count');
+  if (cnt) {
+    const n = shrShares.filter(sh => shareState(sh, shrReports.find(r => r.id === sh.report_id))[2]).length;
+    cnt.textContent = '今も使えるURL: ' + n + '件';
+  }
   if (shrShares.length === 0) { box.replaceChildren(mk('div', 'rep-sub', 'まだ発行していません')); return; }
   box.replaceChildren(...shrShares.map(sh => {
     const rep = shrReports.find(r => r.id === sh.report_id);

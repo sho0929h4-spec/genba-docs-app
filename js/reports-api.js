@@ -251,14 +251,23 @@ const ReportsApi = (() => {
       return rows[0];
     },
     async deleteDraft(id) {
+      const cur = must(await sb.from('mail_drafts').select('id, pdf_path').eq('id', id).maybeSingle());
       const rows = must(await sb.from('mail_drafts').delete().eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした（未送信の下書きのみ削除できます）');
+      // 送信待ちで作った公開PDFも消す（リンクが残らないように。使用量も戻す）
+      if (cur && isPublicPdfPath(cur.pdf_path)) {
+        try { await api.revokePdfLink({ pdf_path: cur.pdf_path }); }
+        catch (e) { console.warn('公開PDFの削除に失敗', e); }
+      }
     },
     // 報告書PDFを公開バケット public-pdfs に保存し、期限のない公開URLを返す。使用量は旧ファイルとの差分だけ動かす。
     // 保存先は {org}/{乱数uuid}/report.pdf（推測できない）。同じ下書きを再送するときは同じ場所に上書きして、URLを変えない
     async preparePdfLink(draft, pdfBlob) {
       if (!draft.report_id) throw new Error('元の報告書が見つかりません');
       if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
+      // アップロードの前に、まだ送信前の下書きか確認する（古いタブから再送して、無効化したPDFのURLが復活しないように）
+      const cur = must(await sb.from('mail_drafts').select('id, status').eq('id', draft.id).maybeSingle());
+      if (!cur || cur.status !== 'draft') throw new Error('この下書きは送信済みです');
       const own = isPublicPdfPath(draft.pdf_path) && draft.pdf_path.split('/')[0] === ctx.org.id;
       const path = own ? draft.pdf_path : `${ctx.org.id}/${CryptoUtil.uuid()}/report.pdf`;
       const bucket = AppStorage.PUBLIC_PDF_BUCKET;
@@ -268,15 +277,17 @@ const ReportsApi = (() => {
         const q = await checkQuota(diff, 0);
         if (!q.ok) throw new Error(q.reason);
       }
-      // 下書きに紐づけられなかったとき、今回新しく作ったファイルだけは消して使用量を戻す（既存の場所への上書きは残す）
+      // 下書きに紐づけられなかったとき、今回新しく作ったファイル（元々ファイルが無かった場所を含む）は消して使用量を戻す。
+      // 既に中身があった場所への上書きだけは残す
       const dropNew = async err => {
-        if (!own) {
+        if (!own || oldSize === 0) {
           try { await AppStorage.remove(path, bucket); await bumpUsage(-pdfBlob.size); }
           catch (e2) { console.warn('孤立したPDFの削除に失敗', e2); }
         }
         if (err) throw err;
       };
-      await AppStorage.upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true, bucket });
+      // cacheControl 60秒: 無効化（ファイル削除）後に公開CDNへ残る時間を短くする
+      await AppStorage.upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true, bucket, cacheControl: '60' });
       await bumpUsage(diff);
       let rows;
       try {
@@ -302,9 +313,11 @@ const ReportsApi = (() => {
       const bucket = AppStorage.PUBLIC_PDF_BUCKET;
       const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
       if (size <= 0) return 0; // すでに無効
-      await AppStorage.remove(draft.pdf_path, bucket);
-      await bumpUsage(-size);
-      return size;
+      const removed = await AppStorage.remove(draft.pdf_path, bucket);
+      if (removed === 1) { await bumpUsage(-size); return size; } // 実際に消えたときだけ使用量を戻す
+      // 消えた件数が1でない: まだ残っていれば失敗（無効になっていない）。もう無ければ誰かが先に消したので使用量は触らない
+      if (await AppStorage.sizeOf(draft.pdf_path, bucket) > 0) throw new Error('PDFを削除できませんでした。もう一度お試しください');
+      return 0;
     },
     async markSent(draft) {
       const rows = must(await sb.from('mail_drafts')

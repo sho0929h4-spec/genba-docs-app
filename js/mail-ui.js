@@ -275,23 +275,27 @@ function mlFillPdfLink(s, card) {
   if (p.kind === 'checking') {
     nodes.push(mk('div', 'rep-sub', '確認中…'));
   } else if (p.kind === 'gone') {
-    const g = mk('div', 'rep-sub', '無効化済み（このリンクからはPDFを開けません）');
+    const g = mk('div', 'rep-sub', '無効化済み（このリンクからはPDFを開けません）' +
+      (s.phase === 'waiting' ? '。メールを送り直すときは「内容を直す（編集に戻る）」から送信し直してください' : ''));
     g.id = 'ml-pdflink-gone';
     nodes.push(g);
   } else {
     nodes.push(mk('div', 'rep-sub', '期限はありません。メールを受け取った人が開けます。止めたいときは無効にしてください'));
-    const url = document.createElement('input');
-    url.type = 'text';
-    url.id = 'ml-pdflink-url';
-    url.className = 'ml-url';
-    url.readOnly = true;
-    url.value = p.url;
-    url.setAttribute('aria-label', '報告書PDFの公開リンク');
-    url.addEventListener('focus', () => url.select());
+    if (s.phase !== 'waiting') { // 待ち状態の画面には、リンクのコピー欄が別にある
+      const url = document.createElement('input');
+      url.type = 'text';
+      url.id = 'ml-pdflink-url';
+      url.className = 'ml-url';
+      url.readOnly = true;
+      url.value = p.url;
+      url.setAttribute('aria-label', '報告書PDFの公開リンク');
+      url.addEventListener('focus', () => url.select());
+      nodes.push(url);
+    }
     const off = dBtn('PDFリンクを無効にする', 'btn sm ghost inline danger', () => mlRevokePdf(s));
     off.id = 'ml-pdflink-off';
-    off.disabled = !!p.busy;
-    nodes.push(url, off);
+    off.disabled = !!p.busy || !!s.busy;
+    nodes.push(off);
   }
   if (p.err) { const e = mk('div', 'err', p.err); e.id = 'ml-pdflink-err'; nodes.push(e); }
   card.replaceChildren(...nodes);
@@ -306,7 +310,7 @@ async function mlLoadPdfLink(s) {
 
 async function mlRevokePdf(s) {
   if (!s.pdf || s.pdf.busy || s.pdf.kind !== 'alive' || !mlAlive(s)) return;
-  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。報告書そのものは消えません）。')) return;
+  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。報告書そのものは消えません）。\n反映まで数分〜1時間ほどかかる場合があります。')) return;
   s.pdf.busy = true; s.pdf.err = '';
   mlFillPdfLink(s, $('ml-pdflink'));
   try {
@@ -366,7 +370,11 @@ function mlBuildWaiting(s) {
   back.id = 'ml-back-edit';
   back.style.marginTop = '10px';
   card.appendChild(back);
-  return [mlHeadRow(s), card, mlComposeCard(s)];
+  const nodes = [mlHeadRow(s), card];
+  const pl = mlPdfLinkCard(s);
+  if (pl) nodes.push(pl);
+  nodes.push(mlComposeCard(s));
+  return nodes;
 }
 
 function mlRender(s) {
@@ -441,6 +449,7 @@ function mlBackToEdit(s) {
   if (s.busy || s.ro) return;
   s.phase = 'edit';
   s.mail = null;
+  s.pdf = null;
   mlLsDel(mlWaitKey(s.id));
   mlRender(s);
 }
@@ -493,6 +502,7 @@ async function mlSend(s) {
       fullBody: link ? String(f.body).split(PDF_LINK).join(link) : String(f.body)
     };
     s.phase = 'waiting';
+    s.pdf = url ? { kind: 'alive', url, busy: false, err: '' } : null; // 待ち状態でもPDFリンクを無効にできる
     mlWaitSet(s); // タブが再読込されても「送信済みにする」待ちから再開できるように
     s.busy = false;
     mlRender(s);
@@ -599,7 +609,10 @@ async function mlOpen(id) {
     }
   }
   ml = s;
-  if (s.ro && ReportsApi.isPublicPdfPath(draft.pdf_path)) s.pdf = { kind: 'checking', url: '', busy: false, err: '' };
+  // 送付済み、または送信待ち（リンクつき）の再開: PDFリンクの状態を確認して「無効にする」を出す
+  if ((s.ro || (s.phase === 'waiting' && s.mail && s.mail.url)) && ReportsApi.isPublicPdfPath(draft.pdf_path)) {
+    s.pdf = { kind: 'checking', url: '', busy: false, err: '' };
+  }
   mlRender(s);
   if (s.pdf) mlLoadPdfLink(s);
   if (s.dirty) mlFlush(s);

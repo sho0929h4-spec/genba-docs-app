@@ -253,7 +253,8 @@
   // 工事掲示_{物件名}_{号室}_{工事日}.pdf（旧 A:757-762）。物件名が空なら案件名
   function fileName(d, caseName) {
     const dateText = formatWorkDate(d).replace(/\s+/g, '');
-    const name = d.propertyName || caseName || '';
+    // 物件名は前後の空白を落とす（空白だけなら案件名）。空白のまま safeFileName に渡すと先頭末尾が _ になる
+    const name = String(d.propertyName || '').trim() || String(caseName || '').trim();
     return '工事掲示_' + safeFileName(name) + '_' +
       safeFileName(normalizeRoom(d.roomNo)) + '_' + safeFileName(dateText) + '.pdf';
   }

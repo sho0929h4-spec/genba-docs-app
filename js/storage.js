@@ -7,6 +7,7 @@ const AppStorage = {
   async upload(path, blob, opts = {}) {
     const o = { upsert: opts.upsert !== false }; // 既定は上書き
     if (opts.contentType) o.contentType = opts.contentType;
+    if (opts.cacheControl) o.cacheControl = String(opts.cacheControl); // 秒。公開バケットは短くして、削除後にCDNに残る時間を減らす
     const { error } = await sb.storage.from(opts.bucket || this.bucket).upload(path, blob, o);
     if (error) throw error;
     return path;
@@ -30,8 +31,10 @@ const AppStorage = {
       return (f && f.metadata && f.metadata.size) || 0;
     } catch (e) { return 0; }
   },
+  // 戻り値: 実際に削除された件数（存在しなければ 0）
   async remove(path, bucket) {
-    const { error } = await sb.storage.from(bucket || this.bucket).remove([path]);
+    const { data, error } = await sb.storage.from(bucket || this.bucket).remove([path]);
     if (error) throw error;
+    return Array.isArray(data) ? data.length : 0;
   }
 };
