@@ -18,7 +18,14 @@ async function checkQuota(addBytes, addRecords = 0) {
   return { ok: true };
 }
 
+// add_usage は 1回 ±100MB まで（migration 015）。超える分は同じ符号で分割して呼ぶ（大量の添付をまとめて追加・削除したとき）
+const USAGE_STEP = 100 * 1024 * 1024;
 async function addUsage(bytes, records = 0) {
-  const { error } = await sb.rpc('add_usage', { p_bytes: bytes, p_records: records });
-  if (error) throw error;
+  let rest = Math.round(Number(bytes) || 0);
+  do {
+    const step = Math.sign(rest) * Math.min(Math.abs(rest), USAGE_STEP);
+    const { error } = await sb.rpc('add_usage', { p_bytes: step, p_records: records });
+    if (error) throw error;
+    rest -= step;
+  } while (rest !== 0);
 }

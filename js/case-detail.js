@@ -254,30 +254,40 @@ function buildDetail() {
 
   const tl = mk('div'); tl.id = 'case-timeline';
 
-  // 依頼者へ送る報告メールの下書きが残っているとき（⑨ のある版だけ）。押すと ⑤ の「送信待ちの下書き」へ
+  // 依頼者へ送るメール（報告書・見積書）の下書きが残っているとき（⑨ のある版だけ）。行き先:
+  //   1件 → その⑨ / 報告書の下書きだけ → ⑤の「送信待ちの下書き」 /
+  //   見積書の下書きを含む（見積書一覧には送信待ちの表示がない）→ 案件詳細の中に下書きの一覧を出す / 取得できない → ⑤
   const pendingMails = Number(currentCase.drafts_to_send) || 0;
-  let mailBanner = null;
+  let mailBanner = null, mailList = null;
   if (pendingMails > 0 && typeof openMailDraft === 'function') {
-    // 下書きが1件ならそのまま⑨へ、複数（または取得できないとき）は⑤の一覧へ
+    mailList = mk('div', 'rep-card rep-drafts');
+    mailList.id = 'case-mail-list';
+    mailList.hidden = true;
     mailBanner = dBtn('', 'rep-banner', async b => {
       const cid = currentCase.id;
-      const toList = () => { location.hash = '#case/' + cid + '/reports'; };
-      if (pendingMails !== 1) { toList(); return; }
+      const toReports = () => { location.hash = '#case/' + cid + '/reports'; };
       b.disabled = true;
-      let id = null;
-      try {
-        const ds = (await ReportsApi.listDrafts(cid)).filter(d => d.status === 'draft');
-        if (ds.length === 1) id = ds[0].id;
-      } catch (e) { /* 一覧へ */ }
+      let ds = null;
+      try { ds = (await ReportsApi.listDrafts(cid)).filter(d => d.status === 'draft'); } catch (e) { /* ⑤へ */ }
       if (caseDetailId !== cid) return; // 取得中に別の画面へ移った
       b.disabled = false;
-      if (id) openMailDraft(id); else toList();
+      if (!ds || ds.length === 0) { toReports(); return; }
+      if (ds.length === 1) { openMailDraft(ds[0].id); return; }
+      if (!ds.some(d => d.estimate_id)) { toReports(); return; }
+      mailList.replaceChildren(mk('b', null, '✉ 送信待ちの下書き ' + ds.length + '件'));
+      ds.forEach(d => {
+        const line = mk('div', 'rep-draft-line');
+        line.appendChild(mk('span', 'rep-sub', (d.estimate_id ? '見積書' : '報告書') + '・' + (d.subject || '（件名なし）')));
+        line.appendChild(dBtn('下書きを確認する', 'btn sm inline', () => openMailDraft(d.id)));
+        mailList.appendChild(line);
+      });
+      mailList.hidden = false;
     });
     mailBanner.id = 'case-mail-banner';
     mailBanner.append(mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件'), mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-  root.replaceChildren(...[detailBackBtn(), headBox, next, tools, toolsNote, mailBanner, works, tl].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, next, tools, toolsNote, mailBanner, mailList, works, tl].filter(Boolean));
 
   renderHead();
   renderNextRows();

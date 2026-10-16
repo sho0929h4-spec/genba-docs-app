@@ -64,10 +64,14 @@ const mlIsHash = (id, h) => String(h).toLowerCase() === '#mail/' + String(id).to
 // メールアプリを開く。画面を離れる操作なので1か所に集める（E2E はここを差し替えて mailto を横取りする）
 function mlOpenMailto(url) { location.href = url; }
 
-function mlMessage(text, isErr, backCaseId) {
+// backDraft: 戻り先の下書き（{ case_id, estimate_id }）。見積の下書きなら見積書一覧、それ以外は報告書一覧へ戻る
+function mlMessage(text, isErr, backDraft) {
   $('mail-bar').hidden = true;
   const nodes = [];
-  if (backCaseId) nodes.push(dBtn('← 報告書一覧', 'back', () => { location.hash = '#case/' + backCaseId + '/reports'; }));
+  if (backDraft && backDraft.case_id) {
+    const b = { draft: backDraft };
+    nodes.push(dBtn('← ' + mlDoc(b) + '一覧', 'back', () => { location.hash = mlListHash(b); }));
+  }
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   $('mail-root').replaceChildren(...nodes);
 }
@@ -179,12 +183,17 @@ function mlSenderNote() {
   return box;
 }
 
+// 受け取った人が保存するPDFの名前（添付の表示と公開URLの ?download= で同じ名前）
+function mlPdfName(s) {
+  return mlIsEst(s)
+    ? (s.estimate && typeof EstimateLogic !== 'undefined' ? EstimateLogic.fileName(s.estimate) : '見積書.pdf')
+    : ReportLogic.fileName(s.caseRow && s.caseRow.name, s.report ? s.report.room : '');
+}
+
 function mlAttachment(s) {
   const est = mlIsEst(s);
   const src = est ? s.estimate : s.report;
-  const name = est
-    ? (s.estimate && typeof EstimateLogic !== 'undefined' ? EstimateLogic.fileName(s.estimate) : '見積書.pdf')
-    : ReportLogic.fileName(s.caseRow && s.caseRow.name, s.report ? s.report.room : '');
+  const name = mlPdfName(s);
   const box = mk('div', 'ml-att');
   box.id = 'ml-att';
   const info = mk('div');
@@ -316,7 +325,7 @@ function mlFillPdfLink(s, card) {
 }
 
 async function mlLoadPdfLink(s) {
-  try { s.pdf = Object.assign({ busy: false, err: '' }, await ReportsApi.pdfLinkState(s.draft)); }
+  try { s.pdf = Object.assign({ busy: false, err: '' }, await ReportsApi.pdfLinkState(s.draft, mlPdfName(s))); }
   catch (e) { s.pdf = { kind: 'none', busy: false, err: '' }; return; } // 確認できなければ何も出さない
   if (ml !== s) return;
   mlRender(s);
@@ -510,7 +519,7 @@ async function mlSend(s) {
       try {
         const blob = await mlMakePdf(s);
         if (!mlAlive(s)) return;
-        url = await ReportsApi.preparePdfLink(s.draft, blob);
+        url = await ReportsApi.preparePdfLink(s.draft, blob, mlPdfName(s));
       } catch (e) {
         if (ml === s) mlShowVal(s, '送信の準備に失敗しました（PDFの作成・保存）: ' + errText(e));
         return;
@@ -546,16 +555,19 @@ async function mlMarkSent(s) {
   s.busy = true;
   mlSyncBusy(s);
   mlClearVal(s);
+  // 見積書の送付はタイムラインに「見積書（…）を送付した（宛先…／件名…）」の1件だけ（onMailSent が記録する）
+  const estSend = !!(s.estimate && typeof EstimatesApi !== 'undefined');
+  let sentRow = null;
   try {
     try {
-      await ReportsApi.markSent(s.draft);
+      sentRow = await ReportsApi.markSent(s.draft, { skipLog: estSend });
     } catch (e) {
       if (ml === s) mlShowVal(s, '送信済みにできませんでした: ' + errText(e));
       return;
     }
     // 見積書の送付: 見積を送付済みに・紐付けた依頼を対応済みに（失敗しても送信済みは取り消さない）
-    if (s.estimate && typeof EstimatesApi !== 'undefined') {
-      try { await EstimatesApi.onMailSent(s.estimate); } catch (e) { console.warn('見積書の送付済み更新に失敗', e); }
+    if (estSend) {
+      try { await EstimatesApi.onMailSent(s.estimate, sentRow); } catch (e) { console.warn('見積書の送付済み更新に失敗', e); }
     }
     // 送信済みになったので端末の退避は先に消す（別の画面へ移っていても残さない）
     mlLsDel(mlWaitKey(s.id));

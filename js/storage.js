@@ -17,9 +17,13 @@ const AppStorage = {
     if (error) throw error;
     return data.signedUrl;
   },
-  // 期限のない公開URL（バケットが public のときだけ開ける）
-  getPublicUrl(path, bucket) {
-    return sb.storage.from(bucket || this.bucket).getPublicUrl(path).data.publicUrl;
+  // 期限のない公開URL（バケットが public のときだけ開ける）。
+  // downloadName を渡すと ?download=<名前> 付き（受け取った人の保存名がその名前になる。保存パスは report.pdf のまま）。
+  // supabase-js は URL 全体を encodeURI するだけなので、クエリを壊す # & ? + % = と区切り文字は _ にする
+  getPublicUrl(path, bucket, downloadName) {
+    const name = downloadName ? String(downloadName).replace(/[#&?+%=\/\\\s]/g, '_') : '';
+    const opts = name ? { download: name } : undefined;
+    return sb.storage.from(bucket || this.bucket).getPublicUrl(path, opts).data.publicUrl;
   },
   // 既存ファイルのサイズ(byte)。取れなければ0
   async sizeOf(path, bucket) {

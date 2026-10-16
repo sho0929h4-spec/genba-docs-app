@@ -272,7 +272,8 @@ const ReportsApi = (() => {
     // 報告書PDFを公開バケット public-pdfs に保存し、期限のない公開URLを返す。使用量は旧ファイルとの差分だけ動かす。
     // 保存先は {org}/{乱数uuid}/report.pdf（推測できない）。同じ下書きを再送するときは同じ場所に上書きして、URLを変えない
     // （送信待ちで「PDFリンクを無効にする」を押した後は pdf_path が空なので、再送は新しい乱数フォルダ＝新しいURL）
-    async preparePdfLink(draft, pdfBlob) {
+    // fileName: 受け取った人の保存名（公開URLの ?download=）
+    async preparePdfLink(draft, pdfBlob, fileName) {
       if (!draft.report_id && !draft.estimate_id) throw new Error('元の書類が見つかりません');
       if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
       // アップロードの前に、DBの今の状態を確認する（古いタブから再送して、無効化したPDFのURLが復活しないように）。
@@ -314,16 +315,16 @@ const ReportsApi = (() => {
         throw new Error('この下書きは送信済みか、別の画面で更新されました。開き直してからやり直してください');
       }
       draft.pdf_path = path;
-      return AppStorage.getPublicUrl(path, bucket);
+      return AppStorage.getPublicUrl(path, bucket, fileName);
     },
     isPublicPdfPath,
     // 送付済みメールのPDFリンクの状態: { kind: 'none' | 'alive' | 'gone', url? }
     //   none = このメールにPDFリンクはない／以前の方式（期限つきの署名URL）。gone = ファイルを削除して無効にした後
-    async pdfLinkState(draft) {
+    async pdfLinkState(draft, fileName) {
       if (!draft || !isPublicPdfPath(draft.pdf_path)) return { kind: 'none' };
       const bucket = AppStorage.PUBLIC_PDF_BUCKET;
       const size = await AppStorage.sizeOf(draft.pdf_path, bucket);
-      return size > 0 ? { kind: 'alive', url: AppStorage.getPublicUrl(draft.pdf_path, bucket), size } : { kind: 'gone' };
+      return size > 0 ? { kind: 'alive', url: AppStorage.getPublicUrl(draft.pdf_path, bucket, fileName), size } : { kind: 'gone' };
     },
     // PDFリンクを止める: 公開バケットのファイルを削除して使用量を戻す。
     // まだ送信前の下書き（送信待ち）なら pdf_path も空にする（再送で同じURLが復活しない）。送付済みは pdf_path を残す（「無効化済み」の表示に使う）
@@ -337,7 +338,8 @@ const ReportsApi = (() => {
       }
       return size;
     },
-    async markSent(draft) {
+    // opts.skipLog: 呼び出し側（見積の送付＝EstimatesApi.onMailSent）が宛先・件名を含めて1件だけ記録するとき
+    async markSent(draft, opts = {}) {
       const rows = must(await sb.from('mail_drafts')
         .update({ status: 'sent', sent_at: now(), sent_by: ctx.user.id })
         .eq('id', draft.id).eq('status', 'draft').select());
@@ -350,7 +352,7 @@ const ReportsApi = (() => {
           if (!rs || rs.length === 0) console.warn('報告書が確認済みでないため送付済みにしませんでした', row.report_id);
         } catch (e) { console.warn('報告書の状態更新に失敗', e); }
       }
-      await logSystem(row.case_id, () => `依頼者へ送付した（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
+      if (!opts.skipLog) await logSystem(row.case_id, () => `依頼者へ送付した（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;
     }
   };

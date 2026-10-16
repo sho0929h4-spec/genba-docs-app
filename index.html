@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Ctext x='32' y='46' font-size='38' font-weight='700' text-anchor='middle' fill='%23fff' font-family='Hiragino Kaku Gothic ProN,Noto Sans JP,sans-serif'%3E現%3C/text%3E%3C/svg%3E">
 <title>現場ドキュメント</title>
 <style>
   :root{--navy:#1a3a5c;--navy2:#22507e;--border:#dde5ef;--bg:#f0f4f8;--text:#1e293b;--muted:#64748b;--red:#c0392b;--green:#1e7e34;--amber:#b45309;}
@@ -352,6 +354,8 @@
   .eu-ver-row .eu-ver-diff{flex:none;min-height:36px;}
   .eu-acts .rep-acts{flex-wrap:wrap;gap:8px;}
   .eu-acts .btn{min-height:40px;}
+  #case-next-err:empty,#case-works-err:empty,#case-head-err:empty{min-height:0;margin-top:0;}
+  #screen-estimates .err:empty,#screen-estimate .err:empty,#screen-notices .err:empty,#screen-reports .err:empty{min-height:0;margin-top:0;} /* 空のメッセージ欄が余白になるのを防ぐ */
   .eu-nv{margin-top:12px;border-top:1px solid var(--border);padding-top:12px;}
   .eu-nv .nu-chk{display:flex;align-items:center;gap:8px;min-height:40px;font-size:14px;overflow-wrap:anywhere;}
   .eu-links{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
@@ -426,6 +430,23 @@
   .eu-btns .btn{flex:1;max-width:240px;width:auto;padding:12px 10px;min-height:44px;}
   .eu-pdf-wrap{max-width:920px;margin:0 auto;padding:18px 14px 40px;}
   #eu-preview{border-radius:12px;min-height:120px;}
+  /* 読み取り専用（提出済み・送付済み・承諾・旧版）: 編集ボタンは非表示、入力欄は値の表示だけ。明細は 摘要 / 数量 単位 金額 をコンパクトに */
+  .eu-ro input:disabled,.eu-ro select:disabled,.eu-ro textarea:disabled{border-color:#eef2f7;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);opacity:1;}
+  .eu-ro select:disabled{-webkit-appearance:none;appearance:none;}
+  .eu-ro input[type=checkbox]:disabled{opacity:.7;}
+  .eu-ro .eu-ln{grid-template-columns:24px 3.6em 3.4em minmax(0,1fr);grid-template-areas:"no desc desc desc" ". detail detail detail" ". qty unit amt";gap:2px 6px;padding:8px 10px;margin-bottom:8px;}
+  .eu-ro .eu-ln.no-detail{grid-template-areas:"no desc desc desc" ". qty unit amt";}
+  .eu-ro .eu-ln.no-detail .c-detail{display:none;}
+  .eu-ro .eu-ln .c-price{display:none;}
+  .eu-ro .eu-ln .c-ops{display:none;}
+  .eu-ro .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+  .eu-ro .eu-ln input{min-height:32px;padding:4px 6px;}
+  .eu-ro .eu-ln .c-desc input{font-weight:700;}
+  .eu-ro .eu-ln .c-amt input{font-weight:700;}
+  .eu-ro .eu-ln .c-qty input{padding-right:2px;}
+  .eu-ro .eu-ln .c-unit input{padding-left:2px;}
+  .eu-ro .eu-ln .c-qty .eu-pct{gap:2px;}
+  .eu-ro .eu-lines-h{display:none;}
   @media(min-width:760px){
     .eu-lines-h{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 172px;gap:8px;font-size:11px;font-weight:700;color:var(--muted);padding:0 4px 6px;border-bottom:1px solid var(--border);}
     .eu-lines-h .r{text-align:right;}
@@ -435,6 +456,11 @@
     .eu-ln .c-price{text-align:right;font-size:13px;color:var(--text);}
     .eu-ln .c-price .eu-l2{display:none;}
     .eu-ln .c-ops{flex-wrap:nowrap;}
+    .eu-ro .eu-lines-h.ro{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px;}
+    .eu-ro .eu-lines-h.ro>div:last-child{display:none;}
+    .eu-ro .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px;grid-template-areas:"no desc qty unit price amt" ". detail . . . .";gap:4px 8px;padding:8px 4px;margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;}
+    .eu-ro .eu-ln.no-detail{grid-template-areas:"no desc qty unit price amt";}
+    .eu-ro .eu-ln .c-price{display:block;}
   }
   @media(max-width:420px){ .eu-cli{grid-template-columns:minmax(0,1fr) 80px;} .eu-note-row{grid-template-columns:minmax(0,1fr);} .eu-tot{gap:2px 12px;} }
   @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph.ro{grid-template-columns:80px minmax(0,1fr);} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
@@ -677,7 +703,7 @@
   <div class="wrap nu-wide" id="notice-root"></div>
   <div class="rep-bar" id="notice-bar" hidden>
     <button class="btn" id="nt-pdf" type="button">PDFをダウンロード</button>
-    <button class="btn ghost" id="nt-dup" type="button">複製して別の号室を作る</button>
+    <button class="btn ghost" id="nt-dup" type="button">別の号室に複製</button>
   </div>
 </section>
 
@@ -811,7 +837,7 @@
         <div class="logo-act">
           <button class="btn" type="button" id="set-logo-btn">画像をアップロード</button>
           <input type="file" id="set-logo-file" accept="image/png,image/jpeg" hidden>
-          <div>PNG / JPG・推奨 正方形・2MB以内<br>報告書・見積書・掲示の各PDFに表示</div>
+          <div>PNG / JPG・推奨 正方形・<span style="white-space:nowrap">2MB以内</span><br>報告書・見積書・掲示の<span style="white-space:nowrap">各PDFに表示</span></div>
         </div>
       </div>
       <div class="ff"><label for="set-name">会社名</label><input type="text" id="set-name"></div>
@@ -841,38 +867,38 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js"></script>
-<script src="js/supabase-config.js"></script>
-<script src="js/supabase.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/storage.js"></script>
-<script src="js/quota.js"></script>
-<script src="js/case-logic.js"></script>
-<script src="js/image.js"></script>
-<script src="js/cases-api.js"></script>
+<script src="js/crypto-util.js?v=cdcf05a"></script>
+<script src="js/supabase-config.js?v=cdcf05a"></script>
+<script src="js/supabase.js?v=cdcf05a"></script>
+<script src="js/auth.js?v=cdcf05a"></script>
+<script src="js/storage.js?v=cdcf05a"></script>
+<script src="js/quota.js?v=cdcf05a"></script>
+<script src="js/case-logic.js?v=cdcf05a"></script>
+<script src="js/image.js?v=cdcf05a"></script>
+<script src="js/cases-api.js?v=cdcf05a"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js"></script>
-<script src="js/reports-api.js"></script>
-<script src="js/report-pdf.js"></script>
-<script src="js/notice-logic.js"></script>
-<script src="js/notices-api.js"></script>
-<script src="js/notice-pdf.js"></script>
-<script src="js/estimate-logic.js"></script>
-<script src="js/estimates-api.js"></script>
-<script src="js/estimate-pdf.js"></script>
-<script src="js/case-list.js"></script>
-<script src="js/case-detail.js"></script>
-<script src="js/team.js"></script>
-<script src="js/timeline.js"></script>
-<script src="js/report-form.js"></script>
-<script src="js/report-ui.js"></script>
-<script src="js/report-share.js"></script>
-<script src="js/report-edit.js"></script>
-<script src="js/mail-ui.js"></script>
-<script src="js/notice-ui.js"></script>
-<script src="js/notice-edit.js"></script>
-<script src="js/estimate-ui.js"></script>
-<script src="js/app.js"></script>
+<script src="js/report-logic.js?v=cdcf05a"></script>
+<script src="js/reports-api.js?v=cdcf05a"></script>
+<script src="js/report-pdf.js?v=cdcf05a"></script>
+<script src="js/notice-logic.js?v=cdcf05a"></script>
+<script src="js/notices-api.js?v=cdcf05a"></script>
+<script src="js/notice-pdf.js?v=cdcf05a"></script>
+<script src="js/estimate-logic.js?v=cdcf05a"></script>
+<script src="js/estimates-api.js?v=cdcf05a"></script>
+<script src="js/estimate-pdf.js?v=cdcf05a"></script>
+<script src="js/case-list.js?v=cdcf05a"></script>
+<script src="js/case-detail.js?v=cdcf05a"></script>
+<script src="js/team.js?v=cdcf05a"></script>
+<script src="js/timeline.js?v=cdcf05a"></script>
+<script src="js/report-form.js?v=cdcf05a"></script>
+<script src="js/report-ui.js?v=cdcf05a"></script>
+<script src="js/report-share.js?v=cdcf05a"></script>
+<script src="js/report-edit.js?v=cdcf05a"></script>
+<script src="js/mail-ui.js?v=cdcf05a"></script>
+<script src="js/notice-ui.js?v=cdcf05a"></script>
+<script src="js/notice-edit.js?v=cdcf05a"></script>
+<script src="js/estimate-ui.js?v=cdcf05a"></script>
+<script src="js/app.js?v=cdcf05a"></script>
 </body>
 </html>

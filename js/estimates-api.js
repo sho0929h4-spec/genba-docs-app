@@ -14,13 +14,22 @@ const EstimatesApi = (() => {
   const t = v => str(v).trim();
   const SENDABLE = ['issued', 'sent', 'accepted'];
   const isAdjust = l => EL().isAdjustLine(l); // 「税込合計を00に」の調整行は内部フラグ isAdjust で判定（摘要が「値引き」の手入力行と区別）
-  const pgCode = e => (e && (e.code || (e.error && e.error.code))) || '';
 
   async function logSystem(caseId, body) {
     try {
       const text = typeof body === 'function' ? body() : body;
       must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system', body: text }));
     } catch (e) { console.warn('自動記録に失敗', e); }
+  }
+  // 版に紐付けた未対応の依頼を反映済みにする（送付・承諾のとき）。反映した件数を返す。失敗は warn のみ
+  async function resolveLinked(est) {
+    const ids = ((est && est.linked_request_ids) || []).filter(Boolean);
+    if (!ids.length) return 0;
+    try {
+      const rows = must(await sb.from('timeline_entries').update({ resolved_at: now() })
+        .in('id', ids).eq('type', 'request').is('resolved_at', null).select('id'));
+      return (rows || []).length;
+    } catch (e) { console.warn('依頼の対応済みへの更新に失敗', e); return 0; }
   }
 
   // ── 明細の正規化（DB に送る形）──────────────────────────────────────────────
@@ -171,37 +180,18 @@ const EstimatesApi = (() => {
       return r;
     },
     // 提出済み/送付済みの版から次の版の下書きを作り、前の版を superseded にする。
-    // 先に次の版を insert（unique(series_id, version) が同時作成の競合を止める）→ 前の版を superseded。
-    // 前の版を更新できなかったら（別の画面で状態が変わった等）作った下書きを消して日本語のエラーにする
+    // DB 関数 new_estimate_version が1トランザクションで行う（系列の行をロック・最新版か検査・明細の引き継ぎ規則は
+    // nextVersionFrom と同じ・合計の計算・linked の検査）。競合や状態の変化は DB が日本語の例外で返す
     async newVersion(est, linkedRequestIds) {
       if (!est || !est.id) throw new Error('見積書が見つかりません');
       if (!['issued', 'sent'].includes(est.status)) throw new Error('提出済みか送付済みの見積書から新しい版を作れます');
       const ids = Array.from(new Set((linkedRequestIds || []).filter(Boolean).map(String)));
-      const next = EL().nextVersionFrom(est);
-      const tt = withTotals(next.lines);
-      let row;
-      try {
-        row = must(await sb.from('estimates').insert({
-          case_id: est.case_id, series_id: est.series_id, version: next.version, status: 'draft',
-          data: next.data, lines: tt.lines, subtotal: tt.subtotal, tax: tt.tax, total: tt.total,
-          linked_request_ids: ids
-        }).select().single());
-      } catch (e) {
-        if (pgCode(e) === '23505') throw new Error(`第${next.version}版はすでに作られています（別の画面や別の人がほぼ同時に作成しました）。見積書一覧を開き直してください`);
-        throw e;
-      }
-      let rs = null, upErr = null;
-      try {
-        rs = must(await sb.from('estimates').update({ status: 'superseded' })
-          .eq('id', est.id).in('status', ['issued', 'sent']).select('id'));
-      } catch (e) { upErr = e; }
-      if (upErr || !rs || rs.length === 0) {
-        try { must(await sb.from('estimates').delete().eq('id', row.id).eq('status', 'draft').select('id')); }
-        catch (e) { console.warn('作りかけの版の削除に失敗', e); }
-        if (upErr) throw new Error('前の版を「旧版」にできなかったため、新しい版の作成を取り消しました: ' + (upErr.message || upErr));
-        throw new Error('前の版の状態が変わっていたため（承諾済み・差し替え済みなど）、新しい版を作れませんでした。画面を開き直してください');
-      }
-      await logSystem(est.case_id, () => `見積書（${t(est.number)}）の第${next.version}版を作成した${ids.length ? `（依頼${ids.length}件を紐付け）` : ''}`);
+      const res = must(await sb.rpc('new_estimate_version', { p_id: est.id, p_linked: ids }));
+      const newId = Array.isArray(res) ? res[0] : res;
+      if (!newId) throw new Error('新しい版を作れませんでした');
+      const row = await api.get(newId);
+      if (!row) throw new Error('作成した版が見つかりません。見積書一覧を開き直してください');
+      await logSystem(est.case_id, () => `見積書（${t(est.number)}）の第${row.version}版を作成した${ids.length ? `（依頼${ids.length}件を紐付け）` : ''}`);
       return row;
     },
     // 系列の全版（新しい版から）
@@ -247,7 +237,8 @@ const EstimatesApi = (() => {
           must(await sb.from('case_actions').update({ done_at: now() }).in('id', acts.map(a => a.id)));
         }
       } catch (e) { console.warn('次やることの完了に失敗', e); }
-      await logSystem(row.case_id, () => `見積書（${displayNumber(row)}）が承諾された（${EL().yen(row.total)}）`);
+      const n = await resolveLinked(row);
+      await logSystem(row.case_id, () => `見積書（${displayNumber(row)}）が承諾された（${EL().yen(row.total)}）${n ? `（依頼${n}件を反映済みに）` : ''}`);
       return row;
     },
     // 下書きのみ削除可（RLS）。0行なら throw
@@ -266,29 +257,32 @@ const EstimatesApi = (() => {
       }).select().single());
     },
     // mail-ui の markSent の後に呼ぶ: status sent・sent_at、紐付けた依頼を対応済みに、タイムライン記録。
-    // 依頼を対応済みにするのは、この版が今も提出済み/送付済みで、系列の最新版のときだけ（古い版を送っても反映済みにしない）
-    async onMailSent(est) {
+    // 依頼を対応済みにするのは系列の最新版のときだけ（古い版を送っても反映済みにしない）:
+    //   - 提出済み/送付済み → sent にして依頼を反映済みに
+    //   - 承諾済み（採用版）→ 状態は変えず、依頼を反映済みに（記録は「採用版を送付した」）
+    // mail: markSent が返した mail_drafts の行（宛先・件名を記録に入れる。markSent 側は記録しない＝1件にまとめる）
+    async onMailSent(est, mail) {
       if (!est || !est.id) return null;
-      let row = null, latest = false;
+      let row = null, adopted = null;
       try {
-        latest = !(await api.hasNewer(est));
-        if (latest) {
+        if (!(await api.hasNewer(est))) {
           const rows = must(await sb.from('estimates').update({ status: 'sent', sent_at: now() })
             .eq('id', est.id).in('status', ['issued', 'sent']).select());
           row = rows && rows[0];
+          if (!row) {
+            const cur = await api.get(est.id);
+            if (cur && cur.status === 'accepted') adopted = cur;
+          }
         }
-        if (!row) console.warn('最新の提出済みの版でないため送付済みにしませんでした', est.id);
+        if (!row && !adopted) console.warn('最新の提出済みの版でないため送付済みにしませんでした', est.id);
       } catch (e) { console.warn('見積書の状態更新に失敗', e); }
-      const ids = row ? (row.linked_request_ids || []).filter(Boolean) : [];
-      if (ids.length) {
-        try {
-          must(await sb.from('timeline_entries').update({ resolved_at: now() })
-            .in('id', ids).eq('type', 'request').is('resolved_at', null).select('id'));
-        } catch (e) { console.warn('依頼の対応済みへの更新に失敗', e); }
-      }
-      const cur = row || est;
-      await logSystem(cur.case_id, () => `見積書（${displayNumber(cur)}）を送付した${row ? (ids.length ? `（依頼${ids.length}件を反映済みに）` : '') : '（旧版のため状態は変えていません）'}`);
-      return row;
+      const target = row || adopted;
+      const n = target ? await resolveLinked(target) : 0;
+      const cur = target || est;
+      const what = adopted ? `見積書（${displayNumber(cur)}）の採用版を送付した` : `見積書（${displayNumber(cur)}）を送付した`;
+      const to = mail ? `（宛先: ${mail.to_email || '未入力'}／件名: ${mail.subject || '（なし）'}）` : '';
+      await logSystem(cur.case_id, () => `${what}${to}${target ? (n ? `（依頼${n}件を反映済みに）` : '') : '（旧版のため状態は変えていません）'}`);
+      return row || adopted;
     }
   };
   return api;

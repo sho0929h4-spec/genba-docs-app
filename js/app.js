@@ -108,6 +108,7 @@ async function saveSettings() {
   const { error } = await sb.from('orgs').update(fields).eq('id', ctx.org.id);
   if (error) throw error;
   Object.assign(ctx.org, fields);
+  $('set-reg').value = fields.registration_number || ''; // 正規化後（半角 T+13桁）の値に表示を更新
   renderHeaders();
 }
 
