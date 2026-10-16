@@ -94,7 +94,7 @@
     const v = Number(est.version) || 1;
     return v >= 2 ? `${n}-v${v}` : n;
   }
-  const isAdjust = l => l && l.description === '値引き' && !!l.postTax;
+  const isAdjust = l => EL().isAdjustLine(l);
   // 旧 cleanDesc :2252（先頭の箇条書き記号・連番を落とす。【】は残す）
   function cleanDesc(s) {
     return str(s)

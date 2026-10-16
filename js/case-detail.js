@@ -212,6 +212,20 @@ function buildDetail() {
       if (wait > 0) ct.classList.add('hot');
       b.id = 'case-tool-reports';
       b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/reports'; });
+    } else if (nm === '見積書') {
+      // 件数は case_summaries の estimate_count（系列の数）、金額は latest_estimate_total（migration 014/015）
+      const n = Number(currentCase.estimate_count) || 0;
+      const lt = currentCase.latest_estimate_total;
+      ct.textContent = n + '件';
+      b.id = 'case-tool-estimates';
+      b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/estimates'; });
+      if (n > 0 && lt != null && typeof EstimateLogic !== 'undefined') {
+        const yen = mk('div', 'ct ct-yen', EstimateLogic.yen(lt));
+        yen.id = 'case-tool-estimates-total';
+        b.append(mk('div', 'ic', ic), mk('div', 'nm', nm), ct, yen);
+        tools.appendChild(b);
+        return;
+      }
     } else if (nm === '工事掲示') {
       // 件数は case_summaries の notice_count（migration 013）
       ct.textContent = (Number(currentCase.notice_count) || 0) + '件';

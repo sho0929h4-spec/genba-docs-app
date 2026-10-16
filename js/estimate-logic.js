@@ -2,7 +2,8 @@
 // 旧「見積書作成ツール」(freee-quote-builder/templates/invoice.html) の計算・文言を写している。
 // 金額は整数円・四捨五入（Math.round）。紙面計算 renderPaper が唯一の正:
 //   subtotal = postTax 以外の amount 合計 / tax = round(subtotal*0.1) / total = subtotal + tax + postTax 合計
-// 明細行の形: { id, description, detail, quantity, unit, amount, isAutoShokehi?, shokehiPct?, postTax? }
+// 明細行の形: { id, description, detail, quantity, unit, amount, isAutoShokehi?, shokehiPct?, postTax?, isAdjust? }
+// isAdjust: 「税込合計を00に」で入る値引き調整行の内部フラグ。摘要が「値引き」の postTax 行でも、フラグが無ければ調整行ではない
 // 単価は保存しない（表示用に 金額÷数量 で毎回算出）。
 (function (root) {
   const TAX_RATE = 0.1;
@@ -91,7 +92,10 @@
 
   // 税込合計を00に（旧 toggleAdjustTotal :1633）。値引き行（postTax）の追加／除去のトグル。
   // 返り値 { lines, action: 'added'|'removed'|'already', remainder }
-  const isAdjustLine = l => l.description === ADJUST_DESC && !!l.postTax;
+  const isAdjustLine = l => !!l && l.isAdjust === true && !!l.postTax;
+  function adjustLine(amount) {
+    return newLine({ description: ADJUST_DESC, quantity: 1, unit: '式', amount: Math.round(num(amount)) || 0, postTax: true, isAdjust: true });
+  }
   function adjustToHundred(lines) {
     const ls = lines || [];
     const idx = ls.findIndex(isAdjustLine);
@@ -102,7 +106,7 @@
     const total = totals(ls).total;
     const remainder = ((total % 100) + 100) % 100;
     if (remainder === 0) return { lines: ls.slice(), action: 'already', remainder: 0 };
-    const row = newLine({ description: ADJUST_DESC, quantity: 1, unit: '式', amount: -remainder, postTax: true });
+    const row = adjustLine(-remainder);
     return { lines: ls.concat([row]), action: 'added', remainder };
   }
 
@@ -174,10 +178,10 @@
     };
   }
   const clone = v => JSON.parse(JSON.stringify(v));
-  // 値引き（postTax）は合計が変わるので引き継がず、諸経費は再計算、日付は更新
+  // 値引き調整行（isAdjust）は合計が変わるので引き継がず、諸経費は再計算、日付は更新
   function nextVersionFrom(est, today) {
     const t = toYmd(today);
-    let lines = (est.lines || []).filter(l => !l.postTax).map(clone);
+    let lines = (est.lines || []).filter(l => !isAdjustLine(l)).map(clone);
     if (!lines.length) lines = [newLine()];
     lines = recalcShokehi(lines);
     const data = clone(est.data || {});
@@ -314,7 +318,7 @@
     QUICK, NOTE_FIRST, TAX_RATE,
     todayStr, addDays,
     newLine, isRealLine, totals, withTotals,
-    recalcShokehi, addShokehi, addQuick, adjustToHundred,
+    recalcShokehi, addShokehi, addQuick, adjustToHundred, adjustLine, isAdjustLine,
     unitPrice, commitAmount, normAmount,
     defaultNotes, buildNotes,
     emptyEstimate, nextVersionFrom, diff,

@@ -1,4 +1,5 @@
-// js/mail-ui.js — ⑨ 依頼者へ送る報告メールの下書き確認・送信（#mail/{id}）… openMailDraft(id)  （Task 7）
+// js/mail-ui.js — ⑨ 依頼者へ送る報告書・見積書メールの下書き確認・送信（#mail/{id}）… openMailDraft(id)  （Task 7 / Phase 4 Task 5）
+// 見積の下書き（draft.estimate_id）は文言（見積書PDF 等）・戻り先（見積書一覧）を出し分け、送信済みにした後 EstimatesApi.onMailSent を呼ぶ
 // ユーザー入力は createElement + textContent / value で描画する（innerHTML は使わない）
 // mk() は case-list.js、dBtn / errText は case-detail.js、edField / edInput / edTextarea / edHm は report-form.js、
 // rpdfLoadOpts は report-ui.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
@@ -12,7 +13,11 @@
 // 世代番号 mlSeq: 古い読み込み応答や、画面を離れた後の送信処理の結果は捨てる。保存は直列（s.chain）。
 
 const ML_DELAY = 1000;                       // 入力から保存までの待ち（ミリ秒）
-const ML_LINK_LABEL = '報告書PDF: ';
+// 見積の下書き（draft.estimate_id）と報告書の下書き（draft.report_id）で文言・戻り先を出し分ける
+const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
+const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
+const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
+const mlListHash = s => '#case/' + s.draft.case_id + (mlIsEst(s) ? '/estimates' : '/reports');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 let ml = null;      // 表示中の画面の状態
 let mlSeq = 0;      // openMailDraft のたびに増やす
@@ -158,7 +163,7 @@ function mlShowVal(s, text) {
 
 /* ---------- 描画 ---------- */
 function mlBackBtn(s) {
-  const b = dBtn('← 報告書一覧', 'back', () => mlLeave(s, '#case/' + s.draft.case_id + '/reports'));
+  const b = dBtn('← ' + mlDoc(s) + '一覧', 'back', () => mlLeave(s, mlListHash(s)));
   s.els.back = b;
   return b;
 }
@@ -175,17 +180,24 @@ function mlSenderNote() {
 }
 
 function mlAttachment(s) {
-  const L = ReportLogic;
-  const room = s.report ? s.report.room : '';
-  const name = L.fileName(s.caseRow && s.caseRow.name, room);
+  const est = mlIsEst(s);
+  const src = est ? s.estimate : s.report;
+  const name = est
+    ? (s.estimate && typeof EstimateLogic !== 'undefined' ? EstimateLogic.fileName(s.estimate) : '見積書.pdf')
+    : ReportLogic.fileName(s.caseRow && s.caseRow.name, s.report ? s.report.room : '');
   const box = mk('div', 'ml-att');
   box.id = 'ml-att';
   const info = mk('div');
   info.appendChild(mk('b', null, name));
   info.appendChild(mk('div', 'rep-sub', s.ro
-    ? '送付時に作成した報告書PDF（ダウンロードリンク・期限なしとして本文に入れました）'
-    : (s.report ? '送信時にPDFを作成し、ダウンロードリンク（期限なし）を本文に入れます'
-      : '元の報告書が見つからないため、PDFのリンクは入れられません')));
+    ? '送付時に作成した' + mlDoc(s) + 'PDF（ダウンロードリンク・期限なしとして本文に入れました）'
+    : (src ? '送信時にPDFを作成し、ダウンロードリンク（期限なし）を本文に入れます'
+      : '元の' + mlDoc(s) + 'が見つからないため、PDFのリンクは入れられません')));
+  if (est && s.estimate && !s.ro && s.estimate.status === 'superseded') {
+    const w = mk('div', 'err', 'この見積書は旧版です（新しい版があります）。送っても状態や依頼の反映は変わりません');
+    w.id = 'ml-att-old';
+    info.appendChild(w);
+  }
   box.append(mk('span', 'ic', 'PDF'), info);
   return box;
 }
@@ -229,11 +241,13 @@ function mlComposeCard(s) {
   card.appendChild(edField('CC', cc));
   card.appendChild(mlSenderNote());
   card.appendChild(edField('件名', subject));
-  card.appendChild(edField('本文', body, s.ro ? '' : '「{{PDF_LINK}}」の行には、送信時に報告書PDFのリンクが入ります', 'ml-body-ff'));
+  card.appendChild(edField('本文', body, s.ro ? '' : '「{{PDF_LINK}}」の行には、送信時に' + mlDoc(s) + 'PDFのリンクが入ります', 'ml-body-ff'));
   card.appendChild(mlAttachment(s));
-  const quote = mk('div', 'ml-att ml-att-off', '＋ 見積書を添付（見積書機能の追加後に使えます）');
-  quote.style.marginTop = '8px';
-  card.appendChild(quote);
+  if (!mlIsEst(s)) {
+    const quote = mk('div', 'ml-att ml-att-off', '＋ 見積書を添付（見積書機能の追加後に使えます）');
+    quote.style.marginTop = '8px';
+    card.appendChild(quote);
+  }
   card.appendChild(mk('div', 'rep-note', '送ったメールは案件のタイムラインに「送付した（宛先・件名・添付）」として残ります'));
   if (disabled) card.querySelectorAll('input,textarea').forEach(e => { e.disabled = true; });
   return card;
@@ -271,7 +285,7 @@ function mlPdfLinkCard(s) {
 
 function mlFillPdfLink(s, card) {
   const p = s.pdf;
-  const nodes = [mk('b', null, '報告書PDFのリンク')];
+  const nodes = [mk('b', null, mlDoc(s) + 'PDFのリンク')];
   if (p.kind === 'checking') {
     nodes.push(mk('div', 'rep-sub', '確認中…'));
   } else if (p.kind === 'gone') {
@@ -288,7 +302,7 @@ function mlFillPdfLink(s, card) {
       url.className = 'ml-url';
       url.readOnly = true;
       url.value = p.url;
-      url.setAttribute('aria-label', '報告書PDFの公開リンク');
+      url.setAttribute('aria-label', mlDoc(s) + 'PDFの公開リンク');
       url.addEventListener('focus', () => url.select());
       nodes.push(url);
     }
@@ -310,7 +324,7 @@ async function mlLoadPdfLink(s) {
 
 async function mlRevokePdf(s) {
   if (!s.pdf || s.pdf.busy || s.pdf.kind !== 'alive' || !mlAlive(s)) return;
-  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。報告書そのものは消えません）。\n反映まで数分〜1時間ほどかかる場合があります。')) return;
+  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。' + mlDoc(s) + 'そのものは消えません）。\n反映まで数分〜1時間ほどかかる場合があります。')) return;
   s.pdf.busy = true; s.pdf.err = '';
   mlFillPdfLink(s, $('ml-pdflink'));
   try {
@@ -362,7 +376,7 @@ function mlBuildWaiting(s) {
     url.className = 'ml-url';
     url.readOnly = true;
     url.value = m.url;
-    url.setAttribute('aria-label', '報告書PDFのダウンロードリンク（期限なし）');
+    url.setAttribute('aria-label', mlDoc(s) + 'PDFのダウンロードリンク（期限なし）');
     url.addEventListener('focus', () => url.select());
     card.appendChild(url);
   }
@@ -391,7 +405,7 @@ function mlRender(s) {
   bar.hidden = false;
   const later = $('mail-later'), send = $('mail-send'), done = $('mail-done');
   later.textContent = s.ro ? '閉じる' : 'あとで';
-  later.onclick = () => mlLeave(s, s.ro ? '#case/' + s.draft.case_id : '#case/' + s.draft.case_id + '/reports');
+  later.onclick = () => mlLeave(s, s.ro ? '#case/' + s.draft.case_id : mlListHash(s));
   send.hidden = s.ro || s.phase !== 'edit';
   send.textContent = '送信する';
   send.onclick = () => mlSend(s);
@@ -490,7 +504,7 @@ async function mlSend(s) {
     let url = '';
     if (!String(f.body || '').includes(PDF_LINK)) {
       // 本文からリンクの行が消されている → PDFを作らず、リンクなしで開くかどうか確認
-      if (!confirm('本文に「' + PDF_LINK + '」の行がないため、報告書PDFのリンクはメールに入りません。このまま進みますか？')) return;
+      if (!confirm('本文に「' + PDF_LINK + '」の行がないため、' + mlDoc(s) + 'PDFのリンクはメールに入りません。このまま進みますか？')) return;
     } else {
       send.textContent = 'PDFを作成中…';
       try {
@@ -504,7 +518,7 @@ async function mlSend(s) {
       if (!mlAlive(s)) return;
     }
 
-    const link = url ? ML_LINK_LABEL + url : null;
+    const link = url ? mlLinkLabel(s) + url : null;
     const built = ReportLogic.buildMailto({ to, cc: f.cc, subject: f.subject, body: f.body, link });
     const mailto = built.url;
     s.mail = {
@@ -548,7 +562,7 @@ async function mlMarkSent(s) {
     mlLsDel(mlDraftKey(s.id));
     if (ml !== s) return;
     s.ro = true; // 以降の保存・送信は受け付けない
-    location.hash = '#case/' + s.draft.case_id;
+    location.hash = mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id; // 見積は見積書一覧へ（版の状態が見える）
   } finally {
     s.busy = false;
     if (ml === s) mlSyncBusy(s);

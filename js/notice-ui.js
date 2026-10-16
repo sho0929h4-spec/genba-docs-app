@@ -44,6 +44,8 @@ async function ntlLoad(caseId) {
   ntlRows = [];
   ntlBusy = false;
   ntlMessage('読み込み中…', false);
+  // 編集画面の保存が残っていれば終わるのを待つ（ブラウザの戻るで来たとき、古い行を読んで複製してしまわないため）
+  if (typeof nteSettle === 'function') { await nteSettle(); if (seq !== ntlSeq) return; }
   let res;
   try {
     res = await Promise.all([CasesApi.getSummary(caseId), NoticesApi.listByCase(caseId)]);
@@ -189,7 +191,10 @@ function ntlRemove(n) {
   if (ntlBusy) return;
   const room = NoticeLogic.normalizeRoom(n.room) || '号室未入力';
   if (!confirm('この掲示を削除しますか？\n' + room + '　' + (n.work_name || '工事名称未入力') + '\n（元に戻せません）')) return;
-  // localStorage に残っている退避も消す（削除した掲示の下書きが残らないように）
-  try { localStorage.removeItem('notice-draft-' + n.id); } catch (e) { /* 何もしない */ }
-  return ntlRun('削除', async () => { await NoticesApi.remove(n.id); return null; });
+  return ntlRun('削除', async () => {
+    await NoticesApi.remove(n.id);
+    // 削除に成功してから端末の退避を消す（失敗したときは掲示が残るので、下書きも残す）
+    try { localStorage.removeItem('notice-draft-' + n.id); } catch (e) { /* 何もしない */ }
+    return null;
+  });
 }

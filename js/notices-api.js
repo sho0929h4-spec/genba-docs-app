@@ -26,15 +26,17 @@ const NoticesApi = (() => {
   }
   const textOrNull = v => { const s = String(v == null ? '' : v).trim(); return s ? s : null; };
 
-  // data から一覧用の列を作る
+  // data から一覧用の列を作る。「工事日は未定」のときは日付の列を null にする
+  // （一覧の並びで未定が先頭に来る／画面の日付欄に古い値や逆転が残っていても DB の制約に当たらない。data 側の値は残す）
   function listCols(data) {
     const d = data || {};
+    const tbd = !!d.workDateTbd;
     return {
       room: textOrNull(d.roomNo),
       work_name: textOrNull(d.workName),
-      work_date: dateOrNull(d.workDate),
-      work_date_end: dateOrNull(d.workDateEnd),
-      work_date_tbd: !!d.workDateTbd
+      work_date: tbd ? null : dateOrNull(d.workDate),
+      work_date_end: tbd ? null : dateOrNull(d.workDateEnd),
+      work_date_tbd: tbd
     };
   }
   // DB の制約（migration 015）: room / work_name は80字まで、work_date_end は work_date 以降。違反は保存前に分かりやすく止める

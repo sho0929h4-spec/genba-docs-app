@@ -49,6 +49,7 @@
   .ff{margin-bottom:16px;}
   .ff label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
   .ff input{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:16px;font-family:inherit;}
+  .set-hint{font-size:12px;color:var(--muted);margin-top:5px;}
   .save-bar{margin-top:8px;}
   .note{font-size:11px;color:var(--muted);margin-top:14px;background:#f7faff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
   /* added */
@@ -342,6 +343,100 @@
   .ml-url{width:100%;min-width:0;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
   .ml-sent-row{font-size:13px;overflow-wrap:anywhere;}
   .rep-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;width:100%;text-align:left;border:1.5px solid #c9b8f0;background:#f0ecfb;color:#6d28d9;border-radius:12px;padding:10px 14px;min-height:44px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:12px;}
+  /* ===== 見積書（⑬ 一覧 #case/{id}/estimates / ⑭ 作成・編集 #estimate/{id} / ⑮ PDF #estimate/{id}/pdf。js/estimate-ui.js） ===== */
+  #screen-estimates [hidden],#screen-estimate [hidden],#screen-estimate-pdf [hidden],#screen-estimate-diff [hidden]{display:none !important;}
+  #screen-estimate{padding-bottom:calc(150px + env(safe-area-inset-bottom,0px));}
+  #estimates-root .back,#estimate-root .back,#estimate-pdf-root .back,#estimate-diff-root .back{min-height:36px;}
+  .eu-ver-row{display:flex;gap:6px;align-items:stretch;min-width:0;}
+  .eu-ver-row .eu-ver{flex:1;min-width:0;}
+  .eu-ver-row .eu-ver-diff{flex:none;min-height:36px;}
+  .eu-acts .rep-acts{flex-wrap:wrap;gap:8px;}
+  .eu-acts .btn{min-height:40px;}
+  .eu-nv{margin-top:12px;border-top:1px solid var(--border);padding-top:12px;}
+  .eu-nv .nu-chk{display:flex;align-items:center;gap:8px;min-height:40px;font-size:14px;overflow-wrap:anywhere;}
+  .eu-links{display:flex;flex-direction:column;gap:6px;margin-top:8px;}
+  .eu-link{display:flex;gap:8px;align-items:center;font-size:14px;overflow-wrap:anywhere;min-width:0;}
+  .eu-link .rep-pill{flex:none;}
+  .eu-dtot dd.eu-diff.down,.eu-damt.down{color:var(--green);}
+  .eu-dtot dd.eu-diff.up,.eu-damt.up{color:var(--red);}
+  .eu-dtot dd{text-align:left;}
+  .eu-drow{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-top:1px solid var(--border);padding:9px 0;}
+  .eu-drow:first-of-type{border-top:0;}
+  .eu-drow>div:first-child{min-width:0;overflow-wrap:anywhere;}
+  .eu-damt{font-weight:800;font-size:15px;}
+  .toolbtn .ct-yen{font-variant-numeric:tabular-nums;color:var(--navy2);font-weight:700;}
+  .eu-num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+  .eu-series{border-top:1px solid var(--border);padding:12px 0;}
+  .eu-series:first-child{border-top:0;}
+  .eu-series-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .eu-series-h>div{min-width:0;}
+  .eu-series-no{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .eu-series-ttl{font-size:15px;font-weight:700;overflow-wrap:anywhere;}
+  .eu-series-amt{font-size:17px;font-weight:800;color:var(--navy);}
+  .eu-vers{display:flex;flex-direction:column;gap:4px;margin-top:8px;}
+  .eu-ver{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;min-height:36px;text-align:left;border:1px solid var(--border);background:#f7faff;border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit;color:var(--text);cursor:pointer;}
+  .eu-ver b{font-variant-numeric:tabular-nums;}
+  .eu-ver .eu-diff{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted);}
+  .eu-ver .eu-diff.down{color:var(--green);}
+  .eu-ver .eu-diff.up{color:var(--red);}
+  .rep-pill.p-old{background:#eef0f3;color:var(--muted);}
+  .eu-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .eu-head>*{min-width:0;}
+  .eu-head b{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+  .eu-cli{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:0 10px;}
+  .eu-lines-h{display:none;}
+  .eu-ln{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"no price" "desc desc" "detail detail" "qty unit" "amt amt" "ops ops";gap:6px 10px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff;min-width:0;}
+  .eu-ln.auto{background:#f7faff;}
+  .eu-ln.adj{background:#fdf8ef;}
+  .eu-ln>*{min-width:0;}
+  .eu-ln .c-no{grid-area:no;font-size:12px;font-weight:700;color:var(--muted);}
+  .eu-ln .c-desc{grid-area:desc;}
+  .eu-ln .c-detail{grid-area:detail;}
+  .eu-ln .c-qty{grid-area:qty;}
+  .eu-ln .c-unit{grid-area:unit;}
+  .eu-ln .c-price{grid-area:price;align-self:center;text-align:right;font-size:12px;color:var(--muted);}
+  .eu-ln .c-amt{grid-area:amt;}
+  .eu-ln .c-ops{grid-area:ops;display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;}
+  .eu-ln label.eu-l{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;}
+  .eu-ln input{width:100%;min-width:0;padding:8px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .eu-ln input.eu-num{text-align:right;}
+  .eu-ln input:disabled,.eu-ln input[readonly]{background:#f4f6f9;color:var(--text);}
+  .eu-ln .c-detail input{font-size:16px;color:var(--muted);}
+  .eu-pct{display:flex;align-items:center;gap:4px;}
+  .eu-pct input{flex:1;}
+  .eu-ops button{min-width:36px;min-height:36px;border:1.5px solid var(--border);background:#fff;border-radius:8px;color:var(--navy);font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;padding:0 8px;}
+  .eu-ops button.del{color:var(--red);}
+  .eu-ops button:disabled{opacity:.4;cursor:default;}
+  .eu-quick{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;}
+  .eu-quick .btn{min-height:40px;}
+  .eu-quick .eu-pct input{width:72px;flex:none;padding:8px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
+  .eu-notes-first{font-size:13px;background:#f4f7fb;border-radius:10px;padding:9px 12px;margin-bottom:8px;overflow-wrap:anywhere;}
+  .eu-note-row{display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:8px;align-items:center;margin-bottom:6px;}
+  .eu-note-row input[type=text],.eu-note-row input[type=number]{width:100%;min-width:0;padding:8px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
+  .eu-note-koki{display:flex;align-items:center;gap:6px;}
+  .eu-note-koki input{max-width:90px;}
+  .eu-notes-pv{white-space:pre-wrap;font-size:12px;color:var(--muted);border:1px dashed var(--border);border-radius:10px;padding:8px 10px;margin-top:8px;overflow-wrap:anywhere;}
+  .eu-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:8px 16px calc(10px + env(safe-area-inset-bottom,0px));z-index:50;box-shadow:0 -4px 14px rgba(0,0,0,.06);}
+  .eu-tot{display:flex;justify-content:center;gap:4px 18px;flex-wrap:wrap;margin:0 auto 8px;max-width:1180px;font-variant-numeric:tabular-nums;}
+  .eu-tot>div{display:flex;flex-direction:column;align-items:flex-end;min-width:0;}
+  .eu-tot span{font-size:11px;color:var(--muted);}
+  .eu-tot b{font-size:14px;white-space:nowrap;}
+  .eu-tot .eu-grand b{font-size:18px;color:var(--navy);}
+  .eu-btns{display:flex;gap:8px;justify-content:center;}
+  .eu-btns .btn{flex:1;max-width:240px;width:auto;padding:12px 10px;min-height:44px;}
+  .eu-pdf-wrap{max-width:920px;margin:0 auto;padding:18px 14px 40px;}
+  #eu-preview{border-radius:12px;min-height:120px;}
+  @media(min-width:760px){
+    .eu-lines-h{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 172px;gap:8px;font-size:11px;font-weight:700;color:var(--muted);padding:0 4px 6px;border-bottom:1px solid var(--border);}
+    .eu-lines-h .r{text-align:right;}
+    .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 172px;grid-template-areas:"no desc qty unit price amt ops" ". detail . . . . .";gap:4px 8px;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:8px 4px;margin:0;align-items:center;}
+    .eu-ln .c-no{padding-top:0;text-align:center;}
+    .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+    .eu-ln .c-price{text-align:right;font-size:13px;color:var(--text);}
+    .eu-ln .c-price .eu-l2{display:none;}
+    .eu-ln .c-ops{flex-wrap:nowrap;}
+  }
+  @media(max-width:420px){ .eu-cli{grid-template-columns:minmax(0,1fr) 80px;} .eu-note-row{grid-template-columns:minmax(0,1fr);} .eu-tot{gap:2px 12px;} }
   @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph.ro{grid-template-columns:80px minmax(0,1fr);} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
   @media(max-width:560px){ .af-grid{grid-template-columns:1fr;} .team-sum{display:grid;grid-template-columns:1fr 1fr;} }
   @media(max-width:480px){ .hdr .org span{display:none;} .hdr .app-name{display:none;} }
@@ -586,6 +681,70 @@
   </div>
 </section>
 
+<!-- ESTIMATES ⑬ 案件内の見積書一覧（#case/{id}/estimates。中身は js/estimate-ui.js が作る） -->
+<section class="screen" id="screen-estimates">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="estimates-root"></div>
+</section>
+
+<!-- ESTIMATE ⑭ 見積書の作成・編集（#estimate/{id}。中身は js/estimate-ui.js が作る） -->
+<section class="screen" id="screen-estimate">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap nu-wide" id="estimate-root"></div>
+  <div class="eu-bar" id="estimate-bar" hidden>
+    <div class="eu-tot" id="eu-totals" aria-live="polite">
+      <div><span>小計</span><b id="eu-t-subtotal">¥0</b></div>
+      <div><span>消費税（10%）</span><b id="eu-t-tax">¥0</b></div>
+      <div id="eu-t-post-box" hidden><span>値引き</span><b id="eu-t-post">¥0</b></div>
+      <div class="eu-grand"><span>見積金額（税込）</span><b id="eu-t-total">¥0</b></div>
+    </div>
+    <div class="eu-btns">
+      <button class="btn ghost" id="eu-pdf" type="button">PDFプレビュー</button>
+      <button class="btn" id="eu-issue" type="button">提出する</button>
+    </div>
+  </div>
+</section>
+
+<!-- ESTIMATE PDF ⑮ 見積書のPDFプレビュー（#estimate/{id}/pdf。中身は js/estimate-ui.js が作る） -->
+<section class="screen" id="screen-estimate-pdf">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="eu-pdf-wrap" id="estimate-pdf-root"></div>
+</section>
+
+<!-- ESTIMATE DIFF ⑯ 見積書の版の差分（#estimate/{id}/diff。中身は js/estimate-ui.js が作る） -->
+<section class="screen" id="screen-estimate-diff">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="estimate-diff-root"></div>
+</section>
+
 <!-- REPORT PDF ⑩ PDFプレビュー（#report/{id}/pdf） -->
 <section class="screen" id="screen-report-pdf">
   <div class="hdr">
@@ -659,6 +818,7 @@
       <div class="ff"><label for="set-address">住所</label><input type="text" id="set-address" placeholder="東京都〇〇区〇〇 1-2-3 〇〇ビル4F"></div>
       <div class="ff"><label for="set-tel">電話番号</label><input type="tel" id="set-tel" placeholder="03-1234-5678"></div>
       <div class="ff"><label for="set-email">会社のメールアドレス（依頼者への返信先になります）</label><input type="email" id="set-email" placeholder="info@company.co.jp" autocomplete="off"></div>
+      <div class="ff"><label for="set-reg">登録番号（インボイス）</label><input type="text" id="set-reg" placeholder="T1234567890123" autocomplete="off" maxlength="20" inputmode="text" spellcheck="false"><div class="set-hint">「T」と13桁の数字。見積書PDFの発行元に載ります（未登録なら空のまま）</div></div>
       <div class="save-bar"><button class="btn" type="button" id="set-save">保存する</button></div>
       <div class="err" id="set-msg"></div>
     </div>
@@ -698,6 +858,9 @@
 <script src="js/notice-logic.js"></script>
 <script src="js/notices-api.js"></script>
 <script src="js/notice-pdf.js"></script>
+<script src="js/estimate-logic.js"></script>
+<script src="js/estimates-api.js"></script>
+<script src="js/estimate-pdf.js"></script>
 <script src="js/case-list.js"></script>
 <script src="js/case-detail.js"></script>
 <script src="js/team.js"></script>
@@ -709,6 +872,7 @@
 <script src="js/mail-ui.js"></script>
 <script src="js/notice-ui.js"></script>
 <script src="js/notice-edit.js"></script>
+<script src="js/estimate-ui.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

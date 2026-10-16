@@ -54,12 +54,13 @@ async function renderSettings() {
   $('set-address').value = o.address || '';
   $('set-tel').value = o.tel || '';
   $('set-email').value = o.email || '';
+  $('set-reg').value = o.registration_number || '';
   $('set-save').disabled = !isOwner;
   $('set-logo-btn').disabled = !isOwner;
   $('invite-btn').disabled = !isOwner;
   $('invite-email').disabled = !isOwner;
   $('card-staff').hidden = !isOwner;
-  ['set-name', 'set-address', 'set-tel', 'set-email'].forEach(id => { $(id).readOnly = !isOwner; });
+  ['set-name', 'set-address', 'set-tel', 'set-email', 'set-reg'].forEach(id => { $(id).readOnly = !isOwner; });
   const img = $('set-logo-img');
   if (o.logo_path) {
     try {
@@ -84,14 +85,25 @@ function flashOk(id, text) {
   setMsgTimer = setTimeout(() => setMsg(id, ''), 2000);
 }
 
+// インボイス登録番号: 全角→半角・小文字t→T・空白/ハイフン除去。空は null（DB: '^T[0-9]{13}$' か null）
+function normRegNo(v) {
+  const t = String(v || '').replace(/[０-９Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[\s\-－ー‐−]/g, '').replace(/^t/, 'T');
+  return t || null;
+}
+
 async function saveSettings() {
   const fields = {
     name: $('set-name').value.trim(),
     address: $('set-address').value.trim(),
     tel: $('set-tel').value.trim(),
-    email: $('set-email').value.trim() || null
+    email: $('set-email').value.trim() || null,
+    registration_number: normRegNo($('set-reg').value)
   };
   if (!fields.name) throw new Error('会社名を入力してください');
+  if (fields.registration_number && !/^T[0-9]{13}$/.test(fields.registration_number)) {
+    throw new Error('登録番号（インボイス）は「T」と13桁の数字で入力してください（例: T1234567890123）');
+  }
   if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) throw new Error('メールアドレスの形式が正しくありません');
   const { error } = await sb.from('orgs').update(fields).eq('id', ctx.org.id);
   if (error) throw error;
@@ -194,6 +206,10 @@ function routeFromHash() {
   else if ((m = h.match(MAIL_HASH_RE)) && typeof openMailDraft === 'function') openMailDraft(m[1]); // ⑨ 送付メールの下書き（js/mail-ui.js）
   else if ((m = h.match(CASE_NOTICES_HASH_RE)) && typeof openNotices === 'function') openNotices(m[1].toLowerCase()); // ⑪ 案件内の工事掲示一覧（js/notice-ui.js）
   else if ((m = h.match(NOTICE_HASH_RE)) && typeof openNotice === 'function') openNotice(m[1].toLowerCase());       // ⑫ 工事掲示の作成・編集（js/notice-edit.js。NOTICE_HASH_RE もそこで定義）
+  else if ((m = h.match(ESTIMATES_HASH_RE)) && typeof openEstimates === 'function') openEstimates(m[1].toLowerCase());     // ⑬ 案件内の見積書一覧（js/estimate-ui.js。*_HASH_RE もそこで定義）
+  else if ((m = h.match(ESTIMATE_PDF_HASH_RE)) && typeof openEstimatePdf === 'function') openEstimatePdf(m[1].toLowerCase()); // ⑮ 見積書のPDFプレビュー
+  else if ((m = h.match(ESTIMATE_DIFF_HASH_RE)) && typeof openEstimateDiff === 'function') openEstimateDiff(m[1].toLowerCase()); // ⑯ 見積書の版の差分
+  else if ((m = h.match(ESTIMATE_HASH_RE)) && typeof openEstimate === 'function') openEstimate(m[1].toLowerCase());          // ⑭ 見積書の作成・編集
   else if ((m = h.match(REPORT_PDF_HASH_RE))) openReportPdf(m[1]);      // ⑩ PDFプレビュー
   else if ((m = h.match(REPORT_HASH_RE))) openReport(m[1]);             // ⑥ 報告書の入力
   else if (h === '#team') openTeam();

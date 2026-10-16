@@ -21,6 +21,26 @@ let nte = null;     // 表示中の編集セッション
 let nteSeq = 0;     // openNotice のたびに増やす
 let nteUid = 0;
 
+/* ---------- この画面だけのCSS（index.html の工事掲示CSSに足りない分。ここで注入する） ---------- */
+// ・PC: 入力を下へスクロールしてもプレビューが見え続けるよう、プレビュー列を sticky にする。
+//   index.html の `html,body{overflow-x:hidden}` で body がスクロールの親になり sticky が効かなくなるため、この画面の間だけ body を clip にする
+// ・スマホ: 入力↔プレビューのジャンプボタンを出す（PCでは隠す）
+(function nteInjectStyle() {
+  if (document.getElementById('nt-style')) return;
+  const st = document.createElement('style');
+  st.id = 'nt-style';
+  st.textContent = [
+    'body:has(#screen-notice.active){overflow-x:clip;}',
+    '.nu-jump{margin:0 0 12px;}',
+    '.nu-jump .btn{width:100%;max-width:none;}',
+    '@media(min-width:960px){',
+    '  .nu-jump{display:none;}',
+    '  .nu-pv-col{position:sticky;top:12px;max-height:calc(100vh - 90px);max-height:calc(100dvh - 90px);overflow-y:auto;margin-top:0;}',
+    '}'
+  ].join('\n');
+  document.head.appendChild(st);
+})();
+
 const nteClone = v => JSON.parse(JSON.stringify(v));
 const nteObj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 const nteStr = v => (v == null ? '' : String(v));
@@ -59,7 +79,9 @@ function nteNormalize(raw, caseRow) {
 
 /* ---------- 入力の整合（DB の制約: migration 015 work_date_end >= work_date） ---------- */
 // 終了日が開始日より前なら保存できない。問題が無ければ ''
+// 「工事日は未定」のときは日付を使わない（一覧用の列も null で保存する）ので調べない
 function nteDateError(d) {
+  if (d.workDateTbd) return '';
   const a = String(d.workDate || ''), b = String(d.workDateEnd || '');
   return a && b && b < a ? '工事日の終了は開始日以降にしてください（このままでは保存されません）' : '';
 }
@@ -129,6 +151,14 @@ async function nteDoSave(s) {
     s.saveErr = errText(e);
     nteSetSave(s, 'error');
   }
+}
+
+// 編集画面の保存が全部終わるのを待つ（一覧など他の画面が、保存前の古い行を読まないため）。保留中の保存があれば今すぐ始める
+function nteSettle() {
+  const s = nte;
+  if (!s) return Promise.resolve();
+  if (s.timer) nteFlush(s);
+  return s.chain;
 }
 
 window.addEventListener('hashchange', () => {
@@ -208,6 +238,12 @@ function nteBuild(s) {
   els.back = dBtn('← 掲示一覧', 'back', async () => {
     if (s.busy) return;
     await nteFlush(s);
+    if (s.timer) await nteFlush(s); // 保存中に入力が続いた分
+    if (nte !== s) return;
+    if (s.dirty) { // 保存失敗・日付エラーが残っている。端末には残してあるので、そのことを伝えてから戻る
+      nteLsSet(s);
+      if (!confirm('未保存の変更があります。この端末に残しています。\nこのまま一覧に戻りますか？')) return;
+    }
     location.hash = '#case/' + s.row.case_id + '/notices';
   });
   top.appendChild(els.back);
@@ -367,8 +403,15 @@ function nteBuild(s) {
   crow.append(els.cBtn, els.cMsg);
   card5.appendChild(crow);
 
+  // スマホ: プレビューへ飛ぶボタン（入力の先頭付近）。PCでは CSS で隠す
+  const jumpSmooth = () => (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+  const toPv = mk('div', 'nu-jump');
+  els.toPv = dBtn('プレビューを見る ↓', 'btn sm ghost', () => pvCol.scrollIntoView({ block: 'start', behavior: jumpSmooth() }));
+  els.toPv.id = 'nt-to-pv';
+  toPv.appendChild(els.toPv);
+
   const form = mk('div', 'nu-form');
-  form.append(card1, card2, card3, card4, card5);
+  form.append(toPv, card1, card2, card3, card4, card5);
 
   /* ----- プレビュー ----- */
   const pvTtl = mk('div', 'rep-between');
@@ -378,8 +421,12 @@ function nteBuild(s) {
   els.pvWarn.setAttribute('role', 'status');
   els.preview = mk('div');
   els.preview.id = 'nt-preview';
+  const toForm = mk('div', 'nu-jump');
+  els.toForm = dBtn('入力に戻る ↑', 'btn sm ghost', () => form.scrollIntoView({ block: 'start', behavior: jumpSmooth() }));
+  els.toForm.id = 'nt-to-form';
+  toForm.appendChild(els.toForm);
   const pvCol = mk('div', 'nu-pv-col');
-  pvCol.append(pvTtl, els.pvWarn, els.preview);
+  pvCol.append(toForm, pvTtl, els.pvWarn, els.preview);
 
   const layout = mk('div', 'nu-layout');
   layout.append(form, pvCol);
@@ -461,6 +508,7 @@ function nteSyncBar(s) {
   const pdf = $('nt-pdf'), dup = $('nt-dup');
   pdf.disabled = dup.disabled = s.busy;
   pdf.textContent = s.busy === 'pdf' ? 'PDFを作成中…' : 'PDFをダウンロード';
+  dup.textContent = '別の号室に複製'; // 下部バーで1行に収まる長さ（index.html の初期文言は長いので上書きする）
   if (s.els.back) s.els.back.disabled = !!s.busy;
 }
 
