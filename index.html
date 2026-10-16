@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>現場ドキュメント</title>
+<style>
+  :root{--navy:#1a3a5c;--navy2:#22507e;--border:#dde5ef;--bg:#f0f4f8;--text:#1e293b;--muted:#64748b;--red:#c0392b;--green:#1e7e34;--amber:#b45309;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;}
+  .screen{display:none;min-height:100vh;}
+  .screen.active{display:block;}
+  /* ===== LOGIN ===== */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,#1a3a5c,#0e2436);}
+  .login-card{background:#fff;width:100%;max-width:400px;border-radius:16px;padding:40px 32px;}
+  .brand{text-align:center;margin-bottom:28px;}
+  .brand .logo{width:56px;height:56px;border-radius:14px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 12px;}
+  .brand h1{font-size:19px;letter-spacing:.02em;}
+  .brand p{font-size:12px;color:var(--muted);margin-top:4px;}
+  .fld{margin-bottom:16px;}
+  .fld label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .fld input{width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;}
+  .btn{width:100%;padding:14px;border:0;border-radius:10px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .btn.ghost{background:#fff;color:var(--navy);border:1.5px solid var(--navy);}
+  .login-foot{text-align:center;margin-top:18px;font-size:13px;color:var(--muted);}
+  .login-foot a{color:var(--navy2);font-weight:700;text-decoration:none;}
+  /* ===== HEADER ===== */
+  .hdr{background:var(--navy);color:#fff;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;}
+  .hdr .left{display:flex;align-items:center;gap:10px;}
+  .hdr .applogo{width:30px;height:30px;border-radius:8px;background:#fff;color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;}
+  .hdr .app-name{font-size:14px;font-weight:700;}
+  .hdr .right{display:flex;align-items:center;gap:10px;font-size:12px;}
+  .hdr .org{display:flex;flex-direction:column;align-items:flex-end;line-height:1.3;}
+  .hdr .org b{font-size:13px;}
+  .hdr .org span{color:#a9c2dd;font-size:11px;}
+  .hdr .iconbtn{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.14);border:0;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;}
+  .hdr .iconbtn:hover{background:rgba(255,255,255,.26);}
+  .hdr .logout{background:rgba(255,255,255,.14);border:0;color:#fff;padding:7px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  /* ===== SETTINGS ===== */
+  .set-body{max-width:620px;margin:0 auto;padding:26px 20px 60px;}
+  .back{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--navy2);text-decoration:none;font-weight:700;margin-bottom:18px;cursor:pointer;}
+  .card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:26px 22px;}
+  .card-ttl{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:20px;}
+  .logo-row{display:flex;align-items:center;gap:16px;margin-bottom:22px;}
+  .logo-box{width:92px;height:92px;border:2px dashed #c3d4e8;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#9bb3cf;font-size:11px;text-align:center;background:#f7faff;flex-shrink:0;}
+  .logo-box img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;}
+  .logo-act{font-size:12px;color:var(--muted);}
+  .logo-act .btn{width:auto;padding:9px 16px;font-size:13px;margin-bottom:6px;}
+  .ff{margin-bottom:16px;}
+  .ff label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .ff input{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:16px;font-family:inherit;}
+  .save-bar{margin-top:8px;}
+  .note{font-size:11px;color:var(--muted);margin-top:14px;background:#f7faff;border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
+  /* added */
+  .err{color:#c0392b;font-size:13px;margin-top:8px;min-height:18px}
+  .ok{color:#1e7e34}
+  html,body{max-width:100%;overflow-x:hidden}
+  input,select,textarea{font-size:16px}
+  .btn:disabled{opacity:.6;cursor:default}
+  .login-lead{text-align:center;font-size:13px;color:var(--muted);margin-bottom:18px}
+  .card + .card{margin-top:18px}
+  .back{background:none;border:0;font-family:inherit}
+  .hdr .org b,.hdr .org span{max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ff-row{display:flex;gap:8px}
+  .ff-row input{flex:1;min-width:0}
+  .ff-row .btn{width:auto;padding:0 18px;white-space:nowrap}
+  .invite-mail{display:inline-block;font-size:14px;color:var(--navy);font-weight:700;margin-bottom:8px}
+
+  /* ===== CASES ===== */
+  .wrap{max-width:760px;margin:0 auto;padding:18px 14px 90px;}
+  .btn.inline{width:auto;padding:11px 16px;font-size:14px;}
+  .btn.sm{padding:7px 12px;min-height:36px;font-size:12px;border-radius:8px;}
+  .list-top{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;}
+  .search{flex:1;min-width:160px;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .chips{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .chip{padding:6px 12px;min-height:36px;border-radius:999px;border:1.5px solid var(--border);background:#fff;font-size:12px;color:var(--muted);cursor:pointer;font-family:inherit;}
+  .chip.on{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:700;}
+  .case{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer;}
+  .case:hover{border-color:#c3d4e8;}
+  .case .t{display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
+  .case h3{font-size:15px;min-width:0;overflow-wrap:anywhere;}
+  .case .due{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;}
+  .case .due.near{color:var(--red);}
+  .case .meta{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-top:4px;flex-wrap:wrap;}
+  .nx-line{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;margin-top:7px;flex-wrap:wrap;}
+  .badges{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .bdg{font-size:11px;background:#eef3fa;color:var(--navy2);padding:2px 8px;border-radius:999px;}
+  .bdg.alert{background:#fdecea;color:var(--red);font-weight:700;}
+  .st{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;}
+  .st.open{background:#e7f0fb;color:var(--navy2);}
+  .st.done{background:#eafaf1;color:var(--green);}
+  .ball{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#fdf3e6;color:var(--amber);white-space:nowrap;}
+  .ball.me{background:#fdecea;color:var(--red);}
+  .who-pill{font-size:11px;background:#eef3fa;color:var(--navy2);padding:2px 8px;border-radius:999px;white-space:nowrap;font-weight:400;}
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:40px 16px;}
+  /* モーダル */
+  .modal-bg{position:fixed;inset:0;background:rgba(10,25,45,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100;overflow-y:auto;}
+  .modal-bg[hidden]{display:none;}
+  .modal{background:#fff;border-radius:16px;padding:24px 20px;width:100%;max-width:400px;max-height:100%;overflow-y:auto;}
+  .modal h3{font-size:16px;margin-bottom:14px;}
+  .modal .ff{margin-bottom:12px;}
+  .modal .ff label .opt{font-weight:400;color:#94a3b8;}
+  .modal .ff input,.modal .ff select{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .modal-act{display:flex;gap:8px;margin-top:6px;}
+  .modal-act .btn{flex:1;}
+  /* ===== CASE DETAIL ===== */
+  .hot{color:var(--red);font-weight:700;}
+  .muted{color:var(--muted);}
+  .linkbtn{background:none;border:0;padding:6px 8px;min-height:36px;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy2);cursor:pointer;}
+  .linkbtn.danger{color:var(--red);}
+  .linkbtn:disabled,.settle-btn:disabled{opacity:.6;cursor:default;}
+  .who-pill.none{background:#fdecea;color:var(--red);}
+  .case-head{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;}
+  .case-head .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .case-head h2{font-size:17px;min-width:0;overflow-wrap:anywhere;}
+  .case-head .meta{display:flex;gap:12px;font-size:12px;color:var(--muted);margin-top:6px;flex-wrap:wrap;}
+  .case-head .meta .hot{color:var(--red);font-weight:700;}
+  .head-act{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:6px;}
+  .addr{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+  .addr span:first-child{min-width:0;overflow-wrap:anywhere;}
+  .maplinks a{color:var(--navy2);font-weight:700;text-decoration:none;font-size:12px;}
+  .next{background:#fff;border:2px solid var(--navy);border-radius:14px;padding:12px 14px;margin-bottom:12px;}
+  .nx-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap;}
+  .nx-l{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap;min-width:0;}
+  .nx-l b{min-width:0;overflow-wrap:anywhere;}
+  .nx-sub{font-size:11px;color:var(--muted);}
+  .nx-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .nx-due{font-size:12px;font-weight:700;color:var(--muted);}
+  .nx-due.near{color:var(--red);}
+  .nx-empty{font-size:13px;color:var(--muted);padding:9px 0;border-top:1px solid var(--border);}
+  .taio{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:12px;}
+  .taio-head{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:8px;}
+  .taio-sum{font-size:12px;color:var(--muted);}
+  .taio-add{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .to-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap;}
+  .to-l{display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap;min-width:0;}
+  .to-who{font-size:11px;color:var(--muted);}
+  .to-label{font-size:12px;color:var(--text);overflow-wrap:anywhere;}
+  .to-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .to-pay{font-size:12px;color:var(--muted);}
+  .to-r input[type=date]{padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .wk-tag{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;background:#eef3fa;color:var(--navy2);white-space:nowrap;}
+  .settle-btn{font-size:11px;font-weight:700;padding:5px 12px;min-height:36px;border-radius:999px;border:0;background:#fdecea;color:var(--red);cursor:pointer;font-family:inherit;}
+  .settle-btn.ok{background:#eafaf1;color:var(--green);}
+  .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0;}
+  .toolbtn{background:#fff;color:var(--text);border:1.5px solid var(--border);border-radius:12px;padding:10px 6px;text-align:center;cursor:pointer;font-family:inherit;}
+  .toolbtn .ic{font-size:20px;}
+  .toolbtn .nm{font-size:14px;font-weight:700;margin-top:2px;color:var(--text);}
+  .toolbtn .ct{font-size:11px;color:var(--muted);}
+  .tools-note{font-size:12px;color:var(--navy2);background:#f7faff;border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:-4px 0 12px;}
+  .tools-note[hidden]{display:none;}
+  .addform{background:#f7faff;border:1px dashed #b9cde6;border-radius:10px;padding:10px 12px;margin-top:10px;}
+  .af-ttl{font-size:12px;font-weight:700;color:var(--navy2);margin-bottom:6px;}
+  .af-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+  .af-grid label{font-size:11px;color:var(--muted);font-weight:700;display:flex;flex-direction:column;gap:3px;min-width:0;}
+  .af-grid label.span-all{grid-column:1/-1;}
+  .af-grid input,.af-grid select{width:100%;min-width:0;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .af-act{display:flex;gap:8px;justify-content:flex-end;margin-top:8px;}
+  /* ===== TIMELINE ===== */
+  .tl-input{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:14px;}
+  .tl-type{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;}
+  .tl-input textarea{width:100%;border:1.5px solid var(--border);border-radius:10px;padding:10px;font-size:16px;font-family:inherit;min-height:60px;resize:vertical;background:#fff;color:var(--text);}
+  .tl-input textarea:disabled{opacity:.6;}
+  .tl-files{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .tl-files:empty{display:none;}
+  .tl-file{display:inline-flex;align-items:center;gap:2px;max-width:100%;background:#eef3fa;color:var(--navy2);border-radius:999px;padding:0 4px 0 10px;font-size:12px;}
+  .tl-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tl-file-x{background:none;border:0;color:var(--navy2);font-size:16px;font-family:inherit;min-width:36px;min-height:36px;cursor:pointer;}
+  .tl-file-x:disabled{opacity:.5;cursor:default;}
+  .tl-actions{display:flex;justify-content:space-between;margin-top:8px;align-items:center;gap:8px;flex-wrap:wrap;}
+  .tl-right{display:flex;align-items:center;gap:10px;}
+  .tl-status{font-size:12px;color:var(--muted);}
+  .attach{background:none;border:0;padding:6px 4px;min-height:36px;font-size:12px;color:var(--navy2);font-weight:700;cursor:pointer;font-family:inherit;}
+  .attach:disabled,.req-status:disabled,.chip:disabled{opacity:.6;cursor:default;}
+  .entry{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;}
+  .entry .who{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .entry .body{font-size:14px;margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;}
+  .entry .tag{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;margin-right:6px;}
+  .tag.memo{background:#eef3fa;color:var(--navy2);}
+  .tag.req{background:#fdf3e6;color:var(--amber);}
+  .tag.dec{background:#eafaf1;color:var(--green);}
+  .tag.sys{background:#f0ecfb;color:#6d28d9;}
+  .tl-atts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .att{display:inline-block;max-width:100%;}
+  .att-name,.att-link{font-size:12px;color:var(--navy2);overflow-wrap:anywhere;}
+  .att-link{font-weight:700;}
+  .thumb-link{display:inline-block;line-height:0;}
+  .thumb{width:72px;height:72px;border-radius:8px;background:#e8eef5;display:inline-block;border:1px solid var(--border);color:#9bb3cf;font-size:10px;text-align:center;line-height:72px;object-fit:cover;vertical-align:top;}
+  .entry-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
+  .req-status{font-size:11px;font-weight:700;padding:2px 12px;min-height:36px;border-radius:999px;border:0;background:#fdecea;color:var(--red);cursor:pointer;font-family:inherit;}
+  .req-status.ok{background:#eafaf1;color:var(--green);}
+  /* ===== TEAM（チーム状況）・表示切替タブ ===== */
+  .viewtabs{display:flex;background:#e3eaf3;border-radius:10px;padding:3px;margin-bottom:12px;width:fit-content;}
+  .vt{padding:8px 16px;min-height:36px;border:0;border-radius:8px;background:none;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;font-family:inherit;}
+  .vt.on{background:#fff;color:var(--navy);}
+  .team-sum{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .ts{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 14px;font-size:12px;color:var(--muted);}
+  .ts b{display:block;font-size:20px;color:var(--text);}
+  .ts.alert b{color:var(--red);}
+  .member{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;}
+  .member.warn{border-color:#f5c6c0;}
+  .member-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;}
+  .member-h b{font-size:15px;min-width:0;overflow-wrap:anywhere;}
+  .member.warn .member-h b{color:var(--red);}
+  .member-h .mh-sub{font-size:12px;color:var(--muted);}
+  .member-h .mh-sub .hot{color:var(--red);font-weight:700;}
+  .mt-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap;font-size:13px;}
+  .mt-l{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .mt-l b{min-width:0;overflow-wrap:anywhere;}
+  .mt-case{font-size:11px;color:var(--muted);overflow-wrap:anywhere;}
+  .mt-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .poke{font-size:11px;font-weight:700;color:var(--navy2);border:1.5px solid var(--navy2);background:#fff;border-radius:8px;padding:3px 8px;min-height:36px;cursor:pointer;font-family:inherit;}
+  .poke:disabled{opacity:.6;cursor:default;}
+  .mt-r select{padding:6px 8px;min-height:36px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);max-width:100%;}
+  .team-retry{margin-bottom:12px;}
+  .toolbtn .ct.hot{color:var(--red);font-weight:700;}
+  /* ===== REPORTS（⑤ 報告書一覧 / ⑥ 入力 / ⑩ PDFプレビュー。中身は js/report-ui.js が作る） ===== */
+  #screen-reports [hidden],#screen-report [hidden],#screen-report-pdf [hidden]{display:none !important;}
+  #screen-report{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px));}
+  .btn.green{background:var(--green);color:#fff;}
+  .rep-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px;min-width:0;}
+  .rep-card h3{font-size:15px;margin-bottom:8px;color:var(--text);}
+  .rep-between{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+  .rep-between>*{min-width:0;}
+  .rep-sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .rep-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .rep-top-acts{margin:6px 0 10px;}
+  .rep-pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;}
+  .rep-pill.p-draft{background:#eef3fa;color:var(--navy2);}
+  .rep-pill.p-wait{background:#fdf3e6;color:var(--amber);}
+  .rep-pill.p-ok{background:#eafaf1;color:var(--green);}
+  .rep-pill.p-sent{background:#f0ecfb;color:#6d28d9;}
+  .rep-row{border-top:1px solid var(--border);padding:11px 0;}
+  .rep-row:first-child{border-top:0;}
+  .rep-row b{font-size:14px;overflow-wrap:anywhere;}
+  .rep-note{font-size:12px;color:var(--muted);background:#f7faff;border:1px dashed #b9cde6;border-radius:10px;padding:9px 11px;margin-top:8px;}
+  .rep-drafts{border-color:#c9b8f0;}
+  .rep-draft-line{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .rep-ed-top{margin-bottom:6px;}
+  .rep-ed-top .back{margin-bottom:0;min-height:36px;}
+  .rep-save{font-size:12px;color:var(--green);overflow-wrap:anywhere;}
+  .rep-save.busy{color:var(--muted);}
+  .rep-save.err{color:var(--red);font-weight:700;}
+  .rep-val:empty{display:none;}
+  .rep-val{margin-bottom:12px;display:flex;flex-direction:column;gap:6px;}
+  .rep-val-e,.rep-val-w{font-size:13px;font-weight:700;border-radius:10px;padding:9px 12px;overflow-wrap:anywhere;}
+  .rep-val-e{background:#fdecea;color:var(--red);border:1px solid #f5c6c0;}
+  .rep-val-w{background:#fdf3e6;color:var(--amber);border:1px solid #f3d9b5;}
+  .rep-ro{font-size:12px;color:var(--navy2);background:#f7faff;border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:12px;}
+  .rep-ff{margin-bottom:12px;min-width:0;}
+  .rep-ff>label,.rep-lbl-row label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;}
+  .rep-ff input,.rep-ff select,.rep-ff textarea{width:100%;min-width:0;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .rep-ff textarea{min-height:110px;resize:vertical;line-height:1.6;}
+  .rep-ff textarea.short{min-height:64px;}
+  .rep-ff :disabled{opacity:.75;background:#f7f9fc;}
+  .rep-hint{display:block;font-size:11px;color:var(--muted);margin:-2px 0 6px;}
+  .rep-g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px;}
+  .rep-auto{background:#f4f7fb;border-radius:10px;padding:10px 12px;font-size:13px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 12px;}
+  .rep-auto dt{color:var(--muted);font-size:12px;}
+  .rep-auto dd{overflow-wrap:anywhere;}
+  .rep-seg{display:flex;background:#e3eaf3;border-radius:10px;padding:3px;gap:2px;}
+  .rep-seg button{flex:1;min-width:0;min-height:40px;border:0;border-radius:8px;background:none;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;font-family:inherit;padding:6px 4px;}
+  .rep-seg button.on{background:#fff;color:var(--navy);}
+  .rep-seg button:disabled{cursor:default;}
+  .rep-time{display:flex;gap:8px;}
+  .rep-time input{flex:1;min-width:0;}
+  .rep-now{border:1.5px solid var(--navy);background:#fff;color:var(--navy);border-radius:8px;padding:0 12px;min-height:44px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .rep-now:disabled{opacity:.5;cursor:default;}
+  .rep-chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .rep-chips .chip{font-size:13px;text-align:left;max-width:100%;overflow-wrap:anywhere;}
+  .rep-group-ttl{font-size:12px;font-weight:700;color:var(--muted);margin:10px 0 6px;}
+  .rep-card h3+.rep-group-ttl{margin-top:0;}
+  .rep-free{margin-top:8px;}
+  .rep-free input{width:100%;min-width:0;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .rep-lbl-row{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;}
+  .rep-mic{min-width:44px;min-height:36px;margin-bottom:5px;border:1.5px solid var(--border);background:#fff;color:var(--navy);border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .rep-mic.on{background:#fdecea;border-color:var(--red);color:var(--red);}
+  .rep-mic:disabled{opacity:.45;cursor:default;}
+  .rep-ph{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:10px;align-items:center;border-top:1px solid var(--border);padding:10px 0;}
+  .rep-ph.ro{grid-template-columns:96px minmax(0,1fr);}
+  .rep-ph-img{width:96px;height:72px;border-radius:8px;background:linear-gradient(135deg,#cfdbe9,#e8eef5);object-fit:cover;display:block;color:#7d93ad;font-size:10px;}
+  .rep-ph-f{display:flex;flex-direction:column;gap:6px;min-width:0;}
+  .rep-ph-f input,.rep-ph-f select{padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);width:100%;min-width:0;}
+  .rep-ph-mv{display:flex;flex-direction:column;gap:4px;}
+  .rep-ph-mv button{width:40px;min-height:36px;border:1.5px solid var(--border);background:#fff;border-radius:8px;color:var(--navy);font-size:14px;font-family:inherit;cursor:pointer;}
+  .rep-ph-mv button.del{color:var(--red);}
+  .rep-ph-mv button:disabled{opacity:.4;cursor:default;}
+  .rep-ph-empty{padding:10px 0;border-top:1px solid var(--border);}
+  .rep-photo-msg{color:var(--muted);font-size:12px;min-height:0;margin-top:4px;}
+  .rep-photo-msg.err-on{color:var(--red);}
+  .rep-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;justify-content:center;z-index:50;}
+  .rep-bar .btn{flex:1;max-width:240px;width:auto;padding:12px 10px;min-height:44px;}
+  #screen-share [hidden]{display:none !important;}
+  .shr-link{display:flex;gap:8px;margin-top:10px;}
+  .shr-link input{flex:1;min-width:0;padding:10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#f7faff;color:var(--text);}
+  .shr-link .btn{width:auto;white-space:nowrap;}
+  .shr-warn{font-size:13px;font-weight:700;color:var(--red);background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 12px;margin-top:10px;overflow-wrap:anywhere;}
+  .shr-line{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;background:#06c755;color:#fff;border-radius:8px;font-size:12px;font-weight:700;padding:7px 14px;min-height:36px;}
+  .shr-ok{font-size:12px;color:var(--green);}
+  .btn.danger{color:var(--red);border-color:var(--red);}
+  .rep-pill.p-red{background:#fdecea;color:var(--red);}
+  .rep-pdf-wrap{max-width:920px;margin:0 auto;padding:18px 14px 40px;}
+  .rep-pdf-head{margin-bottom:8px;}
+  .rep-pdf-wrap .back{min-height:36px;}
+  .rep-pdf-head .chip.on,.rep-pdf-fit .chip.on{color:#fff;}
+  .rep-pdf-fit{margin-bottom:8px;}
+  #rpdf-preview{border-radius:12px;min-height:120px;}
+  /* ===== ⑨ 送付メールの下書き（js/mail-ui.js） ===== */
+  #screen-mail [hidden]{display:none !important;}
+  #screen-mail{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px));}
+  .ml-from{font-size:12px;color:var(--navy2);background:#f7faff;border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:12px;overflow-wrap:anywhere;}
+  .ml-body-ff textarea{min-height:300px;font-family:inherit;white-space:pre-wrap;}
+  .ml-att{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#f7faff;}
+  .ml-att .ic{flex:none;background:var(--red);color:#fff;font-size:11px;font-weight:800;border-radius:6px;padding:4px 7px;}
+  .ml-att-off{color:var(--muted);background:#fff;border-style:dashed;font-size:13px;}
+  .ml-att>div{min-width:0;overflow-wrap:anywhere;}
+  .ml-wait{border-color:#c9b8f0;background:#faf8ff;}
+  .ml-wait h3{margin-bottom:6px;}
+  .ml-short-warn{margin:10px 0;padding:10px 12px;border:2px solid #d97706;background:#fff7e6;color:#7a3e00;border-radius:8px;font-weight:700;font-size:14px;line-height:1.5;}
+  .btn.ml-copy-emph{background:#d97706;color:#fff;border:2px solid #b45309;font-weight:700;}
+  .ml-copy{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;}
+  .ml-copy .btn{min-height:40px;}
+  .ml-url{width:100%;min-width:0;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .ml-sent-row{font-size:13px;overflow-wrap:anywhere;}
+  .rep-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;width:100%;text-align:left;border:1.5px solid #c9b8f0;background:#f0ecfb;color:#6d28d9;border-radius:12px;padding:10px 14px;min-height:44px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:12px;}
+  @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph.ro{grid-template-columns:80px minmax(0,1fr);} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
+  @media(max-width:560px){ .af-grid{grid-template-columns:1fr;} .team-sum{display:grid;grid-template-columns:1fr 1fr;} }
+  @media(max-width:480px){ .hdr .org span{display:none;} .hdr .app-name{display:none;} }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section class="screen active" id="screen-login">
+  <div class="login-wrap">
+    <form class="login-card" id="login-form" novalidate>
+      <div class="brand">
+        <div class="logo">現</div>
+        <h1>現場ドキュメント</h1>
+        <p>報告書・見積書・工事掲示をひとつで</p>
+      </div>
+      <div class="fld"><label for="login-email">メールアドレス</label><input type="email" id="login-email" placeholder="you@company.co.jp" autocomplete="username" required></div>
+      <div class="fld"><label for="login-pw">パスワード</label><input type="password" id="login-pw" placeholder="••••••••" autocomplete="current-password" required></div>
+      <button class="btn" type="submit" id="login-btn">ログイン</button>
+      <div class="err" id="login-err"></div>
+      <div class="login-foot">アカウントがない？ <a href="#" id="go-signup">会社を新規登録</a></div>
+      <div class="login-foot"><a href="#" id="go-reset">パスワードを忘れた</a></div>
+    </form>
+  </div>
+</section>
+
+<!-- SIGNUP -->
+<section class="screen" id="screen-signup">
+  <div class="login-wrap">
+    <form class="login-card" id="signup-form" novalidate>
+      <div class="brand">
+        <div class="logo">現</div>
+        <h1>新規登録</h1>
+      </div>
+      <p class="login-lead" id="signup-lead">会社を登録して使い始めます（この会社が課金・データ隔離の単位になります）</p>
+      <input type="hidden" id="signup-invite-token" value="">
+      <div class="fld" id="signup-company-row"><label for="signup-company">会社名</label><input type="text" id="signup-company" placeholder="株式会社サンプル工業" autocomplete="organization" required></div>
+      <div class="fld"><label for="signup-name">担当者名</label><input type="text" id="signup-name" placeholder="田中 太郎" autocomplete="name" required></div>
+      <div class="fld"><label for="signup-email">メールアドレス</label><input type="email" id="signup-email" placeholder="you@company.co.jp" autocomplete="username" required></div>
+      <div class="fld"><label for="signup-pw">パスワード（8文字以上）</label><input type="password" id="signup-pw" placeholder="••••••••" autocomplete="new-password" minlength="8" required></div>
+      <button class="btn" type="submit" id="signup-btn">登録する</button>
+      <div class="err" id="signup-err"></div>
+      <div class="login-foot"><a href="#" class="go-login">ログイン画面へ戻る</a></div>
+    </form>
+  </div>
+</section>
+
+<!-- RESET -->
+<section class="screen" id="screen-reset">
+  <div class="login-wrap">
+    <form class="login-card" id="reset-form" novalidate>
+      <div class="brand">
+        <div class="logo">現</div>
+        <h1>パスワード再設定</h1>
+      </div>
+      <p class="login-lead">登録したメールアドレスに再設定用のリンクを送ります</p>
+      <div class="fld"><label for="reset-email">メールアドレス</label><input type="email" id="reset-email" placeholder="you@company.co.jp" autocomplete="username" required></div>
+      <button class="btn" type="submit" id="reset-btn">再設定メールを送る</button>
+      <div class="err" id="reset-msg"></div>
+      <div class="login-foot"><a href="#" class="go-login">ログイン画面へ戻る</a></div>
+    </form>
+  </div>
+</section>
+
+<!-- NEW PASSWORD (recovery) -->
+<section class="screen" id="screen-newpw">
+  <div class="login-wrap">
+    <form class="login-card" id="newpw-form" novalidate>
+      <div class="brand">
+        <div class="logo">現</div>
+        <h1>新しいパスワード</h1>
+      </div>
+      <p class="login-lead">新しいパスワードを入力してください</p>
+      <div class="fld"><label for="newpw-pw">新しいパスワード（8文字以上）</label><input type="password" id="newpw-pw" placeholder="••••••••" autocomplete="new-password" minlength="8" required></div>
+      <div class="fld"><label for="newpw-pw2">新しいパスワード（確認）</label><input type="password" id="newpw-pw2" placeholder="••••••••" autocomplete="new-password" minlength="8" required></div>
+      <button class="btn" type="submit" id="newpw-btn">変更する</button>
+      <div class="err" id="newpw-msg"></div>
+    </form>
+  </div>
+</section>
+
+<!-- CASES (案件一覧) -->
+<section class="screen" id="screen-cases">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="viewtabs">
+      <button class="vt on" type="button" data-view="cases">案件一覧</button>
+      <button class="vt" type="button" data-view="team">チーム状況</button>
+    </div>
+    <div class="list-top">
+      <input class="search" id="case-search" type="search" placeholder="物件名・現場名・住所・元請けで検索" autocomplete="off">
+      <button class="btn inline" id="case-new-btn" type="button">＋ 新規案件</button>
+    </div>
+    <div class="chips" id="case-chips">
+      <button class="chip on" type="button" data-filter="open">進行中 0</button>
+      <button class="chip" type="button" data-filter="mine_turn">🔴 自分の番 0</button>
+      <button class="chip" type="button" data-filter="mine">自分の担当 0</button>
+      <button class="chip" type="button" data-filter="requests">⚠️ 未対応の依頼 0</button>
+      <button class="chip" type="button" data-filter="unsettled">💰 精算未確認 0</button>
+      <button class="chip" type="button" data-filter="done">完了 0</button>
+    </div>
+    <div class="err" id="case-list-msg"></div>
+    <div id="case-list"></div>
+    <div class="empty" id="case-loading" hidden>読み込み中…</div>
+    <div class="empty" id="case-empty" hidden>案件がありません。「＋ 新規案件」から物件名を入れて作成してください</div>
+  </div>
+</section>
+
+<!-- TEAM (チーム状況: 管理者が「誰がどこで止まっているか」を見る。中身は js/team.js が作る) -->
+<section class="screen" id="screen-team">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="viewtabs">
+      <button class="vt" type="button" data-view="cases">案件一覧</button>
+      <button class="vt on" type="button" data-view="team">チーム状況</button>
+    </div>
+    <div class="err" id="team-msg"></div>
+    <button class="btn sm ghost inline team-retry" id="team-retry" type="button" hidden>再読み込み</button>
+    <div class="team-sum" id="team-sum"></div>
+    <div id="team-body"></div>
+    <div class="empty" id="team-loading" hidden>読み込み中…</div>
+    <div class="empty" id="team-empty" hidden>止まっている「次やること」はありません</div>
+  </div>
+</section>
+
+<!-- CASE DETAIL（中身は js/case-detail.js と js/timeline.js が作る） -->
+<section class="screen" id="screen-case">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="case-detail-root"></div>
+</section>
+
+<!-- REPORTS ⑤ 案件内の報告書一覧（#case/{id}/reports。中身は js/report-ui.js が作る） -->
+<section class="screen" id="screen-reports">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="reports-root"></div>
+</section>
+
+<!-- SHARE ⑦ 協力業者に報告書の作成を依頼（#case/{id}/share。中身は js/report-share.js が作る） -->
+<section class="screen" id="screen-share">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="share-root"></div>
+</section>
+
+<!-- REPORT ⑥ 報告書の入力（#report/{id}。中身は js/report-ui.js が作る） -->
+<section class="screen" id="screen-report">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="report-root"></div>
+  <div class="rep-bar" id="report-bar" hidden>
+    <button class="btn ghost" id="rep-to-pdf" type="button">PDFプレビュー</button>
+    <button class="btn" id="rep-submit" type="button">提出する</button>
+    <button class="btn green" id="rep-confirm" type="button" hidden>確認済みにする</button>
+  </div>
+</section>
+
+<!-- MAIL ⑨ 依頼者へ送る報告メールの下書き（#mail/{id}。中身は js/mail-ui.js が作る） -->
+<section class="screen" id="screen-mail">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="mail-root"></div>
+  <div class="rep-bar" id="mail-bar" hidden>
+    <button class="btn ghost" id="mail-later" type="button">あとで</button>
+    <button class="btn" id="mail-send" type="button">送信する</button>
+    <button class="btn green" id="mail-done" type="button" hidden>送信済みにする</button>
+  </div>
+</section>
+
+<!-- REPORT PDF ⑩ PDFプレビュー（#report/{id}/pdf） -->
+<section class="screen" id="screen-report-pdf">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="rep-pdf-wrap">
+    <button class="back" id="rpdf-back" type="button">← 入力に戻る</button>
+    <div class="rep-between rep-pdf-head">
+      <b>PDFプレビュー</b>
+      <div class="rep-acts" id="rpdf-per">
+        <button class="chip on" type="button" data-per="4" aria-pressed="true">写真 4枚/ページ</button>
+        <button class="chip" type="button" data-per="2" aria-pressed="false">2枚</button>
+        <button class="chip" type="button" data-per="1" aria-pressed="false">1枚</button>
+      </div>
+    </div>
+    <div class="rep-acts rep-pdf-fit" id="rpdf-fit">
+      <button class="chip on" type="button" data-fit="contain" aria-pressed="true">全体表示</button>
+      <button class="chip" type="button" data-fit="cover" aria-pressed="false">切り抜き</button>
+    </div>
+    <div class="rep-acts"><button class="btn inline" id="rpdf-download" type="button" disabled>PDFをダウンロード</button></div>
+    <div class="err" id="rpdf-msg"></div>
+    <div id="rpdf-preview"></div>
+  </div>
+</section>
+
+<!-- CASE MODAL (新規/編集) -->
+<div class="modal-bg" id="case-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cm-title">
+    <h3 id="cm-title">新規案件</h3>
+    <div class="ff"><label for="cm-name">物件名・現場名（これだけで作成OK）</label><input type="text" id="cm-name" placeholder="例: グランメゾン中野 302号室" autocomplete="off"></div>
+    <div class="ff"><label for="cm-due">対応期日 <span class="opt">あとからでOK</span></label><input type="date" id="cm-due"></div>
+    <div class="ff"><label for="cm-assignee">担当者 <span class="opt">あとからでOK</span></label><select id="cm-assignee"></select></div>
+    <div class="ff"><label for="cm-address">現場住所 <span class="opt">あとからでOK</span></label><input type="text" id="cm-address" placeholder="例: 東京都中野区中央2-1-5" autocomplete="off"></div>
+    <div class="ff"><label for="cm-client">元請け・発注者 <span class="opt">あとからでOK</span></label><input type="text" id="cm-client" placeholder="例: 大京管理" autocomplete="off"></div>
+    <div class="ff"><label for="cm-client-email">依頼者のメールアドレス（報告書や見積の送付先） <span class="opt">任意</span></label><input type="email" id="cm-client-email" placeholder="例: tanto@daikyo-kanri.co.jp" autocomplete="off"></div>
+    <div class="modal-act">
+      <button class="btn ghost" id="cm-cancel" type="button">キャンセル</button>
+      <button class="btn" id="cm-save" type="button">作成する</button>
+    </div>
+    <div class="err" id="cm-msg"></div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<section class="screen" id="screen-settings">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="set-body">
+    <button class="back" id="settings-back" type="button">← 案件一覧に戻る</button>
+    <div class="card" id="card-company">
+      <div class="card-ttl">会社マスタ設定</div>
+      <div class="logo-row">
+        <div class="logo-box" id="set-logo-box"><span id="set-logo-ph">ロゴ<br>未設定</span><img id="set-logo-img" alt="会社ロゴ" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" hidden></div>
+        <div class="logo-act">
+          <button class="btn" type="button" id="set-logo-btn">画像をアップロード</button>
+          <input type="file" id="set-logo-file" accept="image/png,image/jpeg" hidden>
+          <div>PNG / JPG・推奨 正方形・2MB以内<br>報告書・見積書・掲示の各PDFに表示</div>
+        </div>
+      </div>
+      <div class="ff"><label for="set-name">会社名</label><input type="text" id="set-name"></div>
+      <div class="ff"><label for="set-address">住所</label><input type="text" id="set-address" placeholder="東京都〇〇区〇〇 1-2-3 〇〇ビル4F"></div>
+      <div class="ff"><label for="set-tel">電話番号</label><input type="tel" id="set-tel" placeholder="03-1234-5678"></div>
+      <div class="ff"><label for="set-email">会社のメールアドレス（依頼者への返信先になります）</label><input type="email" id="set-email" placeholder="info@company.co.jp" autocomplete="off"></div>
+      <div class="save-bar"><button class="btn" type="button" id="set-save">保存する</button></div>
+      <div class="err" id="set-msg"></div>
+    </div>
+    <div class="card" id="card-staff">
+      <div class="card-ttl">スタッフ招待</div>
+      <div class="ff"><label for="invite-email">招待するメールアドレス</label>
+        <input type="email" id="invite-email" placeholder="staff@company.co.jp" autocomplete="off">
+      </div>
+      <div class="save-bar"><button class="btn" type="button" id="invite-btn">招待リンクを発行</button></div>
+      <div class="err" id="invite-msg"></div>
+      <div id="invite-result" hidden>
+        <div class="ff"><label for="invite-link">招待リンク（7日間有効・1回のみ使用可）</label>
+          <div class="ff-row"><input type="text" id="invite-link" readonly><button class="btn ghost" type="button" id="invite-copy">コピー</button></div>
+        </div>
+        <a id="invite-mailto" class="invite-mail" href="#">メールで送る</a>
+      </div>
+      <div class="note" id="invite-note">招待リンクはオーナーのみ発行できます。発行したリンクを相手に渡してください（自動送信はしません）。</div>
+    </div>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
+<script src="js/crypto-util.js"></script>
+<script src="js/supabase-config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/quota.js"></script>
+<script src="js/case-logic.js"></script>
+<script src="js/image.js"></script>
+<script src="js/cases-api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="js/report-logic.js"></script>
+<script src="js/reports-api.js"></script>
+<script src="js/report-pdf.js"></script>
+<script src="js/case-list.js"></script>
+<script src="js/case-detail.js"></script>
+<script src="js/team.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/report-form.js"></script>
+<script src="js/report-ui.js"></script>
+<script src="js/report-share.js"></script>
+<script src="js/report-edit.js"></script>
+<script src="js/mail-ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

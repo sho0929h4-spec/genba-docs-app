@@ -1,0 +1,291 @@
+// js/reports-api.js — 報告書・写真・提出/確認・協力業者URL・送付メール下書きのDBアクセス（Supabase呼び出しはここに集約）
+const ReportsApi = (() => {
+  const RL = () => window.ReportLogic;
+  const must = ({ data, error }) => { if (error) throw error; return data; };
+  const now = () => new Date().toISOString();
+
+  // DBの列権限（migration 009）で更新できる列のうち、画面から直接変えてよいものだけ。
+  // status / submitted_* / confirmed_* / sent_at は submit・confirm・markSent だけが触る
+  const REPORT_COLS = ['work_type', 'room', 'work_date', 'time_start', 'time_end', 'worker_id', 'worker_name', 'data', 'photos'];
+  const MAIL_COLS = ['to_email', 'cc', 'subject', 'body'];
+  const SHARE_COLS = 'id, report_id, vendor_name, expires_at, revoked_at, submitted_at, created_by, created_at'; // token_hash は返さない
+  const SHARE_DAYS = [3, 7, 14];
+  const VENDOR_MAX = 60; // DB: report_shares_vendor_len（migration 011）
+  const PDF_URL_SECONDS = 1209600; // 14日
+  const CONFIRM_TITLE = '報告書を確認する';
+
+  const pick = (obj, cols) => {
+    const out = {};
+    for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+    return out;
+  };
+  // Storage のファイル名は英数._- のみ（日本語は落とす）。写真は ImageUtil で JPEG になるので .jpg 固定
+  const safeJpg = n => {
+    const base = String(n || '').replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '').replace(/^[._-]+/, '').slice(0, 60);
+    return (base || 'photo') + '.jpg';
+  };
+  // 「報告書を確認する」の次やることのタイトル（報告書ごとに一意。confirm は完全一致で完了にする）
+  // 協力業者の提出は DB の share_submit と同じ形（worker_name = 協力業者名）
+  function confirmTitle(r) {
+    if (r.submitted_via === 'share') return `${CONFIRM_TITLE}（${r.worker_name || ''}）`;
+    const label = RL().WORK_TYPE_LABEL[r.work_type] || r.work_type;
+    const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(r.work_date || ''));
+    return `${CONFIRM_TITLE}（${m ? `${label} ${+m[1]}/${+m[2]}` : label}）`;
+  }
+  const reportDir = (caseId, reportId) => `${ctx.org.id}/cases/${caseId}/reports/${reportId}`;
+
+  // body は文字列または関数。関数なら try の内側で評価する（文言生成の失敗で本処理を壊さない）
+  async function logSystem(caseId, body) {
+    try {
+      const text = typeof body === 'function' ? body() : body;
+      must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system', body: text }));
+    } catch (e) { console.warn('自動記録に失敗', e); }
+  }
+  async function bumpUsage(bytes) {
+    if (!bytes) return;
+    try { await addUsage(bytes, 0); }
+    catch (e) { console.warn('使用量の更新に失敗', e); }
+  }
+
+  /* ---- 協力業者URLのトークン ---- */
+  // 32バイト乱数 → base64url（パディングなし・43文字）
+  function newToken() {
+    const b = crypto.getRandomValues(new Uint8Array(32));
+    let s = '';
+    for (const x of b) s += String.fromCharCode(x);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  // DB の _share_hash（sha256(UTF-8) の小文字hex）と同じ値
+  async function hashToken(token) {
+    return CryptoUtil.sha256Hex(String(token));
+  }
+
+  const api = {
+    /* ===== 報告書 ===== */
+    async listByCase(caseId) {
+      return must(await sb.from('reports').select('*').eq('case_id', caseId).order('created_at', { ascending: false }));
+    },
+    async get(id) {
+      return must(await sb.from('reports').select('*').eq('id', id).maybeSingle());
+    },
+    // f: { work_type, worker_id, worker_name }（協力業者用は worker_name だけ入れる）
+    async create(caseId, f = {}) {
+      const row = {
+        case_id: caseId, status: 'draft', work_type: f.work_type || 'investigate',
+        worker_id: f.worker_id || null, worker_name: f.worker_name || null, data: RL().emptyData()
+      };
+      return must(await sb.from('reports').insert(row).select().single());
+    },
+    // 下書きの間だけ保存できる（status=draft の行だけを更新し、0行なら提出済みとみなす）
+    async save(id, fields) {
+      const patch = pick(fields, REPORT_COLS);
+      if (Object.keys(patch).length === 0) throw new Error('保存する項目がありません');
+      const rows = must(await sb.from('reports').update(patch).eq('id', id).eq('status', 'draft').select());
+      if (!rows || rows.length === 0) throw new Error('提出済みの報告書は編集できません');
+      return rows[0];
+    },
+    // 下書きのみ削除可（RLS）。写真ファイルも片付けて使用量を戻す
+    async remove(report) {
+      const rows = must(await sb.from('reports').delete().eq('id', report.id).select('id'));
+      if (!rows || rows.length === 0) throw new Error('削除できませんでした（下書きの報告書のみ削除できます）');
+      let freed = 0;
+      for (const p of report.photos || []) {
+        try { await AppStorage.remove(p.path); freed += p.size || 0; }
+        catch (e) { console.warn('写真の削除に失敗', e); }
+      }
+      await bumpUsage(-freed);
+    },
+
+    /* ===== 写真（report.photos も最新に書き換える） ===== */
+    async addPhoto(report, file) {
+      const p = await ImageUtil.prepareFile(file);
+      if (p.type !== 'image/jpeg') throw new Error(`「${file.name}」は写真ではありません`);
+      const q = await checkQuota(p.size, 0);
+      if (!q.ok) throw new Error(q.reason);
+      const path = `${reportDir(report.case_id, report.id)}/${CryptoUtil.uuid()}-${safeJpg(p.name)}`;
+      await AppStorage.upload(path, p.blob, { contentType: p.type });
+      const photos = [...(report.photos || []), { path, name: p.name, size: p.size, type: p.type, caption: '', phase: '' }];
+      let row;
+      try { row = await api.save(report.id, { photos }); }
+      catch (e) {
+        try { await AppStorage.remove(path); } catch (_) {}
+        throw e;
+      }
+      report.photos = row.photos;
+      if (row.updated_at) report.updated_at = row.updated_at; // 画面側の退避の基準時刻（base）を最新にする
+      await bumpUsage(p.size);
+      return row.photos;
+    },
+    async removePhoto(report, index) {
+      const cur = report.photos || [];
+      const target = cur[index];
+      if (!target) throw new Error('写真が見つかりません');
+      const row = await api.save(report.id, { photos: cur.filter((_, i) => i !== index) });
+      report.photos = row.photos;
+      if (row.updated_at) report.updated_at = row.updated_at; // 画面側の退避の基準時刻（base）を最新にする
+      try {
+        await AppStorage.remove(target.path);
+        await bumpUsage(-(target.size || 0));
+      } catch (e) { console.warn('写真ファイルの削除に失敗', e); }
+      return row.photos;
+    },
+    // dir: -1（上へ）/ +1（下へ）。端なら何もしない
+    async movePhoto(report, index, dir) {
+      const cur = [...(report.photos || [])];
+      const j = index + (dir < 0 ? -1 : 1);
+      if (!cur[index] || j < 0 || j >= cur.length) return cur;
+      [cur[index], cur[j]] = [cur[j], cur[index]];
+      const row = await api.save(report.id, { photos: cur });
+      report.photos = row.photos;
+      if (row.updated_at) report.updated_at = row.updated_at; // 画面側の退避の基準時刻（base）を最新にする
+      return row.photos;
+    },
+    photoUrl(path) { return AppStorage.getUrl(path); },
+
+    /* ===== 提出・確認 ===== */
+    // DB上の最新の内容で検証してから提出する（画面側は未保存の入力を先に save しておく）
+    async submit(report) {
+      const cur = await api.get(report.id);
+      if (!cur) throw new Error('報告書が見つかりません');
+      if (cur.status !== 'draft') throw new Error('この報告書はすでに提出されています');
+      const { errors } = RL().validate(cur);
+      if (errors.length) throw new Error(errors.join('\n'));
+      const rows = must(await sb.from('reports')
+        .update({ status: 'submitted', submitted_at: now(), submitted_by: ctx.user.id, submitted_via: 'member' })
+        .eq('id', cur.id).eq('status', 'draft').select());
+      if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
+      const row = rows[0];
+      await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を提出した`);
+      try {
+        const c = must(await sb.from('cases').select('assignee_id').eq('id', row.case_id).maybeSingle());
+        must(await sb.from('case_actions').insert({
+          case_id: row.case_id, kind: 'other', ball: 'us', title: confirmTitle(row), assignee_id: (c && c.assignee_id) || null
+        }));
+      } catch (e) { console.warn('次やることの追加に失敗', e); }
+      return row;
+    },
+    // 確認済みにして、その報告書の確認タスクを完了・依頼者への送付メール下書きを作って返す
+    async confirm(report, caseRow) {
+      const rows = must(await sb.from('reports')
+        .update({ status: 'confirmed', confirmed_at: now(), confirmed_by: ctx.user.id })
+        .eq('id', report.id).eq('status', 'submitted').select());
+      if (!rows || rows.length === 0) throw new Error('確認待ちの報告書ではありません');
+      const row = rows[0];
+      try {
+        const acts = must(await sb.from('case_actions').select('id').eq('case_id', row.case_id)
+          .is('done_at', null).eq('title', confirmTitle(row)));
+        if (acts && acts.length) {
+          must(await sb.from('case_actions').update({ done_at: now() }).in('id', acts.map(a => a.id)));
+        }
+      } catch (e) { console.warn('次やることの完了に失敗', e); }
+      let draft, draftErr;
+      try { draft = await api.createDraft(row, caseRow); }
+      catch (e) { draftErr = e; }
+      await logSystem(row.case_id, '報告書を確認した');
+      if (draftErr) {
+        const err = new Error('確認済みにしましたが、送付メールの下書きを作れませんでした。もう一度お試しください');
+        err.cause = draftErr;
+        err.report = row;
+        throw err;
+      }
+      return draft;
+    },
+    // 送付メールの下書きを作る（confirm から呼ぶ。下書き作成だけ失敗したときの再実行にも使う）
+    async createDraft(report, caseRow) {
+      let c = caseRow;
+      if (!c) c = must(await sb.from('cases').select('*').eq('id', report.case_id).maybeSingle());
+      const m = RL().buildMail({ caseRow: c, org: ctx.org, report });
+      return must(await sb.from('mail_drafts').insert({
+        case_id: report.case_id, report_id: report.id, to_email: m.to || null, subject: m.subject, body: m.body
+      }).select().single());
+    },
+
+    /* ===== 協力業者URL ===== */
+    // token はDBに保存しない。戻り値の url / token は発行直後にだけ表示する
+    async createShare(report, vendorName, days) {
+      const name = String(vendorName == null ? '' : vendorName).trim();
+      if (!name) throw new Error('協力業者名を入力してください');
+      if (Array.from(name).length > VENDOR_MAX) throw new Error(`協力業者名は${VENDOR_MAX}文字以内で入力してください`);
+      if (!SHARE_DAYS.includes(days)) throw new Error('有効期限は3日・7日・14日から選んでください');
+      if (report.status && report.status !== 'draft') throw new Error('提出済みの報告書にはURLを発行できません');
+      const token = newToken();
+      const token_hash = await hashToken(token);
+      const expires_at = new Date(Date.now() + days * 86400000).toISOString();
+      const share = must(await sb.from('report_shares')
+        .insert({ report_id: report.id, token_hash, vendor_name: name, expires_at }).select(SHARE_COLS).single());
+      // index.html と同じ場所の r.html（サブパス配信でも動くように、今のページ基準で組み立てる）
+      return { share, token, url: new URL('r.html', location.origin + location.pathname).href + '#' + token };
+    },
+    async listShares(reportId) {
+      return must(await sb.from('report_shares').select(SHARE_COLS).eq('report_id', reportId).order('created_at', { ascending: false }));
+    },
+    // 案件内の報告書のURLをまとめて取る（⑦ の発行済み一覧）
+    async listSharesByReports(reportIds) {
+      if (!reportIds || reportIds.length === 0) return [];
+      return must(await sb.from('report_shares').select(SHARE_COLS).in('report_id', reportIds).order('created_at', { ascending: false }));
+    },
+    async revokeShare(id) {
+      const rows = must(await sb.from('report_shares').update({ revoked_at: now() })
+        .eq('id', id).is('revoked_at', null).select('id'));
+      if (!rows || rows.length === 0) throw new Error('無効にできませんでした（すでに無効の可能性があります）');
+    },
+    hashToken,
+    // 協力業者が入力中（無効化・提出・期限切れのどれでもない）か。入力中の報告書は社内から更新できない（migration 011 のトリガー）
+    shareActive: sh => !!sh && !sh.revoked_at && !sh.submitted_at && Date.parse(sh.expires_at) > Date.now(),
+
+    /* ===== 送付メール ===== */
+    async listDrafts(caseId) {
+      return must(await sb.from('mail_drafts').select('*').eq('case_id', caseId).order('created_at', { ascending: false }));
+    },
+    async getDraft(id) {
+      return must(await sb.from('mail_drafts').select('*').eq('id', id).maybeSingle());
+    },
+    async saveDraft(id, fields) {
+      const patch = pick(fields, MAIL_COLS);
+      if (Object.keys(patch).length === 0) throw new Error('保存する項目がありません');
+      const rows = must(await sb.from('mail_drafts').update(patch).eq('id', id).eq('status', 'draft').select());
+      if (!rows || rows.length === 0) throw new Error('送信済みのメールは編集できません');
+      return rows[0];
+    },
+    async deleteDraft(id) {
+      const rows = must(await sb.from('mail_drafts').delete().eq('id', id).select('id'));
+      if (!rows || rows.length === 0) throw new Error('削除できませんでした（未送信の下書きのみ削除できます）');
+    },
+    // report.pdf を上書き保存し、14日有効の署名URLを返す。使用量は旧ファイルとの差分だけ動かす
+    async preparePdfLink(draft, pdfBlob) {
+      if (!draft.report_id) throw new Error('元の報告書が見つかりません');
+      if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
+      const path = `${reportDir(draft.case_id, draft.report_id)}/report.pdf`;
+      const oldSize = await AppStorage.sizeOf(path);
+      const diff = pdfBlob.size - oldSize;
+      if (diff > 0) {
+        const q = await checkQuota(diff, 0);
+        if (!q.ok) throw new Error(q.reason);
+      }
+      await AppStorage.upload(path, pdfBlob, { contentType: 'application/pdf', upsert: true });
+      await bumpUsage(diff);
+      const rows = must(await sb.from('mail_drafts').update({ pdf_path: path })
+        .eq('id', draft.id).eq('status', 'draft').select('id, pdf_path'));
+      if (!rows || rows.length === 0) throw new Error('この下書きは送信済みです');
+      draft.pdf_path = path;
+      return AppStorage.getUrl(path, PDF_URL_SECONDS);
+    },
+    async markSent(draft) {
+      const rows = must(await sb.from('mail_drafts')
+        .update({ status: 'sent', sent_at: now(), sent_by: ctx.user.id })
+        .eq('id', draft.id).eq('status', 'draft').select());
+      if (!rows || rows.length === 0) throw new Error('すでに送信済みです');
+      const row = rows[0];
+      if (row.report_id) {
+        try {
+          const rs = must(await sb.from('reports').update({ status: 'sent', sent_at: row.sent_at })
+            .eq('id', row.report_id).eq('status', 'confirmed').select('id'));
+          if (!rs || rs.length === 0) console.warn('報告書が確認済みでないため送付済みにしませんでした', row.report_id);
+        } catch (e) { console.warn('報告書の状態更新に失敗', e); }
+      }
+      await logSystem(row.case_id, () => `依頼者へ送付した（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
+      return row;
+    }
+  };
+  return api;
+})();
