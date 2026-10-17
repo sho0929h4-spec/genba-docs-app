@@ -657,6 +657,7 @@ async function mlOpen(id) {
     s.pdf = { kind: 'gone', url: '', busy: false, err: '' }; // 送信待ちで無効にした後（pdf_path は空になる）
   }
   mlRender(s);
-  if (s.pdf) mlLoadPdfLink(s);
+  // 確認が要るのは checking のときだけ。gone（送信待ちで無効化済み・pdf_path が空）で確認すると none が返って「無効化済み」が消える
+  if (s.pdf && s.pdf.kind === 'checking') mlLoadPdfLink(s);
   if (s.dirty) mlFlush(s);
 }
