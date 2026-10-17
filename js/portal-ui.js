@@ -244,7 +244,7 @@ function ptRenderForm(inst) {
   const chips = mk('div', 'taio-add pt-chips');
   PortalLogic.AUDIENCES.forEach(a => {
     const c = dBtn(a.label, 'chip' + (f.audience === a.key ? ' on' : ''), () => {
-      if (f.audience === a.key) return;
+      if (f.sending || f.audience === a.key) return;
       f.audience = a.key;
       if (!f.edited) f.label = PortalLogic.defaultLabel(a.key, ptCaseRow(inst));
       ptRenderForm(inst);
@@ -270,38 +270,53 @@ function ptRenderForm(inst) {
   const ferr = mk('div', 'err');
   ferr.id = 'pt-form-err';
   const acts = mk('div', 'af-act');
-  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline', () => {
+  const cancel = dBtn('キャンセル', 'btn sm ghost inline', () => {
+    if (f.sending) return;
     inst.form = null;
     ptRenderForm(inst);
-  }));
-  const go = dBtn('発行する', 'btn sm inline', b => ptIssue(inst, b, ferr));
+  });
+  cancel.id = 'pt-cancel';
+  acts.appendChild(cancel);
+  const go = dBtn('発行する', 'btn sm inline', () => ptIssue(inst, ferr));
   go.id = 'pt-issue';
   acts.appendChild(go);
   form.append(acts, ferr);
   box.replaceChildren(form);
+  ptLockForm(inst, !!f.sending);
 }
 
-async function ptIssue(inst, btn, ferr) {
+// 送信中は 発行する・相手の種類・キャンセル・宛名 を押せなくする
+// （通信中に種類を押すとフォームが作り直され、新しい「発行する」が押せて URL が2件発行されるため）
+function ptLockForm(inst, on) {
+  inst.formEl.querySelectorAll('button, input').forEach(el => { el.disabled = on; });
+}
+
+async function ptIssue(inst, ferr) {
   const f = inst.form;
-  if (!f) return;
+  if (!f || f.sending) return;
   ferr.textContent = '';
   const m = PortalLogic.labelError(f.label);
   if (m) { ferr.textContent = m; const i = document.getElementById('pt-label'); if (i) i.focus(); return; }
-  await withBusy(btn, async () => {
-    let row;
-    try {
-      row = await PortalsApi.issue(inst.caseId, f.audience, f.label);
-    } catch (e) {
-      if (ptLive(inst)) ferr.textContent = 'URLを発行できませんでした: ' + errText(e);
-      return;
+  f.sending = true;
+  ptLockForm(inst, true);
+  let row;
+  try {
+    row = await PortalsApi.issue(inst.caseId, f.audience, f.label);
+  } catch (e) {
+    f.sending = false;
+    if (ptLive(inst) && inst.form === f) {
+      ptLockForm(inst, false);
+      ferr.textContent = 'URLを発行できませんでした: ' + errText(e);
     }
-    if (!ptLive(inst)) return;
-    inst.form = null;
-    inst.issued = row;
-    ptRenderForm(inst);
-    ptRenderResult(inst);
-    await ptLoad(inst);
-  });
+    return;
+  }
+  f.sending = false;
+  if (!ptLive(inst)) return;
+  inst.form = null;
+  inst.issued = row;
+  ptRenderForm(inst);
+  ptRenderResult(inst);
+  await ptLoad(inst);
 }
 
 // 発行した直後: URL とコピー2種を目立つ形で出す（一覧にも同じ行が出る。後からもコピーし直せる）

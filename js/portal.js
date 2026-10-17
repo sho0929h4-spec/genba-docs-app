@@ -35,15 +35,16 @@
   const nowText = () => { const d = new Date(); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 
   /* ---------- 全画面メッセージ ---------- */
-  function full(icon, title, text, retry) {
+  function full(icon, title, text, retry, retryText) {
     $('p-hdr').hidden = true;
     const box = mk('div', 'p-full');
     box.id = 'p-full';
     box.append(mk('div', 'p-icon', icon), mk('h1', null, title));
     if (text) box.appendChild(mk('p', null, text));
     if (retry) {
-      const b = mk('button', 'btn ghost', 'もう一度読み込む');
+      const b = mk('button', 'btn ghost', retryText || 'もう一度読み込む');
       b.type = 'button';
+      b.id = 'p-retry';
       b.addEventListener('click', retry);
       box.appendChild(b);
     }
@@ -73,8 +74,13 @@
       return;
     }
     if (!data) { showInvalid(); return; }
-    await render(data);
+    try { await render(data); }
+    catch (e) {
+      // 「読み込み中…」のまま止めない。押せる「最新の情報にする」を出す（token を含み得るので console には出さない）
+      full('⚠️', '表示できませんでした', RENDER_FAIL, () => boot(), '最新の情報にする');
+    }
   }
+  const RENDER_FAIL = '表示中に問題が起きました。「最新の情報にする」を押してください。';
 
   async function refresh(btn, errEl) {
     if (loading) return;
@@ -92,7 +98,13 @@
       return;
     }
     if (!data) { showInvalid(); return; }
-    await render(data);
+    try { await render(data); }
+    catch (e) {
+      // render は最後にまとめて差し替えるので、失敗しても今の画面とこのボタンは残っている。押せる状態に戻す
+      btn.disabled = false;
+      btn.textContent = '最新の情報にする';
+      errEl.textContent = RENDER_FAIL;
+    }
   }
 
   /* ---------- 画面 ---------- */

@@ -87,8 +87,10 @@
 
   // 送付済みの書類（portal_open の docs）を並べる。
   //   estimates: 見積の系列（series_id）ごとに1つ。最新版（版が大きい→送付日が新しい）を先頭の項目にし、それ以前は older に
-  //              （older も同じ順）。系列は最新版の送付日の新しい順。series_id が無い見積は1件で1系列
-  //   reports:   報告書を送付日の新しい順
+  //              （older も同じ順）。同じ版の送り直しは送付日が新しい1件だけ。系列は最新版の送付日の新しい順。
+  //              series_id が無い見積は1件で1系列
+  //   reports:   報告書を送付日の新しい順。送り直しはまとめない（portal_open は報告書の id を返さず、
+  //              同じ種類の別の報告書＝同じ題名と区別できない。まとめると別の報告書が消える）
   function groupDocs(docs) {
     const list = Array.isArray(docs) ? docs.filter(d => d && typeof d === 'object') : [];
     const reports = list.filter(d => d.kind === 'report').slice().sort(bySentDesc);
@@ -99,8 +101,20 @@
       series.get(key).push(d);
     });
     const byVersion = (a, b) => (Number(b.version) || 0) - (Number(a.version) || 0) || bySentDesc(a, b);
+    // 同じ系列の同じ版（DB で (org, series_id, version) は一意＝同じ見積）を送り直したものは、送付日が新しい1件だけ残す。
+    // 版番号が無いものは同じ見積か分からないのでまとめない
+    const dedupe = s => {
+      const seen = new Set();
+      return s.filter(d => {
+        const v = Number(d.version);
+        if (!(v > 0)) return true;
+        if (seen.has(v)) return false;
+        seen.add(v);
+        return true;
+      });
+    };
     const estimates = Array.from(series.values()).map(g => {
-      const s = g.slice().sort(byVersion);
+      const s = dedupe(g.slice().sort(byVersion));
       return Object.assign({}, s[0], { older: s.slice(1) });
     }).sort(bySentDesc);
     return { estimates, reports };
