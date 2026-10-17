@@ -101,6 +101,11 @@
   .modal-bg[hidden]{display:none;}
   .modal{background:#fff;border-radius:16px;padding:24px 20px;width:100%;max-width:400px;max-height:100%;overflow-y:auto;}
   .modal h3{font-size:16px;margin-bottom:14px;}
+  .modal-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+  .modal-x{flex:none;width:40px;height:40px;margin:-10px -8px 0 0;border:0;border-radius:10px;background:transparent;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;font-family:inherit;}
+  .modal-x:hover{background:var(--bg);color:var(--text);}
+  .modal-x:focus-visible{outline:2px solid var(--navy2);outline-offset:1px;}
+  .modal-x:disabled{opacity:.4;cursor:default;}
   .modal .ff{margin-bottom:12px;}
   .modal .ff label .opt{font-weight:400;color:#94a3b8;}
   .modal .ff input,.modal .ff select{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
@@ -846,7 +851,7 @@
 <!-- CASE MODAL (新規/編集) -->
 <div class="modal-bg" id="case-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cm-title">
-    <h3 id="cm-title">新規案件</h3>
+    <div class="modal-hd"><h3 id="cm-title">新規案件</h3><button class="modal-x" id="cm-close" type="button" aria-label="閉じる">×</button></div>
     <div class="ff"><label for="cm-name">物件名・現場名（これだけで作成OK）</label><input type="text" id="cm-name" placeholder="例: グランメゾン中野 302号室" autocomplete="off"></div>
     <div class="ff"><label for="cm-due">対応期日 <span class="opt">あとからでOK</span></label><input type="date" id="cm-due"></div>
     <div class="ff"><label for="cm-assignee">担当者 <span class="opt">あとからでOK</span></label><select id="cm-assignee"></select></div>
@@ -909,41 +914,41 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=463b99a"></script>
-<script src="js/supabase-config.js?v=463b99a"></script>
-<script src="js/supabase.js?v=463b99a"></script>
-<script src="js/auth.js?v=463b99a"></script>
-<script src="js/storage.js?v=463b99a"></script>
-<script src="js/quota.js?v=463b99a"></script>
-<script src="js/case-logic.js?v=463b99a"></script>
-<script src="js/image.js?v=463b99a"></script>
-<script src="js/cases-api.js?v=463b99a"></script>
+<script src="js/crypto-util.js?v=48f4403"></script>
+<script src="js/supabase-config.js?v=48f4403"></script>
+<script src="js/supabase.js?v=48f4403"></script>
+<script src="js/auth.js?v=48f4403"></script>
+<script src="js/storage.js?v=48f4403"></script>
+<script src="js/quota.js?v=48f4403"></script>
+<script src="js/case-logic.js?v=48f4403"></script>
+<script src="js/image.js?v=48f4403"></script>
+<script src="js/cases-api.js?v=48f4403"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=463b99a"></script>
-<script src="js/reports-api.js?v=463b99a"></script>
-<script src="js/report-pdf.js?v=463b99a"></script>
-<script src="js/notice-logic.js?v=463b99a"></script>
-<script src="js/notices-api.js?v=463b99a"></script>
-<script src="js/notice-pdf.js?v=463b99a"></script>
-<script src="js/estimate-logic.js?v=463b99a"></script>
-<script src="js/estimates-api.js?v=463b99a"></script>
-<script src="js/estimate-pdf.js?v=463b99a"></script>
-<script src="js/portal-logic.js?v=463b99a"></script>
-<script src="js/portals-api.js?v=463b99a"></script>
-<script src="js/case-list.js?v=463b99a"></script>
-<script src="js/case-detail.js?v=463b99a"></script>
-<script src="js/team.js?v=463b99a"></script>
-<script src="js/timeline.js?v=463b99a"></script>
-<script src="js/portal-ui.js?v=463b99a"></script>
-<script src="js/report-form.js?v=463b99a"></script>
-<script src="js/report-ui.js?v=463b99a"></script>
-<script src="js/report-share.js?v=463b99a"></script>
-<script src="js/report-edit.js?v=463b99a"></script>
-<script src="js/mail-ui.js?v=463b99a"></script>
-<script src="js/notice-ui.js?v=463b99a"></script>
-<script src="js/notice-edit.js?v=463b99a"></script>
-<script src="js/estimate-ui.js?v=463b99a"></script>
-<script src="js/app.js?v=463b99a"></script>
+<script src="js/report-logic.js?v=48f4403"></script>
+<script src="js/reports-api.js?v=48f4403"></script>
+<script src="js/report-pdf.js?v=48f4403"></script>
+<script src="js/notice-logic.js?v=48f4403"></script>
+<script src="js/notices-api.js?v=48f4403"></script>
+<script src="js/notice-pdf.js?v=48f4403"></script>
+<script src="js/estimate-logic.js?v=48f4403"></script>
+<script src="js/estimates-api.js?v=48f4403"></script>
+<script src="js/estimate-pdf.js?v=48f4403"></script>
+<script src="js/portal-logic.js?v=48f4403"></script>
+<script src="js/portals-api.js?v=48f4403"></script>
+<script src="js/case-list.js?v=48f4403"></script>
+<script src="js/case-detail.js?v=48f4403"></script>
+<script src="js/team.js?v=48f4403"></script>
+<script src="js/timeline.js?v=48f4403"></script>
+<script src="js/portal-ui.js?v=48f4403"></script>
+<script src="js/report-form.js?v=48f4403"></script>
+<script src="js/report-ui.js?v=48f4403"></script>
+<script src="js/report-share.js?v=48f4403"></script>
+<script src="js/report-edit.js?v=48f4403"></script>
+<script src="js/mail-ui.js?v=48f4403"></script>
+<script src="js/notice-ui.js?v=48f4403"></script>
+<script src="js/notice-edit.js?v=48f4403"></script>
+<script src="js/estimate-ui.js?v=48f4403"></script>
+<script src="js/app.js?v=48f4403"></script>
 </body>
 </html>

@@ -344,8 +344,4 @@ window.addEventListener('hashchange', () => {
   closeCaseModal(true);
   routeFromHash();
 });
-document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape' && !$('case-modal').hidden) closeCaseModal();
-});
-
 document.addEventListener('DOMContentLoaded', () => { bindForms(); boot(); });

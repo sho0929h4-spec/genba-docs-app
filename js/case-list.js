@@ -123,6 +123,7 @@ function closeCaseModal(force) {
 function setCaseModalBusy(busy) {
   caseModalBusy = busy;
   $('cm-cancel').disabled = busy;
+  $('cm-close').disabled = busy;
 }
 
 async function openCaseModal(row, onSaved) {
@@ -236,5 +237,6 @@ function bindCaseList() {
   $('case-new-btn').addEventListener('click', () => openCaseModal(null));
   $('cm-cancel').addEventListener('click', () => closeCaseModal());
   $('cm-save').addEventListener('click', saveCaseModal);
-  $('case-modal').addEventListener('click', ev => { if (ev.target === $('case-modal')) closeCaseModal(); });
+  // 外側のクリックや Esc では閉じない（入力中のデータが消えるため）。閉じるのは × とキャンセルだけ
+  $('cm-close').addEventListener('click', () => closeCaseModal());
 }
