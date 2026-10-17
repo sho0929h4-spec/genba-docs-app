@@ -8,6 +8,8 @@
 // timeline.js 側が定義すれば呼ばれるフック:
 //   renderTimeline(rootEl)  … 詳細の初回描画時に1回
 //   refreshTimeline()       … 次やること済/対応履歴追加/精算確認/状態変更で自動記録が増えた後
+// portal-ui.js 側が定義すれば呼ばれるフック:
+//   renderPortals(rootEl)   … 詳細の初回描画時に1回（「👥 お客様ページ」欄。書類欄の下）
 let currentCase = null;
 let caseMembers = [];
 let caseActions = [];
@@ -254,6 +256,13 @@ function buildDetail() {
 
   const tl = mk('div'); tl.id = 'case-timeline';
 
+  // お客様ページ（portal-ui.js があるときだけ）
+  let portals = null;
+  if (typeof renderPortals === 'function') {
+    portals = mk('div', 'taio pt-box');
+    portals.id = 'case-portals';
+  }
+
   // 依頼者へ送るメール（報告書・見積書）の下書きが残っているとき（⑨ のある版だけ）。行き先:
   //   1件 → その⑨ / 報告書の下書きだけ → ⑤の「送信待ちの下書き」 /
   //   見積書の下書きを含む（見積書一覧には送信待ちの表示がない）→ 案件詳細の中に下書きの一覧を出す / 取得できない → ⑤
@@ -287,7 +296,7 @@ function buildDetail() {
     mailBanner.append(mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件'), mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-  root.replaceChildren(...[detailBackBtn(), headBox, next, tools, toolsNote, mailBanner, mailList, works, tl].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, next, tools, toolsNote, mailBanner, mailList, portals, works, tl].filter(Boolean));
 
   renderHead();
   renderNextRows();
@@ -297,6 +306,10 @@ function buildDetail() {
   renderWorksChips();
   renderWorksForm();
   renderWorksRows();
+  if (portals) {
+    try { renderPortals(portals); }
+    catch (e) { console.warn('お客様ページ欄の表示に失敗', e); portals.replaceChildren(mk('div', 'err', 'お客様ページ欄を表示できませんでした: ' + errText(e))); }
+  }
   if (typeof renderTimeline === 'function') renderTimeline(tl);
 }
 

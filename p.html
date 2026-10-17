@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://kkglrmogktnhedkcgyid.supabase.co; base-uri 'none'; form-action 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Ctext x='32' y='46' font-size='38' font-weight='700' text-anchor='middle' fill='%23fff' font-family='Hiragino Kaku Gothic ProN,Noto Sans JP,sans-serif'%3E現%3C/text%3E%3C/svg%3E">
+<title>工事の進み具合</title>
+<!-- お客様ページ（ログイン不要・読み取り専用）。URL の # 以降が合言葉（token）。中身は js/portal.js が作る。
+     見せる範囲はサーバー側（portal_open。migration 018/019）で相手の種類ごとに絞る -->
+<style>
+  :root{--navy:#1a3a5c;--navy2:#22507e;--border:#dde5ef;--bg:#f0f4f8;--text:#1e293b;--muted:#64748b;--red:#c0392b;--green:#1e7e34;--green-bg:#e8f5ec;--amber:#b45309;--amber-bg:#fdf3e6;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{-webkit-text-size-adjust:100%;}
+  body{font-family:'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif;background:var(--bg);color:var(--text);line-height:1.65;}
+  [hidden]{display:none !important;}
+  button{font-family:inherit;}
+  a{color:var(--navy2);}
+  .p-hdr{background:#fff;border-bottom:1px solid var(--border);padding:12px 16px;padding-top:calc(12px + env(safe-area-inset-top,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px));}
+  .p-hdr-in{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:10px;}
+  .p-hdr-in>div{min-width:0;}
+  .p-logo{width:40px;height:40px;flex:none;border-radius:8px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;}
+  .p-org{display:block;font-size:14px;overflow-wrap:anywhere;}
+  .p-sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .wrap{max-width:760px;margin:0 auto;padding:16px 14px calc(32px + env(safe-area-inset-bottom,0px));padding-left:calc(14px + env(safe-area-inset-left,0px));padding-right:calc(14px + env(safe-area-inset-right,0px));}
+  .p-full{max-width:520px;margin:12vh auto 0;padding:0 16px;text-align:center;}
+  .p-full .p-icon{font-size:40px;margin-bottom:8px;}
+  .p-full h1{font-size:18px;margin-bottom:8px;overflow-wrap:anywhere;}
+  .p-full p{font-size:14px;color:var(--muted);overflow-wrap:anywhere;}
+  .p-full .btn{margin-top:16px;}
+  .btn{border:0;border-radius:10px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;cursor:pointer;padding:12px 16px;min-height:44px;}
+  .btn.ghost{background:#fff;color:var(--navy);border:1.5px solid var(--navy);}
+  .btn:disabled{opacity:.6;cursor:default;}
+  .p-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;min-width:0;}
+  .p-card h2{font-size:15px;margin-bottom:10px;}
+  .p-staff{font-size:12px;color:var(--amber);background:var(--amber-bg);border:1px solid #f3d9b5;border-radius:10px;padding:8px 12px;margin-bottom:12px;overflow-wrap:anywhere;}
+  .p-hero h1{font-size:19px;line-height:1.45;overflow-wrap:anywhere;}
+  .p-to{font-size:14px;margin-top:4px;overflow-wrap:anywhere;}
+  .p-addr{font-size:13px;color:var(--muted);margin-top:6px;overflow-wrap:anywhere;}
+  .p-done-pill{display:inline-block;margin-top:8px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--green-bg);color:var(--green);}
+  /* 進み具合: 4段のステップ（横並び。線でつなぐ） */
+  .p-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;}
+  .p-step{position:relative;text-align:center;min-width:0;padding:0 2px;}
+  .p-step::before{content:'';position:absolute;top:15px;left:calc(-50% + 20px);right:calc(50% + 20px);height:3px;border-radius:2px;background:var(--border);}
+  .p-step:first-child::before{display:none;}
+  .p-step.done::before{background:var(--green);}
+  .p-mark{position:relative;width:32px;height:32px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;background:#fff;border:2.5px solid var(--border);color:var(--muted);}
+  .p-step.done .p-mark{background:var(--green);border-color:var(--green);color:#fff;}
+  .p-step.planned .p-mark{border-color:var(--amber);background:var(--amber-bg);color:var(--amber);font-size:12px;}
+  .p-step-l{display:block;font-size:13px;font-weight:700;margin-top:6px;}
+  .p-step.todo .p-step-l{color:var(--muted);}
+  .p-step-d{display:block;font-size:11px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere;}
+  .p-step.planned .p-step-d{color:var(--amber);font-weight:700;}
+  .p-legend{font-size:11px;color:var(--muted);margin-top:10px;text-align:center;}
+  /* お知らせ */
+  .p-upd{border-top:1px solid var(--border);padding:10px 0;}
+  .p-upd:first-of-type{border-top:0;padding-top:0;}
+  .p-date{font-size:12px;color:var(--muted);font-weight:700;}
+  .p-body{font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere;}
+  /* 工事のお知らせ */
+  .p-ntc{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;}
+  .p-ntc:first-of-type{margin-top:0;}
+  .p-ntc-t{font-size:15px;font-weight:700;overflow-wrap:anywhere;}
+  .p-ntc dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin-top:8px;font-size:14px;}
+  .p-ntc dt{color:var(--muted);font-size:13px;white-space:nowrap;}
+  .p-ntc dd{overflow-wrap:anywhere;}
+  .p-ntc ul{list-style:none;margin-top:8px;font-size:14px;}
+  .p-ntc li{padding-left:1em;text-indent:-1em;overflow-wrap:anywhere;}
+  .p-ntc .p-other{margin-top:8px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;}
+  /* お送りした書類 */
+  .p-doc{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--border);padding:10px 0;}
+  .p-doc:first-of-type{border-top:0;padding-top:0;}
+  .p-doc>div{min-width:0;}
+  .p-doc-t{display:block;font-size:15px;font-weight:700;overflow-wrap:anywhere;}
+  .p-open{flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:8px;border:1.5px solid var(--navy);color:var(--navy);font-size:14px;font-weight:700;text-decoration:none;background:#fff;}
+  .p-older{font-size:12px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere;}
+  .p-older a{display:inline-flex;align-items:center;min-height:36px;padding:0 4px;}
+  .p-note{font-size:12px;color:var(--muted);margin-top:8px;}
+  /* お問い合わせ */
+  .p-contact{font-size:15px;}
+  .p-contact b{display:block;overflow-wrap:anywhere;}
+  .p-contact a{display:inline-flex;align-items:center;min-height:40px;font-size:16px;font-weight:700;overflow-wrap:anywhere;word-break:break-all;}
+  .p-foot{text-align:center;margin-top:16px;}
+  .p-foot .btn{width:100%;max-width:320px;}
+  .p-time{font-size:12px;color:var(--muted);margin-top:8px;}
+  .p-err{font-size:13px;color:var(--red);margin-top:8px;overflow-wrap:anywhere;}
+  .p-warn{font-size:12px;color:var(--muted);margin-top:12px;overflow-wrap:anywhere;}
+  @media(min-width:700px){ .p-hero h1{font-size:22px;} .p-card{padding:18px 20px;} .p-step-d{font-size:12px;} }
+</style>
+</head>
+<body>
+<header class="p-hdr" id="p-hdr" hidden>
+  <div class="p-hdr-in">
+    <div class="p-logo" id="p-logo" aria-hidden="true"></div>
+    <div><b class="p-org" id="p-org"></b><div class="p-sub">工事の進み具合とお知らせ</div></div>
+  </div>
+</header>
+<main class="wrap" id="p-root"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
+<script src="js/supabase-config.js?v=ca1d5c0"></script>
+<script src="js/supabase.js?v=ca1d5c0"></script>
+<script src="js/storage.js?v=ca1d5c0"></script>
+<script src="js/notice-logic.js?v=ca1d5c0"></script>
+<script src="js/portal-logic.js?v=ca1d5c0"></script>
+<script src="js/portal.js?v=ca1d5c0"></script>
+</body>
+</html>

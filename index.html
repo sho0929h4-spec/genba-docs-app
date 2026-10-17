@@ -192,6 +192,48 @@
   .entry-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
   .req-status{font-size:11px;font-weight:700;padding:2px 12px;min-height:36px;border-radius:999px;border:0;background:#fdecea;color:var(--red);cursor:pointer;font-family:inherit;}
   .req-status.ok{background:#eafaf1;color:var(--green);}
+  /* ===== お客様ページ欄（案件詳細）・お客様へのお知らせ ===== */
+  .pt-lead{margin:-2px 0 4px;}
+  .pt-row{border-top:1px solid var(--border);padding:10px 0;min-width:0;}
+  .pt-label{font-size:14px;min-width:0;overflow-wrap:anywhere;}
+  .pt-sub{display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;font-size:12px;margin-top:2px;}
+  .pt-opened{color:var(--green);font-weight:700;}
+  .pt-unopened{color:var(--muted);}
+  .pt-acts{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;margin-top:8px;}
+  .pt-acts .btn.sm{white-space:nowrap;}
+  .pt-open{display:inline-flex;align-items:center;min-height:36px;padding:6px 8px;font-size:12px;font-weight:700;color:var(--navy2);text-decoration:none;}
+  .pt-acts .pt-revoke{margin-left:auto;}
+  .pt-confirm{background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 11px;margin-top:8px;font-size:13px;color:var(--text);overflow-wrap:anywhere;}
+  .pt-confirm .pt-acts{margin-top:6px;}
+  .btn.pt-danger{background:var(--red);}
+  .pt-status:empty,.pt-fb:empty{display:none;}
+  .pt-status{margin-top:4px;overflow-wrap:anywhere;}
+  .pt-fallback{width:100%;margin-top:6px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#f7faff;color:var(--text);resize:vertical;}
+  .pt-new-wrap{margin:10px 0 0;}
+  .pt-form .pt-q{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
+  .pt-chips{margin-bottom:6px;}
+  .pt-sees{font-size:12px;color:var(--navy2);background:#fff;border:1px solid var(--border);border-radius:8px;padding:7px 10px;overflow-wrap:anywhere;}
+  .pt-field{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);margin-top:8px;min-width:0;}
+  .pt-field input{width:100%;min-width:0;padding:9px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .pt-issued{background:#fff;border:2px solid var(--navy);border-radius:12px;padding:12px;margin-top:10px;min-width:0;overflow-wrap:anywhere;}
+  .pt-issued .shr-link{margin-top:8px;}
+  .pt-issued>.linkbtn{display:block;margin:4px 0 -4px auto;}
+  .pt-revoked{margin-top:10px;font-size:12px;color:var(--muted);}
+  .pt-revoked summary{cursor:pointer;min-height:36px;display:flex;align-items:center;font-weight:700;color:var(--navy2);}
+  .pt-rv-row{display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;padding:6px 0;border-top:1px solid var(--border);}
+  .pt-rv-label{color:var(--text);overflow-wrap:anywhere;min-width:0;text-decoration:line-through;}
+  .tag.cust{background:#e6f4f1;color:#0f766e;}
+  .tl-aud{background:#f2faf8;border:1px solid #cde9e3;border-radius:10px;padding:8px 10px;margin-bottom:8px;}
+  .tl-aud[hidden]{display:none;}
+  .tl-aud-q{font-size:12px;font-weight:700;color:#0f766e;margin-bottom:4px;}
+  .tl-aud-chks{display:flex;flex-wrap:wrap;gap:4px 6px;}
+  .tl-chk{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 10px 0 6px;border:1.5px solid var(--border);border-radius:999px;background:#fff;font-size:13px;cursor:pointer;}
+  .tl-chk input{width:18px;height:18px;margin:0;accent-color:#0f766e;}
+  .tl-chk:has(input:checked){border-color:#0f766e;}
+  .tl-aud-note{font-size:11px;color:var(--muted);margin-top:4px;}
+  .entry .tl-aud-line{font-size:12px;color:#0f766e;font-weight:700;margin-top:4px;}
+  .attach[hidden]{display:none;}
+  .tl-actions .tl-right{margin-left:auto;}
   /* ===== TEAM（チーム状況）・表示切替タブ ===== */
   .viewtabs{display:flex;background:#e3eaf3;border-radius:10px;padding:3px;margin-bottom:12px;width:fit-content;}
   .vt{padding:8px 16px;min-height:36px;border:0;border-radius:8px;background:none;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;font-family:inherit;}
@@ -867,38 +909,41 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=6de5a57"></script>
-<script src="js/supabase-config.js?v=6de5a57"></script>
-<script src="js/supabase.js?v=6de5a57"></script>
-<script src="js/auth.js?v=6de5a57"></script>
-<script src="js/storage.js?v=6de5a57"></script>
-<script src="js/quota.js?v=6de5a57"></script>
-<script src="js/case-logic.js?v=6de5a57"></script>
-<script src="js/image.js?v=6de5a57"></script>
-<script src="js/cases-api.js?v=6de5a57"></script>
+<script src="js/crypto-util.js?v=ca1d5c0"></script>
+<script src="js/supabase-config.js?v=ca1d5c0"></script>
+<script src="js/supabase.js?v=ca1d5c0"></script>
+<script src="js/auth.js?v=ca1d5c0"></script>
+<script src="js/storage.js?v=ca1d5c0"></script>
+<script src="js/quota.js?v=ca1d5c0"></script>
+<script src="js/case-logic.js?v=ca1d5c0"></script>
+<script src="js/image.js?v=ca1d5c0"></script>
+<script src="js/cases-api.js?v=ca1d5c0"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=6de5a57"></script>
-<script src="js/reports-api.js?v=6de5a57"></script>
-<script src="js/report-pdf.js?v=6de5a57"></script>
-<script src="js/notice-logic.js?v=6de5a57"></script>
-<script src="js/notices-api.js?v=6de5a57"></script>
-<script src="js/notice-pdf.js?v=6de5a57"></script>
-<script src="js/estimate-logic.js?v=6de5a57"></script>
-<script src="js/estimates-api.js?v=6de5a57"></script>
-<script src="js/estimate-pdf.js?v=6de5a57"></script>
-<script src="js/case-list.js?v=6de5a57"></script>
-<script src="js/case-detail.js?v=6de5a57"></script>
-<script src="js/team.js?v=6de5a57"></script>
-<script src="js/timeline.js?v=6de5a57"></script>
-<script src="js/report-form.js?v=6de5a57"></script>
-<script src="js/report-ui.js?v=6de5a57"></script>
-<script src="js/report-share.js?v=6de5a57"></script>
-<script src="js/report-edit.js?v=6de5a57"></script>
-<script src="js/mail-ui.js?v=6de5a57"></script>
-<script src="js/notice-ui.js?v=6de5a57"></script>
-<script src="js/notice-edit.js?v=6de5a57"></script>
-<script src="js/estimate-ui.js?v=6de5a57"></script>
-<script src="js/app.js?v=6de5a57"></script>
+<script src="js/report-logic.js?v=ca1d5c0"></script>
+<script src="js/reports-api.js?v=ca1d5c0"></script>
+<script src="js/report-pdf.js?v=ca1d5c0"></script>
+<script src="js/notice-logic.js?v=ca1d5c0"></script>
+<script src="js/notices-api.js?v=ca1d5c0"></script>
+<script src="js/notice-pdf.js?v=ca1d5c0"></script>
+<script src="js/estimate-logic.js?v=ca1d5c0"></script>
+<script src="js/estimates-api.js?v=ca1d5c0"></script>
+<script src="js/estimate-pdf.js?v=ca1d5c0"></script>
+<script src="js/portal-logic.js?v=ca1d5c0"></script>
+<script src="js/portals-api.js?v=ca1d5c0"></script>
+<script src="js/case-list.js?v=ca1d5c0"></script>
+<script src="js/case-detail.js?v=ca1d5c0"></script>
+<script src="js/team.js?v=ca1d5c0"></script>
+<script src="js/timeline.js?v=ca1d5c0"></script>
+<script src="js/portal-ui.js?v=ca1d5c0"></script>
+<script src="js/report-form.js?v=ca1d5c0"></script>
+<script src="js/report-ui.js?v=ca1d5c0"></script>
+<script src="js/report-share.js?v=ca1d5c0"></script>
+<script src="js/report-edit.js?v=ca1d5c0"></script>
+<script src="js/mail-ui.js?v=ca1d5c0"></script>
+<script src="js/notice-ui.js?v=ca1d5c0"></script>
+<script src="js/notice-edit.js?v=ca1d5c0"></script>
+<script src="js/estimate-ui.js?v=ca1d5c0"></script>
+<script src="js/app.js?v=ca1d5c0"></script>
 </body>
 </html>
