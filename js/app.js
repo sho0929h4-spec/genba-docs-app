@@ -188,6 +188,7 @@ function openSettings() {
   resetInviteResult();
   typeof renderSettings === 'function' && renderSettings();
   showScreen('settings');
+  if (typeof openClientsCard === 'function') openClientsCard(); // 元請マスタ（js/clients-ui.js。社内の誰でも編集できる）
 }
 
 const UUID_RE = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -318,6 +319,7 @@ function bindForms() {
   $('settings-back').addEventListener('click', openCases);
   bindCaseList();
   bindTeam();
+  if (typeof bindClients === 'function') bindClients();
 
   $('set-save').addEventListener('click', () => withBusy($('set-save'), async () => {
     setMsg('set-msg', '');

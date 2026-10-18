@@ -4,8 +4,11 @@ const CasesApi = (() => {
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const safeName = n => (n || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
 
-  // DBの列権限（migration 007）で更新できる列だけ。許可外の列が1つでもあるとPATCH全体が403になるため入口で絞る
-  const CASE_COLS = ['name', 'address', 'client_name', 'client_email', 'assignee_id', 'due_date', 'status'];
+  // DBの列権限（migration 007 / 008 / 020）で更新できる列だけ。許可外の列が1つでもあるとPATCH全体が403になるため入口で絞る。
+  // 020: 元請マスタの client_id と、物件オーナー・入居者の連絡先。client_name / client_email は互換のため残し、
+  //      案件の保存時に選んだ元請マスタの値を入れる（画面側 js/case-list.js）
+  const CASE_COLS = ['name', 'address', 'client_name', 'client_email', 'assignee_id', 'due_date', 'status',
+    'client_id', 'owner_name', 'owner_email', 'owner_tel', 'resident_name', 'resident_email', 'resident_tel'];
   const WORK_COLS = ['kind', 'label', 'worked_at', 'worker_id', 'settle_due', 'settled_at'];
   const ACTION_COLS = ['kind', 'ball', 'title', 'due_date', 'started_on', 'assignee_id', 'done_at'];
   const pick = (obj, cols) => {
@@ -31,7 +34,8 @@ const CasesApi = (() => {
     async createCase(fields) {
       const q = await checkQuota(0, 1);
       if (!q.ok) throw new Error(q.reason);
-      return must(await sb.from('cases').insert(fields).select().single());
+      // cases の insert は表単位で付与済みだが、送る列は更新と同じ許可列に揃える（created_by 等は DB の既定値）
+      return must(await sb.from('cases').insert(pick(fields, CASE_COLS)).select().single());
     },
     async updateCase(id, fields) {
       return must(await sb.from('cases').update(pick(fields, CASE_COLS)).eq('id', id).select().single());

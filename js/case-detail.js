@@ -1,4 +1,4 @@
-// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・次やること・書類・対応履歴と精算）
+// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・関係者・次やること・書類・対応履歴と精算）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）
 // mk() は case-list.js、withBusy / setMsg / showScreen / $ は app.js のものを使う
 //
@@ -110,6 +110,7 @@ async function loadCase(id) {
   caseMembers = [];
   caseActions = [];
   caseWorks = [];
+  partyClient = null;
   nextFormKind = null;
   workFormKind = null;
   editingSettle.clear();
@@ -160,7 +161,7 @@ async function refreshPart(part) {
     return gen === caseGen && seq === casePartSeq[part] ? errText(e) : '';
   }
   if (gen !== caseGen || seq !== casePartSeq[part]) return '';
-  if (part === 'head') { currentCase = data; renderHead(); }
+  if (part === 'head') { currentCase = data; renderHead(); renderParties(); }
   else if (part === 'actions') { caseActions = data || []; renderNextRows(); }
   else { caseWorks = data || []; renderWorksSum(); renderWorksRows(); }
   return '';
@@ -189,6 +190,10 @@ function buildDetail() {
 
   const headBox = mk('div');
   headBox.id = 'case-head-box';
+
+  // 関係者（元請／物件オーナー／入居者）。編集は案件のポップアップ
+  const parties = mk('div', 'taio');
+  parties.id = 'case-parties';
 
   const next = mk('div', 'next');
   const nextHead = mk('div', 'taio-head');
@@ -296,9 +301,10 @@ function buildDetail() {
     mailBanner.append(mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件'), mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-  root.replaceChildren(...[detailBackBtn(), headBox, next, tools, toolsNote, mailBanner, mailList, portals, works, tl].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, next, tools, toolsNote, mailBanner, mailList, portals, works, tl].filter(Boolean));
 
   renderHead();
+  renderParties();
   renderNextRows();
   renderNextChips();
   renderNextForm();
@@ -330,13 +336,12 @@ function renderHead() {
   const hot = !done && (ds === 'overdue' || ds === 'near');
   const due = mk('span', hot ? 'hot' : null, c.due_date ? '📅 期日 ' + CaseLogic.formatMD(c.due_date) : '📅 期日未設定');
   meta.appendChild(due);
-  if (c.client_name) meta.appendChild(mk('span', null, '🏢 元請: ' + c.client_name));
-  if (c.client_email) meta.appendChild(mk('span', null, '✉ ' + c.client_email));
-  card.appendChild(meta);
+  card.appendChild(meta); // 元請・連絡先は下の「関係者」欄（renderParties）
 
   const act = mk('div', 'head-act');
   act.appendChild(dBtn('編集', 'linkbtn', () => {
     openCaseModal(currentCase, async () => {
+      partyClient = null;
       const m = await refreshPart('head');
       if (m) setMsg('case-head-err', '保存しましたが、最新の表示に更新できませんでした: ' + m);
     });
@@ -371,6 +376,93 @@ function renderHead() {
   const err = mk('div', 'err'); err.id = 'case-head-err';
   card.appendChild(err);
   $('case-head-box').replaceChildren(card);
+}
+
+// ---- 関係者 ----
+// 元請は元請マスタ（担当者名・電話はマスタの行を別に取る）、物件オーナー・入居者は案件の列
+let partyClient = null;   // { id, row } 取得済みの元請マスタの行（row=null は見つからない）
+let partySeq = 0;
+
+function partyContact(email, tel) {
+  const sub = mk('div', 'pty-sub');
+  if (email) {
+    const a = mk('a', 'pty-mail', '✉ ' + email);
+    a.href = 'mailto:' + email;
+    sub.appendChild(a);
+  }
+  if (tel) {
+    const a = mk('a', 'pty-tel', '☎ ' + tel);
+    a.href = 'tel:' + String(tel).replace(/[^0-9+]/g, '');
+    sub.appendChild(a);
+  }
+  if (!email && !tel) sub.appendChild(mk('span', 'pty-none', 'メール・電話 未登録'));
+  return sub;
+}
+
+function partyRow(key, label, value) {
+  const r = mk('div', 'pty-row');
+  r.dataset.party = key;
+  r.appendChild(mk('div', 'pty-k', label));
+  r.appendChild(value);
+  return r;
+}
+
+function renderParties() {
+  const box = $('case-parties');
+  if (!box || !currentCase) return;
+  const c = currentCase;
+  const head = mk('div', 'taio-head');
+  head.style.marginBottom = '0';
+  head.appendChild(mk('b', null, '関係者'));
+  head.appendChild(dBtn('関係者を編集', 'linkbtn', () => {
+    openCaseModal(currentCase, async () => {
+      partyClient = null; // 元請を選び直した・マスタを足した場合に担当者名・電話を取り直す
+      const m = await refreshPart('head');
+      if (m) setMsg('case-head-err', '保存しましたが、最新の表示に更新できませんでした: ' + m);
+    }, { focus: 'parties' });
+  }));
+
+  // 元請
+  const gc = mk('div', 'pty-v');
+  const k = c.client_id && partyClient && partyClient.id === c.client_id ? partyClient.row : null;
+  const gcName = c.client_master_name || c.client_name;
+  if (gcName) {
+    const line = mk('div');
+    line.appendChild(mk('b', null, gcName + (k && k.contact_name ? ' ' + k.contact_name + '様' : '')));
+    if (c.client_id && c.client_billing_mode) {
+      const m = c.client_billing_mode === 'monthly' ? 'monthly' : 'single';
+      line.appendChild(mk('span', 'pty-tag ' + m, ClientsApi.BILLING_LABEL[m]));
+    }
+    if (!c.client_id) line.appendChild(mk('span', 'pty-tag', '元請マスタに未登録'));
+    gc.appendChild(line);
+    gc.appendChild(partyContact(k ? k.email : c.client_email, k ? k.tel : null));
+  } else {
+    gc.appendChild(mk('span', 'pty-none', '未選択（「関係者を編集」から元請マスタで選ぶ）'));
+  }
+
+  const person = (nm, email, tel) => {
+    const v = mk('div', 'pty-v');
+    if (!nm && !email && !tel) { v.appendChild(mk('span', 'pty-none', '未登録')); return v; }
+    v.appendChild(mk('b', null, nm ? nm + '様' : '（お名前未登録）'));
+    v.appendChild(partyContact(email, tel));
+    return v;
+  };
+  box.replaceChildren(head,
+    partyRow('client', '元請', gc),
+    partyRow('owner', '物件オーナー', person(c.owner_name, c.owner_email, c.owner_tel)),
+    partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)));
+
+  // 元請マスタの行（担当者名・電話）。まだ取っていなければ取ってから描き直す。取れなくても表示は続ける
+  if (c.client_id && !(partyClient && partyClient.id === c.client_id) && typeof ClientsApi !== 'undefined') {
+    const seq = ++partySeq;
+    const gen = caseGen;
+    const id = c.client_id;
+    ClientsApi.get(id).then(row => {
+      if (seq !== partySeq || gen !== caseGen) return;
+      partyClient = { id, row: row || null };
+      renderParties();
+    }).catch(e => console.warn('元請マスタの読み込みに失敗', e));
+  }
 }
 
 // ---- 次やること ----

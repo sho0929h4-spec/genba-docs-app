@@ -111,6 +111,60 @@
   .modal .ff input,.modal .ff select{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
   .modal-act{display:flex;gap:8px;margin-top:6px;}
   .modal-act .btn{flex:1;}
+  /* 案件ポップアップの関係者（元請はマスタから選ぶ・物件オーナー・入居者） */
+  .modal.wide{max-width:460px;}
+  .cm-sec{border-top:1px solid var(--border);margin:4px 0 10px;padding-top:12px;}
+  .cm-sec-ttl{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:10px;}
+  .cm-sec-ttl .opt,.cm-sec .ff label .opt{font-weight:400;color:#94a3b8;font-size:12px;}
+  .cm-client-row{display:flex;gap:8px;align-items:stretch;}
+  .modal .cm-client-row select{flex:1;min-width:0;}
+  .cm-client-row .btn{flex:none;white-space:nowrap;min-height:44px;}
+  .cm-client-info{font-size:12px;color:var(--muted);margin-top:5px;overflow-wrap:anywhere;}
+  .cm-client-info:empty{display:none;}
+  .cm-new{background:#f7faff;border:1px dashed #b9cde6;border-radius:10px;padding:10px 12px;margin:0 0 12px;}
+  .cm-new[hidden]{display:none;}
+  .cm-new-ttl{font-size:12px;font-weight:700;color:var(--navy2);margin-bottom:8px;}
+  .cm-new .ff{margin-bottom:8px;}
+  .cm-new-act{display:flex;gap:8px;justify-content:flex-end;}
+  .cm-new .err:empty{min-height:0;margin-top:0;}
+  .cm-party{margin-bottom:6px;}
+  .cm-party-ttl{font-size:12px;font-weight:700;color:var(--navy2);margin:4px 0 6px;}
+  .cm-party .ff{margin-bottom:8px;}
+  @media(min-width:480px){ .cm-party{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 8px;} .cm-party-ttl,.cm-party .ff:nth-child(2){grid-column:1 / -1;} }
+  /* 案件詳細の関係者欄 */
+  .pty-row{display:grid;grid-template-columns:84px minmax(0,1fr);gap:2px 10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;}
+  .pty-k{font-size:12px;font-weight:700;color:var(--muted);padding-top:1px;}
+  .pty-v{min-width:0;overflow-wrap:anywhere;}
+  .pty-v b{font-size:14px;}
+  .pty-sub{display:flex;flex-wrap:wrap;gap:0 12px;font-size:12px;margin-top:1px;}
+  .pty-sub a{color:var(--navy2);text-decoration:none;font-weight:700;display:inline-flex;align-items:center;min-height:36px;overflow-wrap:anywhere;}
+  .pty-none{color:var(--muted);}
+  .pty-tag{font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;background:#eef3fa;color:var(--navy2);margin-left:6px;white-space:nowrap;}
+  .pty-tag.monthly{background:#fdf3e6;color:var(--amber);}
+  /* 設定画面の元請マスタ */
+  .cl-row{border-top:1px solid var(--border);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .cl-row:first-child{border-top:0;}
+  .cl-row>div{min-width:0;overflow-wrap:anywhere;}
+  .cl-row b{font-size:15px;}
+  .cl-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .cl-edit{flex:0 0 auto;white-space:nowrap;}
+  .cl-memo{font-size:12px;color:var(--muted);white-space:pre-wrap;margin-top:2px;}
+  .cl-empty{font-size:13px;color:var(--muted);padding:6px 0 10px;}
+  .cl-form{background:#f7faff;border:1px dashed #b9cde6;border-radius:12px;padding:14px;margin-top:12px;}
+  .cl-form[hidden]{display:none;}
+  .cl-form-ttl{font-size:14px;font-weight:700;color:var(--navy2);margin-bottom:12px;}
+  .cl-form select,.cl-form textarea{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .cl-form textarea{min-height:72px;resize:vertical;}
+  .cl-seg{display:flex;background:#e3eaf3;border-radius:10px;padding:3px;gap:2px;}
+  .card .ff label .opt{font-weight:400;color:#94a3b8;}
+  .cl-lead{margin:-10px 0 12px;}
+  .cl-seg label{position:relative;flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border-radius:8px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;margin:0;text-align:center;}
+  .cl-seg input{position:absolute;opacity:0;width:1px;height:1px;}
+  .cl-seg label:has(input:checked){background:#fff;color:var(--navy);}
+  .cl-seg label:has(input:focus-visible){outline:2px solid var(--navy2);}
+  .cl-form-act{display:flex;gap:8px;margin-top:4px;}
+  .cl-form-act .btn{flex:1;}
+  .cl-add{margin-top:10px;}
   /* ===== CASE DETAIL ===== */
   .hot{color:var(--red);font-weight:700;}
   .muted{color:var(--muted);}
@@ -850,14 +904,40 @@
 
 <!-- CASE MODAL (新規/編集) -->
 <div class="modal-bg" id="case-modal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cm-title">
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="cm-title">
     <div class="modal-hd"><h3 id="cm-title">新規案件</h3><button class="modal-x" id="cm-close" type="button" aria-label="閉じる">×</button></div>
     <div class="ff"><label for="cm-name">物件名・現場名（これだけで作成OK）</label><input type="text" id="cm-name" placeholder="例: グランメゾン中野 302号室" autocomplete="off"></div>
     <div class="ff"><label for="cm-due">対応期日 <span class="opt">あとからでOK</span></label><input type="date" id="cm-due"></div>
     <div class="ff"><label for="cm-assignee">担当者 <span class="opt">あとからでOK</span></label><select id="cm-assignee"></select></div>
     <div class="ff"><label for="cm-address">現場住所 <span class="opt">あとからでOK</span></label><input type="text" id="cm-address" placeholder="例: 東京都中野区中央2-1-5" autocomplete="off"></div>
-    <div class="ff"><label for="cm-client">元請け・発注者 <span class="opt">あとからでOK</span></label><input type="text" id="cm-client" placeholder="例: 大京管理" autocomplete="off"></div>
-    <div class="ff"><label for="cm-client-email">依頼者のメールアドレス（報告書や見積の送付先） <span class="opt">任意</span></label><input type="email" id="cm-client-email" placeholder="例: tanto@daikyo-kanri.co.jp" autocomplete="off"></div>
+    <div class="cm-sec" id="cm-parties">
+      <div class="cm-sec-ttl">関係者 <span class="opt">あとからでOK</span></div>
+      <div class="ff"><label for="cm-client">元請（管理会社）<span class="opt">元請マスタから選ぶ</span></label>
+        <div class="cm-client-row"><select id="cm-client"></select><button class="btn sm ghost inline" id="cm-client-add" type="button">＋ 新しい元請</button></div>
+        <div class="cm-client-info" id="cm-client-info"></div>
+      </div>
+      <div class="cm-new" id="cm-client-new" hidden>
+        <div class="cm-new-ttl">新しい元請を追加（元請マスタにも登録されます）</div>
+        <div class="ff"><label for="cm-nc-name">元請の名前</label><input type="text" id="cm-nc-name" maxlength="100" placeholder="例: 大京管理" autocomplete="off"></div>
+        <div class="ff"><label for="cm-nc-contact">担当者名 <span class="opt">任意</span></label><input type="text" id="cm-nc-contact" maxlength="100" placeholder="例: 田中" autocomplete="off"></div>
+        <div class="ff"><label for="cm-nc-email">メール（報告書や見積の送付先） <span class="opt">任意</span></label><input type="email" id="cm-nc-email" maxlength="254" placeholder="例: tanto@daikyo-kanri.co.jp" autocomplete="off"></div>
+        <div class="ff"><label for="cm-nc-mode">請求のしかた</label><select id="cm-nc-mode"><option value="single">単発（案件ごとに請求）</option><option value="monthly">月ごと（1か月分をまとめて請求）</option></select></div>
+        <div class="cm-new-act"><button class="btn sm ghost inline" id="cm-nc-cancel" type="button">やめる</button><button class="btn sm inline" id="cm-nc-save" type="button">追加して選ぶ</button></div>
+        <div class="err" id="cm-nc-msg"></div>
+      </div>
+      <div class="cm-party">
+        <div class="cm-party-ttl">物件オーナー</div>
+        <div class="ff"><label for="cm-owner-name">お名前</label><input type="text" id="cm-owner-name" maxlength="100" placeholder="例: 山田" autocomplete="off"></div>
+        <div class="ff"><label for="cm-owner-email">メール</label><input type="email" id="cm-owner-email" maxlength="254" placeholder="例: yamada@example.jp" autocomplete="off"></div>
+        <div class="ff"><label for="cm-owner-tel">電話</label><input type="tel" id="cm-owner-tel" maxlength="40" placeholder="例: 090-1234-5678" autocomplete="off"></div>
+      </div>
+      <div class="cm-party">
+        <div class="cm-party-ttl">入居者</div>
+        <div class="ff"><label for="cm-res-name">お名前</label><input type="text" id="cm-res-name" maxlength="100" placeholder="例: 302 佐藤" autocomplete="off"></div>
+        <div class="ff"><label for="cm-res-email">メール</label><input type="email" id="cm-res-email" maxlength="254" placeholder="例: sato@example.jp" autocomplete="off"></div>
+        <div class="ff"><label for="cm-res-tel">電話</label><input type="tel" id="cm-res-tel" maxlength="40" placeholder="例: 090-1234-5678" autocomplete="off"></div>
+      </div>
+    </div>
     <div class="modal-act">
       <button class="btn ghost" id="cm-cancel" type="button">キャンセル</button>
       <button class="btn" id="cm-save" type="button">作成する</button>
@@ -895,6 +975,28 @@
       <div class="save-bar"><button class="btn" type="button" id="set-save">保存する</button></div>
       <div class="err" id="set-msg"></div>
     </div>
+    <div class="card" id="card-clients">
+      <div class="card-ttl">元請マスタ</div>
+      <p class="set-hint cl-lead">管理会社・元請の一覧です。案件の登録では、元請をこの一覧から選びます。請求を「単発（案件ごと）」にするか「月ごと（1か月分をまとめて）」にするかを元請ごとに決めておけます。社内の誰でも追加・編集できます。</p>
+      <div id="cl-list"></div>
+      <button class="btn ghost cl-add" type="button" id="cl-add-btn">＋ 元請を追加</button>
+      <div class="cl-form" id="cl-form" hidden>
+        <div class="cl-form-ttl" id="cl-form-ttl">元請を追加</div>
+        <div class="ff"><label for="cl-name">元請の名前</label><input type="text" id="cl-name" maxlength="100" placeholder="例: 大京管理" autocomplete="off"></div>
+        <div class="ff"><label for="cl-contact">担当者名 <span class="opt">任意</span></label><input type="text" id="cl-contact" maxlength="100" placeholder="例: 田中" autocomplete="off"></div>
+        <div class="ff"><label for="cl-email">メール（報告書や見積の送付先） <span class="opt">任意</span></label><input type="email" id="cl-email" maxlength="254" placeholder="例: tanto@daikyo-kanri.co.jp" autocomplete="off"></div>
+        <div class="ff"><label for="cl-tel">電話 <span class="opt">任意</span></label><input type="tel" id="cl-tel" maxlength="40" placeholder="例: 03-1234-5678" autocomplete="off"></div>
+        <div class="ff"><label>請求のしかた</label>
+          <div class="cl-seg" role="radiogroup" aria-label="請求のしかた">
+            <label><input type="radio" name="cl-mode" value="single" id="cl-mode-single" checked>単発（案件ごと）</label>
+            <label><input type="radio" name="cl-mode" value="monthly" id="cl-mode-monthly">月ごと（まとめて）</label>
+          </div>
+        </div>
+        <div class="ff"><label for="cl-memo">メモ <span class="opt">任意</span></label><textarea id="cl-memo" maxlength="2000" placeholder="例: 請求書は月末締め・翌月10日までに郵送"></textarea></div>
+        <div class="cl-form-act"><button class="btn ghost" type="button" id="cl-cancel">キャンセル</button><button class="btn" type="button" id="cl-save">追加する</button></div>
+      </div>
+      <div class="err" id="cl-msg"></div>
+    </div>
     <div class="card" id="card-staff">
       <div class="card-ttl">スタッフ招待</div>
       <div class="ff"><label for="invite-email">招待するメールアドレス</label>
@@ -914,41 +1016,43 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=905e266"></script>
-<script src="js/supabase-config.js?v=905e266"></script>
-<script src="js/supabase.js?v=905e266"></script>
-<script src="js/auth.js?v=905e266"></script>
-<script src="js/storage.js?v=905e266"></script>
-<script src="js/quota.js?v=905e266"></script>
-<script src="js/case-logic.js?v=905e266"></script>
-<script src="js/image.js?v=905e266"></script>
-<script src="js/cases-api.js?v=905e266"></script>
+<script src="js/crypto-util.js?v=3f61973"></script>
+<script src="js/supabase-config.js?v=3f61973"></script>
+<script src="js/supabase.js?v=3f61973"></script>
+<script src="js/auth.js?v=3f61973"></script>
+<script src="js/storage.js?v=3f61973"></script>
+<script src="js/quota.js?v=3f61973"></script>
+<script src="js/case-logic.js?v=3f61973"></script>
+<script src="js/image.js?v=3f61973"></script>
+<script src="js/cases-api.js?v=3f61973"></script>
+<script src="js/clients-api.js?v=3f61973"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=905e266"></script>
-<script src="js/reports-api.js?v=905e266"></script>
-<script src="js/report-pdf.js?v=905e266"></script>
-<script src="js/notice-logic.js?v=905e266"></script>
-<script src="js/notices-api.js?v=905e266"></script>
-<script src="js/notice-pdf.js?v=905e266"></script>
-<script src="js/estimate-logic.js?v=905e266"></script>
-<script src="js/estimates-api.js?v=905e266"></script>
-<script src="js/estimate-pdf.js?v=905e266"></script>
-<script src="js/portal-logic.js?v=905e266"></script>
-<script src="js/portals-api.js?v=905e266"></script>
-<script src="js/case-list.js?v=905e266"></script>
-<script src="js/case-detail.js?v=905e266"></script>
-<script src="js/team.js?v=905e266"></script>
-<script src="js/timeline.js?v=905e266"></script>
-<script src="js/portal-ui.js?v=905e266"></script>
-<script src="js/report-form.js?v=905e266"></script>
-<script src="js/report-ui.js?v=905e266"></script>
-<script src="js/report-share.js?v=905e266"></script>
-<script src="js/report-edit.js?v=905e266"></script>
-<script src="js/mail-ui.js?v=905e266"></script>
-<script src="js/notice-ui.js?v=905e266"></script>
-<script src="js/notice-edit.js?v=905e266"></script>
-<script src="js/estimate-ui.js?v=905e266"></script>
-<script src="js/app.js?v=905e266"></script>
+<script src="js/report-logic.js?v=3f61973"></script>
+<script src="js/reports-api.js?v=3f61973"></script>
+<script src="js/report-pdf.js?v=3f61973"></script>
+<script src="js/notice-logic.js?v=3f61973"></script>
+<script src="js/notices-api.js?v=3f61973"></script>
+<script src="js/notice-pdf.js?v=3f61973"></script>
+<script src="js/estimate-logic.js?v=3f61973"></script>
+<script src="js/estimates-api.js?v=3f61973"></script>
+<script src="js/estimate-pdf.js?v=3f61973"></script>
+<script src="js/portal-logic.js?v=3f61973"></script>
+<script src="js/portals-api.js?v=3f61973"></script>
+<script src="js/case-list.js?v=3f61973"></script>
+<script src="js/clients-ui.js?v=3f61973"></script>
+<script src="js/case-detail.js?v=3f61973"></script>
+<script src="js/team.js?v=3f61973"></script>
+<script src="js/timeline.js?v=3f61973"></script>
+<script src="js/portal-ui.js?v=3f61973"></script>
+<script src="js/report-form.js?v=3f61973"></script>
+<script src="js/report-ui.js?v=3f61973"></script>
+<script src="js/report-share.js?v=3f61973"></script>
+<script src="js/report-edit.js?v=3f61973"></script>
+<script src="js/mail-ui.js?v=3f61973"></script>
+<script src="js/notice-ui.js?v=3f61973"></script>
+<script src="js/notice-edit.js?v=3f61973"></script>
+<script src="js/estimate-ui.js?v=3f61973"></script>
+<script src="js/app.js?v=3f61973"></script>
 </body>
 </html>

@@ -110,11 +110,26 @@ function caseRowEl(r) {
 }
 
 // ---- モーダル ----
+// 関係者: 元請は元請マスタ（clients）から選ぶ（その場で「＋ 新しい元請」も追加できる）。物件オーナー・入居者は案件の列。
+// 保存時に cases.client_id と、互換の client_name / client_email を選んだマスタの値で更新する
+const CM_LEGACY = '__legacy__'; // 元請マスタに紐付いていない旧データ（client_name だけの案件）。選んだままなら元請は変えない
+let caseModalClients = [];       // 元請マスタ（名前順）。読み込めなかったら []
+let caseModalClientsOk = false;  // 元請マスタを読み込めたか
+let caseModalClientTouched = false;
+let caseModalNewBusy = false;    // 「追加して選ぶ」の保存中
+const CM_PARTY = [
+  ['owner_name', 'cm-owner-name'], ['owner_email', 'cm-owner-email'], ['owner_tel', 'cm-owner-tel'],
+  ['resident_name', 'cm-res-name'], ['resident_email', 'cm-res-email'], ['resident_tel', 'cm-res-tel']
+];
+const CM_NEW_IDS = ['cm-nc-name', 'cm-nc-contact', 'cm-nc-email'];
+
 // force=true は保存中でも閉じる（画面遷移時）
 function closeCaseModal(force) {
   if (caseModalBusy && !force) return;
   caseModalSeq++;
   setCaseModalBusy(false); // 強制クローズ時、進行中の保存はもう何も触らない
+  caseModalNewBusy = false;
+  closeNewClient();
   $('case-modal').hidden = true;
   caseModalRow = null;
   caseModalOnSaved = null;
@@ -126,36 +141,150 @@ function setCaseModalBusy(busy) {
   $('cm-close').disabled = busy;
 }
 
-async function openCaseModal(row, onSaved) {
+// 元請の選択肢を作り直す。want = 選びたい値（'' / client_id / CM_LEGACY）
+function fillClientOptions(want) {
+  const sel = $('cm-client');
+  const row = caseModalRow;
+  sel.replaceChildren(new Option('未選択', ''));
+  caseModalClients.forEach(k => sel.appendChild(new Option(k.name, k.id)));
+  if (row && row.client_id && !caseModalClients.some(k => k.id === row.client_id)) {
+    // 一覧に無い（読み込み失敗など）。今の元請を保持する選択肢を足す（選んだままなら元請は変えない）
+    sel.appendChild(new Option((row.client_master_name || row.client_name || '元請') + '（現在の元請）', row.client_id));
+  }
+  if (row && !row.client_id && row.client_name) {
+    sel.appendChild(new Option(row.client_name + '（元請マスタに未登録）', CM_LEGACY));
+  }
+  sel.value = want;
+  if (sel.value !== want) sel.value = '';
+  renderClientInfo();
+}
+
+function renderClientInfo() {
+  const v = $('cm-client').value;
+  const info = $('cm-client-info');
+  const k = caseModalClients.find(x => x.id === v);
+  if (k) {
+    const sub = typeof clientSubText === 'function' ? clientSubText(k) : (k.email || '');
+    const mode = ClientsApi.BILLING_LABEL[k.billing_mode === 'monthly' ? 'monthly' : 'single'];
+    info.textContent = (sub ? sub + ' ・ ' : '') + '請求: ' + mode + (k.email ? '' : ' ・ メール未登録');
+  } else if (v === CM_LEGACY) {
+    info.textContent = '元請マスタに未登録の元請です（このままでも保存できます）。「＋ 新しい元請」で登録すると、請求のしかたも使えます';
+  } else {
+    info.textContent = '';
+  }
+}
+
+function openNewClient() {
+  if (caseModalBusy || caseModalNewBusy || !caseModalClientsOk) return;
+  const box = $('cm-client-new');
+  setMsg('cm-nc-msg', '');
+  if (box.hidden && CM_NEW_IDS.every(id => !$(id).value)) {
+    // 旧データ（マスタ未登録）を選んでいるなら、その名前とメールを下書きに入れる
+    const row = caseModalRow;
+    if ($('cm-client').value === CM_LEGACY && row) {
+      $('cm-nc-name').value = row.client_name || '';
+      $('cm-nc-email').value = row.client_email || '';
+    }
+  }
+  box.hidden = false;
+  $('cm-client-add').disabled = true;
+  $('cm-nc-name').focus();
+}
+
+function closeNewClient() {
+  $('cm-client-new').hidden = true;
+  CM_NEW_IDS.forEach(id => { $(id).value = ''; });
+  $('cm-nc-mode').value = 'single';
+  setMsg('cm-nc-msg', '');
+  $('cm-client-add').disabled = !caseModalClientsOk;
+  $('cm-nc-save').disabled = false;
+  $('cm-nc-cancel').disabled = false;
+}
+
+// 「追加して選ぶ」: 元請マスタに登録して、この案件の元請に選ぶ（ほかの入力はそのまま）
+async function saveNewClient() {
+  setMsg('cm-nc-msg', '');
+  if (caseModalNewBusy || caseModalBusy) return;
+  const r = ClientsApi.clean({
+    name: $('cm-nc-name').value, contact_name: $('cm-nc-contact').value,
+    email: $('cm-nc-email').value, billing_mode: $('cm-nc-mode').value
+  });
+  if (r.error) { setMsg('cm-nc-msg', r.error); return; }
+  const same = caseModalClients.find(k => ClientsApi.sameName(k.name, r.fields.name));
+  if (same) {
+    caseModalClientTouched = true;
+    closeNewClient();
+    fillClientOptions(same.id);
+    setMsg('cm-msg', '同じ名前の元請「' + same.name + '」が元請マスタにあったので、それを選びました', true);
+    return;
+  }
+  const seq = caseModalSeq;
+  caseModalNewBusy = true;
+  $('cm-nc-save').disabled = true;
+  $('cm-nc-cancel').disabled = true;
+  $('cm-save').disabled = true;
+  let made = null, errMsg = '';
+  try { made = await ClientsApi.create(r.fields); }
+  catch (e) { errMsg = '元請を追加できませんでした: ' + (e && e.message ? e.message : e); }
+  if (seq !== caseModalSeq) return; // 閉じられた/開き直された（登録自体は済んでいる場合がある）
+  caseModalNewBusy = false;
+  $('cm-save').disabled = false;
+  $('cm-nc-save').disabled = false;
+  $('cm-nc-cancel').disabled = false;
+  if (errMsg) { setMsg('cm-nc-msg', errMsg); return; }
+  caseModalClients = caseModalClients.concat([made]).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ja'));
+  caseModalClientTouched = true;
+  closeNewClient();
+  fillClientOptions(made.id);
+  setMsg('cm-msg', '元請「' + made.name + '」を元請マスタに追加して選びました', true);
+}
+
+// opts.focus === 'parties' … 案件詳細の「関係者を編集」から開いたとき（関係者の欄へ移る）
+async function openCaseModal(row, onSaved, opts) {
   const seq = ++caseModalSeq;
   caseModalRow = row || null;
   caseModalOnSaved = onSaved || null;
   setCaseModalBusy(false);
   caseModalAssigneeTouched = false;
+  caseModalClientTouched = false;
+  caseModalNewBusy = false;
+  caseModalClients = [];
+  caseModalClientsOk = false;
   setMsg('cm-msg', '');
   $('cm-title').textContent = row ? '案件を編集' : '新規案件';
   $('cm-save').textContent = row ? '保存する' : '作成する';
   $('cm-name').value = row ? row.name || '' : '';
   $('cm-due').value = row ? row.due_date || '' : '';
   $('cm-address').value = row ? row.address || '' : '';
-  $('cm-client').value = row ? row.client_name || '' : '';
-  $('cm-client-email').value = row ? row.client_email || '' : '';
+  CM_PARTY.forEach(([col, id]) => { $(id).value = row ? row[col] || '' : ''; });
+  closeNewClient();
+  const wantClient = row ? (row.client_id || (row.client_name ? CM_LEGACY : '')) : '';
+  fillClientOptions(wantClient);
+  $('cm-client-add').disabled = true; // 元請マスタが揃うまで追加させない（同じ名前の確認ができないため）
 
   const sel = $('cm-assignee');
   const want = row ? row.assignee_id || '' : ctx.user.id;
   sel.replaceChildren(new Option('未設定', ''));
   sel.value = '';
-  $('cm-save').disabled = true; // 担当者一覧が揃うまで保存させない（担当が黙って消えるのを防ぐ）
+  $('cm-save').disabled = true; // 担当者・元請の一覧が揃うまで保存させない（担当や元請が黙って消えるのを防ぐ）
   $('case-modal').hidden = false;
-  $('cm-name').focus();
-  let members = null;
-  let errMsg = '';
-  try {
-    members = await CasesApi.listMembers();
-  } catch (e) {
-    errMsg = '担当者一覧の読み込みに失敗しました: ' + (e && e.message ? e.message : e);
+  if (opts && opts.focus === 'parties') {
+    $('cm-client').focus();
+    $('cm-parties').scrollIntoView({ block: 'start' });
+  } else {
+    $('cm-name').focus();
   }
+  const [mr, cr] = await Promise.allSettled([CasesApi.listMembers(), ClientsApi.list()]);
   if (seq !== caseModalSeq) return; // 閉じられた/開き直された
+  const errs = [];
+  const members = mr.status === 'fulfilled' ? mr.value : null;
+  if (mr.status !== 'fulfilled') errs.push('担当者一覧の読み込みに失敗しました: ' + (mr.reason && mr.reason.message ? mr.reason.message : mr.reason));
+  if (cr.status === 'fulfilled') {
+    caseModalClients = cr.value || [];
+    caseModalClientsOk = true;
+  } else {
+    errs.push('元請マスタの読み込みに失敗しました（元請は今のまま保存されます）: ' + (cr.reason && cr.reason.message ? cr.reason.message : cr.reason));
+  }
   const selfLabel = (ctx.membership && ctx.membership.display_name ? ctx.membership.display_name : '自分') + '（自分）';
   (members || []).forEach(m => {
     const label = (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '');
@@ -169,18 +298,42 @@ async function openCaseModal(row, onSaved) {
     sel.appendChild(new Option(label, want));
     sel.value = want;
   }
-  if (errMsg) setMsg('cm-msg', errMsg);
+  fillClientOptions(caseModalClientTouched ? $('cm-client').value : wantClient);
+  $('cm-client-add').disabled = !caseModalClientsOk || !$('cm-client-new').hidden;
+  if (errs.length) setMsg('cm-msg', errs.join(' / '));
   $('cm-save').disabled = false;
+}
+
+// 元請の選択 → 保存する列。undefined = 元請の列は送らない（今のまま）
+function clientFieldsOf(value) {
+  const row = caseModalRow;
+  if (value === '') return { client_id: null, client_name: null, client_email: null };
+  const k = caseModalClients.find(x => x.id === value);
+  if (k) return { client_id: k.id, client_name: k.name, client_email: k.email || null };
+  if (value === CM_LEGACY) return undefined;
+  if (row && value === row.client_id) return undefined; // マスタを読めなかった（今の元請のまま）
+  return undefined;
 }
 
 async function saveCaseModal() {
   setMsg('cm-msg', '');
-  if (caseModalBusy) return;
+  if (caseModalBusy || caseModalNewBusy) return;
   const name = $('cm-name').value.trim();
   if (!name) { setMsg('cm-msg', '物件名・現場名を入力してください'); return; }
-  const email = $('cm-client-email').value.trim();
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    setMsg('cm-msg', 'メールアドレスの形式が正しくありません');
+  if (!$('cm-client-new').hidden) {
+    if (CM_NEW_IDS.every(id => !$(id).value.trim())) closeNewClient();
+    else {
+      setMsg('cm-msg', '新しい元請の入力中です。「追加して選ぶ」か「やめる」を押してから保存してください');
+      return;
+    }
+  }
+  const party = {};
+  for (const [col, id] of CM_PARTY) party[col] = $(id).value.trim() || null;
+  const badEmail = [['owner_email', '物件オーナー'], ['resident_email', '入居者']].find(([col]) =>
+    party[col] && !ClientsApi.validEmail(party[col]));
+  if (badEmail) {
+    setMsg('cm-msg', badEmail[1] + 'のメールアドレスの形式が正しくありません');
+    $(CM_PARTY.find(x => x[0] === badEmail[0])[1]).focus();
     return;
   }
   const fields = {
@@ -188,8 +341,8 @@ async function saveCaseModal() {
     due_date: $('cm-due').value || null,
     assignee_id: $('cm-assignee').value || null,
     address: $('cm-address').value.trim() || null,
-    client_name: $('cm-client').value.trim() || null,
-    client_email: email || null
+    ...party,
+    ...(clientFieldsOf($('cm-client').value) || {})
   };
   const row = caseModalRow;
   const cb = caseModalOnSaved;
@@ -197,6 +350,7 @@ async function saveCaseModal() {
   const idleLabel = row ? '保存する' : '作成する';
   setCaseModalBusy(true);
   $('cm-save').disabled = true;
+  $('cm-client-add').disabled = true;
   $('cm-save').textContent = '保存中…';
   let created = null;
   let errMsg = '';
@@ -211,6 +365,7 @@ async function saveCaseModal() {
   if (seq !== caseModalSeq) return;
   setCaseModalBusy(false);
   $('cm-save').disabled = false;
+  $('cm-client-add').disabled = !caseModalClientsOk;
   $('cm-save').textContent = idleLabel;
   if (errMsg) { setMsg('cm-msg', errMsg); return; }
   // ここから先は保存成功。後続処理の失敗は保存失敗として扱わない
@@ -224,6 +379,10 @@ async function saveCaseModal() {
 function bindCaseList() {
   $('case-search').addEventListener('input', renderCaseList);
   $('cm-assignee').addEventListener('change', () => { caseModalAssigneeTouched = true; });
+  $('cm-client').addEventListener('change', () => { caseModalClientTouched = true; setMsg('cm-msg', ''); renderClientInfo(); });
+  $('cm-client-add').addEventListener('click', openNewClient);
+  $('cm-nc-cancel').addEventListener('click', closeNewClient);
+  $('cm-nc-save').addEventListener('click', saveNewClient);
   $('case-chips').addEventListener('click', ev => {
     const chip = ev.target.closest('.chip');
     if (!chip) return;
