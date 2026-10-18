@@ -242,14 +242,88 @@
   }
 
   // 消して作り直す未送信のリマインド（日時が変わった・日時を消した・完了した・フェーズが無い）→ mail_drafts の行
-  function staleReminders(phases, drafts) {
+  //   now を渡すと、予定の時刻を過ぎた未送信のリマインドも含める（予定が終わった後のお知らせは送らない）
+  function staleReminders(phases, drafts, now) {
     const byId = new Map(listOf(phases).map(p => [p.id, p]));
+    const nowMs = ms(now);
     return listOf(drafts).filter(d => {
       if (d.purpose !== 'reminder' || d.status !== 'draft') return false;
       const p = byId.get(d.phase_id);
       if (!p || !p.scheduled_at || p.done_at) return true;
+      if (nowMs != null && nowMs >= ms(p.scheduled_at)) return true;
       return d.remind_for !== jstYmd(p.scheduled_at);
     });
+  }
+
+  // カードに出すリマインドの状態 → { none, slots: [{ slot, label, at, state, draft }] }
+  //   state: 'planned'（時刻前）| 'due'（時刻を過ぎた・まだ作られていない＝次に一覧を開いたとき作る）|
+  //          'draft'（下書きあり）| 'sent'（送信済み）| 'skipped'（今回は送らない）
+  //   予定を入れた時点で過ぎていた枠・前日の枠も過ぎて作らない 3日前 は出さない。
+  //   予定の時刻を過ぎた・完了したフェーズは、作ったもの（送信済み・送らない）だけ出す
+  function reminderState(phase, drafts, now) {
+    const p = phase || {};
+    const nowMs = ms(now) != null ? ms(now) : Date.now();
+    if (!p.scheduled_at) return { none: true, slots: [] };
+    const remindFor = jstYmd(p.scheduled_at);
+    const own = listOf(drafts).filter(d => isReminderOf(d, p.id) && d.remind_for === remindFor)
+      .sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
+    const planned = reminderSlots(p.scheduled_at, scheduleSetAt(p, drafts));
+    const open = !p.done_at && nowMs < ms(p.scheduled_at);
+    const d1Passed = planned.some(s => s.slot === 'd1' && ms(s.at) <= nowMs);
+    const slots = [];
+    for (const x of SLOTS) {
+      const d = own.find(m => m.remind_slot === x.slot) || null;
+      const plan = planned.find(s => s.slot === x.slot);
+      const [yy, mm, dd] = remindFor.split('-').map(Number);
+      const at = plan ? plan.at : jstAt(yy, mm, dd - x.days, REMIND_HOUR, 0).toISOString();
+      let state;
+      if (d) state = d.status === 'sent' ? 'sent' : d.skipped_at ? 'skipped' : 'draft';
+      else if (!open || !plan) continue;
+      else if (ms(plan.at) > nowMs) state = 'planned';
+      else if (x.slot === 'd3' && d1Passed) continue;
+      else state = 'due';
+      slots.push({ slot: x.slot, label: x.label, at, state, draft: d });
+    }
+    return { none: slots.length === 0, slots };
+  }
+
+  /* ---------- 送るメール（#outbox） ---------- */
+  // メールの種類の表示名（「調査日のご連絡」「工事日のお知らせ（前日・原因元工事）」「報告書の送付」等）
+  function mailLabel(draft, phase) {
+    const d = draft || {};
+    const k = phase && phase.kind;
+    if (d.purpose === 'schedule' || d.purpose === 'reminder') {
+      const head = k === 'survey' ? '調査日' : isWork(k) ? '工事日' : '日程';
+      if (d.purpose === 'schedule') return `${head}のご連絡${isWork(k) ? `（${kindLabel(k)}）` : ''}`;
+      const sl = (SLOTS.find(x => x.slot === d.remind_slot) || {}).label;
+      const tail = [sl, isWork(k) ? kindLabel(k) : ''].filter(Boolean).join('・');
+      return `${head}のお知らせ${tail ? `（${tail}）` : ''}`;
+    }
+    if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
+    return '報告書の送付';
+  }
+  // 宛先の種類（recipients）→ 「元請・入居者」（元請・物件オーナー・入居者の順）
+  function recipientsLabel(keys) {
+    const set = new Set(listOf(keys));
+    return RECIPIENTS.filter(r => set.has(r.key)).map(r => r.label).join('・');
+  }
+  // 「今回は送らない」にできるのは日程連絡・リマインドだけ
+  const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder');
+  // 未送信（送らないを除く）の下書きを案件ごとにまとめる。caseRows は case_summaries の行（phases 付き）
+  //   → [{ caseRow, items: [{ draft, phase, label, title, canSkip }] }]（下書きの作成順。案件は一番古い下書きの順）
+  function groupOutbox(caseRows, drafts) {
+    const cases = new Map(listOf(caseRows).map(c => [c.id, c]));
+    const groups = new Map();
+    const sorted = listOf(drafts).slice().sort((a, b) => (ms(a.created_at) || 0) - (ms(b.created_at) || 0));
+    for (const d of sorted) {
+      if (d.status !== 'draft' || d.skipped_at) continue;
+      const c = cases.get(d.case_id);
+      if (!c) continue;
+      const p = listOf(c.phases).find(x => x.id === d.phase_id) || null;
+      if (!groups.has(c.id)) groups.set(c.id, { caseRow: c, items: [] });
+      groups.get(c.id).items.push({ draft: d, phase: p, label: mailLabel(d, p), title: p ? phaseTitle(p) : '', canSkip: canSkip(d) });
+    }
+    return [...groups.values()];
   }
 
   /* ---------- 関係者・宛先 ---------- */
@@ -472,8 +546,8 @@
 
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, caseNext, reminderSlots, scheduleSetAt, dueReminders, staleReminders,
-    contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
+    phaseTitle, stage, caseNext, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     billingBasis, billingAmount, billToLabel, groupBilling };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;

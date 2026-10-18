@@ -267,6 +267,39 @@
   .ph-mail{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;font-size:12px;overflow-wrap:anywhere;}
   .ph-mail .btn.sm{white-space:nowrap;}
   .ph-remind{background:#fff4c2;border-radius:9px;padding:6px 10px;font-size:12px;overflow-wrap:anywhere;}
+  #case-outbox[hidden],#case-mail-banner[hidden],#screen-outbox [hidden],.ml-rcpt-note[hidden]{display:none !important;}
+  .ph-rm-t{font-weight:700;margin-bottom:2px;}
+  .ph-rm{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;min-height:36px;}
+  .ph-rm-s{font-weight:700;}
+  .ph-rm[data-state=draft] .ph-rm-s{color:#b45309;}
+  .ph-rm[data-state=sent] .ph-rm-s{color:var(--green);}
+  .ph-rm[data-state=skipped] .ph-rm-s{color:var(--muted);}
+  .ph-rm .btn.sm{white-space:nowrap;}
+  /* 送るメール（#outbox） */
+  .ob-h{font-size:18px;margin:0 0 4px;}
+  .ob-lead{margin-bottom:12px;}
+  .ob-msg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;color:var(--green);min-height:0;margin-bottom:8px;overflow-wrap:anywhere;}
+  .ob-msg:empty{display:none;}
+  .ob-case-h{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;}
+  .ob-case-h b{font-size:15px;overflow-wrap:anywhere;min-width:0;}
+  .ob-item{border-top:1px solid var(--border);padding:10px 0 4px;min-width:0;}
+  .ob-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .ob-pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;}
+  .ob-p-sched{background:#e8f0fe;color:#1d4ed8;}
+  .ob-p-rem{background:#fff4c2;color:#92400e;}
+  .ob-p-doc{background:#f0ecfb;color:#6d28d9;}
+  .ob-ph{font-size:12px;font-weight:700;color:var(--navy2);}
+  .ob-subj{font-size:14px;font-weight:700;margin:4px 0 2px;overflow-wrap:anywhere;}
+  .ob-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  /* 連絡メールの送る相手（mail-ui） */
+  .ml-kind{margin:-4px 0 10px;}
+  .ml-rcpt{border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:12px;background:#f7faff;}
+  .ml-rcpt-t{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;}
+  .ml-rc{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;min-width:0;}
+  .ml-rc input{width:20px;height:20px;flex:none;margin:0;}
+  .ml-rc-x{display:flex;flex-direction:column;min-width:0;font-size:13px;overflow-wrap:anywhere;}
+  .ml-rc-nomail{color:#b45309;}
+  .ml-rcpt-note{font-size:12px;color:#b45309;font-weight:700;margin-top:4px;overflow-wrap:anywhere;}
   .ph-form{background:#f7faff;border:1px dashed #b9cde6;border-radius:10px;padding:10px 12px;display:grid;gap:8px;}
   .ph-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);min-width:0;}
   .ph-form input{width:100%;min-width:0;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);min-height:44px;}
@@ -652,6 +685,7 @@
       <button class="vt on" type="button" data-view="cases">案件一覧</button>
       <button class="vt" type="button" data-view="team">チーム状況</button>
     </div>
+    <button class="rep-banner" id="case-outbox" type="button" hidden></button>
     <div class="list-top">
       <input class="search" id="case-search" type="search" placeholder="物件名・現場名・住所・元請けで検索" autocomplete="off">
       <button class="btn inline" id="case-new-btn" type="button">＋ 新規案件</button>
@@ -669,6 +703,19 @@
     <div class="empty" id="case-loading" hidden>読み込み中…</div>
     <div class="empty" id="case-empty" hidden>案件がありません。「＋ 新規案件」から物件名を入れて作成してください</div>
   </div>
+</section>
+
+<!-- OUTBOX 送るメール（#outbox。未送信の日程連絡・リマインド・報告書/見積書の送付。中身は js/outbox-ui.js が作る） -->
+<section class="screen" id="screen-outbox">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="outbox-root"></div>
 </section>
 
 <!-- TEAM (チーム状況: 管理者が「誰がどこで止まっているか」を見る。中身は js/team.js が作る) -->
@@ -1008,43 +1055,44 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=924fa2c"></script>
-<script src="js/supabase-config.js?v=924fa2c"></script>
-<script src="js/supabase.js?v=924fa2c"></script>
-<script src="js/auth.js?v=924fa2c"></script>
-<script src="js/storage.js?v=924fa2c"></script>
-<script src="js/quota.js?v=924fa2c"></script>
-<script src="js/case-logic.js?v=924fa2c"></script>
-<script src="js/phase-logic.js?v=924fa2c"></script>
-<script src="js/image.js?v=924fa2c"></script>
-<script src="js/cases-api.js?v=924fa2c"></script>
-<script src="js/clients-api.js?v=924fa2c"></script>
-<script src="js/phases-api.js?v=924fa2c"></script>
+<script src="js/crypto-util.js?v=edad949"></script>
+<script src="js/supabase-config.js?v=edad949"></script>
+<script src="js/supabase.js?v=edad949"></script>
+<script src="js/auth.js?v=edad949"></script>
+<script src="js/storage.js?v=edad949"></script>
+<script src="js/quota.js?v=edad949"></script>
+<script src="js/case-logic.js?v=edad949"></script>
+<script src="js/phase-logic.js?v=edad949"></script>
+<script src="js/image.js?v=edad949"></script>
+<script src="js/cases-api.js?v=edad949"></script>
+<script src="js/clients-api.js?v=edad949"></script>
+<script src="js/phases-api.js?v=edad949"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=924fa2c"></script>
-<script src="js/reports-api.js?v=924fa2c"></script>
-<script src="js/report-pdf.js?v=924fa2c"></script>
-<script src="js/notice-logic.js?v=924fa2c"></script>
-<script src="js/notices-api.js?v=924fa2c"></script>
-<script src="js/notice-pdf.js?v=924fa2c"></script>
-<script src="js/estimate-logic.js?v=924fa2c"></script>
-<script src="js/estimates-api.js?v=924fa2c"></script>
-<script src="js/estimate-pdf.js?v=924fa2c"></script>
-<script src="js/case-list.js?v=924fa2c"></script>
-<script src="js/clients-ui.js?v=924fa2c"></script>
-<script src="js/case-detail.js?v=924fa2c"></script>
-<script src="js/phase-ui.js?v=924fa2c"></script>
-<script src="js/team.js?v=924fa2c"></script>
-<script src="js/timeline.js?v=924fa2c"></script>
-<script src="js/report-form.js?v=924fa2c"></script>
-<script src="js/report-ui.js?v=924fa2c"></script>
-<script src="js/report-share.js?v=924fa2c"></script>
-<script src="js/report-edit.js?v=924fa2c"></script>
-<script src="js/mail-ui.js?v=924fa2c"></script>
-<script src="js/notice-ui.js?v=924fa2c"></script>
-<script src="js/notice-edit.js?v=924fa2c"></script>
-<script src="js/estimate-ui.js?v=924fa2c"></script>
-<script src="js/app.js?v=924fa2c"></script>
+<script src="js/report-logic.js?v=edad949"></script>
+<script src="js/reports-api.js?v=edad949"></script>
+<script src="js/report-pdf.js?v=edad949"></script>
+<script src="js/notice-logic.js?v=edad949"></script>
+<script src="js/notices-api.js?v=edad949"></script>
+<script src="js/notice-pdf.js?v=edad949"></script>
+<script src="js/estimate-logic.js?v=edad949"></script>
+<script src="js/estimates-api.js?v=edad949"></script>
+<script src="js/estimate-pdf.js?v=edad949"></script>
+<script src="js/case-list.js?v=edad949"></script>
+<script src="js/clients-ui.js?v=edad949"></script>
+<script src="js/case-detail.js?v=edad949"></script>
+<script src="js/phase-ui.js?v=edad949"></script>
+<script src="js/team.js?v=edad949"></script>
+<script src="js/timeline.js?v=edad949"></script>
+<script src="js/report-form.js?v=edad949"></script>
+<script src="js/report-ui.js?v=edad949"></script>
+<script src="js/report-share.js?v=edad949"></script>
+<script src="js/report-edit.js?v=edad949"></script>
+<script src="js/mail-ui.js?v=edad949"></script>
+<script src="js/outbox-ui.js?v=edad949"></script>
+<script src="js/notice-ui.js?v=edad949"></script>
+<script src="js/notice-edit.js?v=edad949"></script>
+<script src="js/estimate-ui.js?v=edad949"></script>
+<script src="js/app.js?v=edad949"></script>
 </body>
 </html>

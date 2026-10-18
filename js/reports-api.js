@@ -7,7 +7,7 @@ const ReportsApi = (() => {
   // DBの列権限（migration 009）で更新できる列のうち、画面から直接変えてよいものだけ。
   // status / submitted_* / confirmed_* / sent_at は submit・confirm・markSent だけが触る
   const REPORT_COLS = ['work_type', 'room', 'work_date', 'time_start', 'time_end', 'worker_id', 'worker_name', 'data', 'photos'];
-  const MAIL_COLS = ['to_email', 'cc', 'subject', 'body'];
+  const MAIL_COLS = ['to_email', 'cc', 'subject', 'body', 'recipients']; // recipients: 宛先の種類（元請・物件オーナー・入居者。020）
   const SHARE_COLS = 'id, report_id, vendor_name, expires_at, revoked_at, submitted_at, created_by, created_at'; // token_hash は返さない
   const SHARE_DAYS = [null, 7, 14, 30]; // null = 期限なし（提出・無効化まで有効。migration 012）
   const VENDOR_MAX = 60; // DB: report_shares_vendor_len（migration 011）
@@ -321,9 +321,13 @@ const ReportsApi = (() => {
       return size;
     },
     // opts.skipLog: 呼び出し側（見積の送付＝EstimatesApi.onMailSent）が宛先・件名を含めて1件だけ記録するとき
+    // opts.logText: 記録の文（日程連絡・リマインド: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。mail-ui が作る）
     async markSent(draft, opts = {}) {
+      const isNote = draft.purpose === 'schedule' || draft.purpose === 'reminder';
+      const patch = { status: 'sent', sent_at: now(), sent_by: ctx.user.id };
+      if (isNote) patch.skipped_at = null; // 「今回は送らない」にした後で送った（送信済みは送らないにできない: 020 の check）
       const rows = must(await sb.from('mail_drafts')
-        .update({ status: 'sent', sent_at: now(), sent_by: ctx.user.id })
+        .update(patch)
         .eq('id', draft.id).eq('status', 'draft').select());
       if (!rows || rows.length === 0) throw new Error('すでに送信済みです');
       const row = rows[0];
@@ -335,7 +339,8 @@ const ReportsApi = (() => {
         } catch (e) { console.warn('報告書の状態更新に失敗', e); }
       }
       const note = row.purpose === 'schedule' || row.purpose === 'reminder';
-      if (!opts.skipLog) await logSystem(row.case_id, () => `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
+      if (!opts.skipLog) await logSystem(row.case_id, () => (note && opts.logText) ? opts.logText
+        : `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;
     }
   };

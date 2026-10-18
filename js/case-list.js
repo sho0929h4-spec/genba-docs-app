@@ -53,6 +53,8 @@ async function openCases() {
     caseRows = rows;
   }
   renderCaseList();
+  // 時刻を過ぎたリマインドの下書きを作り、「✉️ 送るメールが n件あります」を出す（js/outbox-ui.js）
+  if (!errMsg && typeof refreshOutboxBanner === 'function') refreshOutboxBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active'));
 }
 
 function renderCaseList() {

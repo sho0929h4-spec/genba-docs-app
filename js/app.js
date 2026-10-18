@@ -215,6 +215,7 @@ function routeFromHash() {
   else if ((m = h.match(REPORT_PDF_HASH_RE))) openReportPdf(m[1]);      // ⑩ PDFプレビュー
   else if ((m = h.match(REPORT_HASH_RE))) openReport(m[1]);             // ⑥ 報告書の入力
   else if (h === '#team') openTeam();
+  else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
   else openCases();
 }
 
@@ -319,6 +320,7 @@ function bindForms() {
   $('settings-back').addEventListener('click', openCases);
   bindCaseList();
   bindTeam();
+  if (typeof bindOutbox === 'function') bindOutbox();
   if (typeof bindClients === 'function') bindClients();
 
   $('set-save').addEventListener('click', () => withBusy($('set-save'), async () => {

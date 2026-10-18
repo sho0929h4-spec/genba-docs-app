@@ -12,6 +12,7 @@ const PhasesApi = (() => {
     return out;
   };
   const now = () => new Date().toISOString();
+  const chunks = (a, n) => { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; };
 
   async function logSystem(caseId, body) {
     try {
@@ -95,7 +96,11 @@ const PhasesApi = (() => {
             }).select().single());
           }
         }
-        const stale = PL().staleReminders([row], mine.filter(d => d.purpose === 'reminder'));
+        // 日時を変えた（同じ日の時刻だけでも）・消したら、このフェーズの未送信のリマインドは全部消す（本文の日時が古いため）。
+        // 作り直しは次に案件一覧・案件を開いたとき（syncReminders）。変えていなくても完了・日付違いの古いものは消す
+        const reminders = mine.filter(d => d.purpose === 'reminder');
+        const moved = Date.parse(before || '') !== Date.parse(row.scheduled_at || '') && (before || row.scheduled_at);
+        const stale = moved ? reminders : PL().staleReminders([row], reminders);
         for (const d of stale) must(await sb.from('mail_drafts').delete().eq('id', d.id).eq('status', 'draft'));
       } catch (e) {
         const err = new Error('日時は保存しましたが、連絡メールの下書きを作れませんでした: ' + (e && e.message ? e.message : e));
@@ -112,6 +117,68 @@ const PhasesApi = (() => {
         }
       }
       return { phase: row, draft };
+    },
+
+    /* ===== リマインド・送るメール（対応フェーズ Task 6） ===== */
+    // 送るメールの一覧・リマインドの作成に使う下書き: 未送信の全部 ＋ 指定フェーズのリマインド（送信済み・送らないも。二重作成の判定用）
+    async listMailForOutbox(phaseIds) {
+      const [open, rem] = await Promise.all([
+        sb.from('mail_drafts').select('*').eq('status', 'draft').order('created_at'),
+        phaseIds && phaseIds.length
+          ? Promise.all(chunks(phaseIds, 80).map(ids => sb.from('mail_drafts').select('*').eq('purpose', 'reminder').in('phase_id', ids)))
+          : Promise.resolve([])
+      ]);
+      const byId = new Map();
+      for (const d of must(open) || []) byId.set(d.id, d);
+      for (const r of rem) for (const d of must(r) || []) byId.set(d.id, d);
+      return [...byId.values()];
+    },
+    // 時刻を過ぎていて未作成のリマインドを作る（サーバーの定期実行は使わない。案件一覧・案件を開いたときに呼ぶ）。
+    //   entries: [{ caseRow, phases }]（phases は case_summaries.phases か case_phases の行）。drafts: そのフェーズの mail_drafts
+    //   先に古い未送信のリマインド（日付が変わった・完了・予定の時刻を過ぎた）を消す。
+    //   二重作成は DB の unique (phase_id, remind_slot, remind_for) で防ぐ（別のタブ・別の人が同時に作っても1件。unique 違反は無視）
+    //   → { created: [行], removed: n, errors: [文] }
+    async syncReminders(entries, drafts, now) {
+      const at = now || new Date();
+      const out = { created: [], removed: 0, errors: [] };
+      const phases = [];
+      const caseOf = new Map();
+      for (const e of entries || []) for (const p of (e.phases || [])) { phases.push(p); caseOf.set(p.id, e.caseRow); }
+      const known = new Set(phases.map(p => p.id));
+      let list = (drafts || []).filter(d => d.purpose === 'reminder' && known.has(d.phase_id));
+      for (const d of PL().staleReminders(phases, list, at)) {
+        try {
+          must(await sb.from('mail_drafts').delete().eq('id', d.id).eq('status', 'draft'));
+          out.removed++;
+          list = list.filter(x => x.id !== d.id);
+        } catch (e) { out.errors.push('古いリマインドを消せませんでした: ' + (e && e.message ? e.message : e)); }
+      }
+      const due = PL().dueReminders(phases, list.concat((drafts || []).filter(d => d.purpose === 'schedule')), at);
+      for (const r of due) {
+        const p = phases.find(x => x.id === r.phase_id);
+        const caseRow = caseOf.get(r.phase_id) || {};
+        const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: me(), slot: r.slot });
+        const t = defaultTo(caseRow, 'reminder');
+        const { data, error } = await sb.from('mail_drafts').insert({
+          case_id: caseRow.id || p.case_id, phase_id: r.phase_id, purpose: 'reminder', remind_slot: r.slot, remind_for: r.remind_for,
+          to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
+        }).select().single();
+        if (error) {
+          if (error.code === '23505') continue; // 別のタブ・別の人が先に作った
+          out.errors.push('リマインドの下書きを作れませんでした: ' + error.message);
+          continue;
+        }
+        out.created.push(data);
+      }
+      return out;
+    },
+    // 「今回は送らない」（日程連絡・リマインドだけ）／元に戻す
+    async skipMail(draft, skip) {
+      if (!PL().canSkip(draft)) throw new Error('このメールは「今回は送らない」にできません');
+      const rows = must(await sb.from('mail_drafts').update({ skipped_at: skip === false ? null : now() })
+        .eq('id', draft.id).eq('status', 'draft').select());
+      if (!rows || rows.length === 0) throw new Error('送信済みか、削除されたメールです');
+      return rows[0];
     }
   };
   return api;

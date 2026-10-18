@@ -20,11 +20,13 @@ const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report
   (s.draft.purpose === 'schedule' || s.draft.purpose === 'reminder'));
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
-const mlListHash = s => '#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports');
-const mlBackLabel = s => (mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
+// s.returnTo: 「送るメール」（#outbox）から開いたときはそこへ戻る（openMailDraftFrom）
+const mlListHash = s => s.returnTo || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
+const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール' : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 let ml = null;      // 表示中の画面の状態
 let mlSeq = 0;      // openMailDraft のたびに増やす
+let mlReturn = null; // { id, hash }: 次に開く下書きの戻り先（openMailDraftFrom）
 
 /* ---------- 小さな部品 ---------- */
 const mlStamp = iso => {
@@ -49,7 +51,7 @@ function mlWaitGet(id) {
     const ok = o && typeof o === 'object' && typeof o.mailto === 'string' && o.mailto.startsWith('mailto:') &&
       typeof o.subject === 'string' && typeof o.fullBody === 'string' && (o.url == null || typeof o.url === 'string') && Number.isFinite(o.t);
     if (!ok || Date.now() - o.t > ML_WAIT_MAX || o.t > Date.now() + 60000) { mlLsDel(mlWaitKey(id)); return null; }
-    return { mailto: o.mailto, url: o.url || '', subject: o.subject, fullBody: o.fullBody, shortened: o.shortened === true }; // url が空 = リンクなしで送った
+    return { mailto: o.mailto, url: o.url || '', subject: o.subject, fullBody: o.fullBody, shortened: o.shortened === true, noMail: o.noMail === true }; // url が空 = リンクなしで送った。noMail = メールが無い相手だけ（文面コピー）
   } catch (e) { return null; }
 }
 function mlDraftSet(s) {
@@ -97,12 +99,95 @@ function mlSetSave(s, state) {
 
 function mlCollect(s) {
   const f = s.f;
-  return {
+  const out = {
     to_email: String(f.to || '').trim() || null,
     cc: String(f.cc || '').trim() || null,
     subject: String(f.subject || ''),
     body: String(f.body || '')
   };
+  if (mlIsNote(s)) out.recipients = mlRcptKeys(s); // 日程連絡・リマインドは宛先の種類も保存する
+  return out;
+}
+
+/* ---------- 宛先の種類（日程連絡・リマインド: 元請・物件オーナー・入居者から選ぶ） ---------- */
+const mlSplit = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+const mlRcptKeys = s => (Array.isArray(s.f.recipients) ? s.f.recipients : []).filter(k => PhaseLogic.RECIPIENTS.some(r => r.key === k));
+const mlContacts = s => PhaseLogic.contacts(s.caseRow || {});
+// 宛先欄のうち依頼元のメールではないもの（手で足した宛先）
+function mlManualTo(s) {
+  const known = new Set(mlContacts(s).map(c => c.email.toLowerCase()).filter(Boolean));
+  return mlSplit(s.f.to).filter(a => !known.has(a.toLowerCase()));
+}
+function mlToggleRcpt(s, key, on) {
+  if (s.ro || s.phase !== 'edit' || s.busy) return;
+  const cur = new Set(mlRcptKeys(s));
+  if (on) cur.add(key); else cur.delete(key);
+  const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k));
+  const emails = mlContacts(s).filter(c => keys.includes(c.key) && c.email).map(c => c.email);
+  const to = Array.from(new Set(emails.concat(mlManualTo(s)))).join(', ');
+  s.f.recipients = keys;
+  s.f.to = to;
+  if (s.els.to) s.els.to.value = to;
+  mlMarkDirty(s);
+  mlFillRcptNote(s);
+}
+// 選んだ人のうちメールが無い人 → 「文面をコピー」の案内
+function mlFillRcptNote(s) {
+  const el = s.els.rcptNote;
+  if (!el) return;
+  const keys = mlRcptKeys(s);
+  const noMail = mlContacts(s).filter(c => keys.includes(c.key) && !c.email);
+  el.textContent = noMail.length
+    ? 'メールが無い人（' + noMail.map(c => c.label + (c.name ? ' ' + c.name : '')).join('・') + '）には、下の「文面をコピー」で LINE などに貼り付けて送ってください'
+    : '';
+  el.hidden = !noMail.length;
+}
+function mlRcptBox(s) {
+  const disabled = s.ro || s.phase !== 'edit';
+  const box = mk('div', 'ml-rcpt');
+  box.id = 'ml-rcpt';
+  box.appendChild(mk('div', 'ml-rcpt-t', '送る相手（依頼元から選ぶ）'));
+  const cs = mlContacts(s).filter(c => c.name || c.email);
+  if (!cs.length) {
+    box.appendChild(mk('div', 'rep-sub', '依頼元が登録されていません。案件の「依頼元を編集」から元請・物件オーナー・入居者を登録できます（下の宛先に直接入れても送れます）'));
+    return box;
+  }
+  const keys = mlRcptKeys(s);
+  cs.forEach(c => {
+    const row = mk('label', 'ml-rc');
+    row.dataset.key = c.key;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = c.key;
+    cb.checked = keys.includes(c.key);
+    cb.disabled = disabled;
+    cb.addEventListener('change', () => mlToggleRcpt(s, c.key, cb.checked));
+    const txt = mk('span', 'ml-rc-x');
+    txt.appendChild(mk('b', null, c.label + (c.name ? ' ' + c.name : '')));
+    txt.appendChild(mk('span', 'rep-sub' + (c.email ? '' : ' ml-rc-nomail'), c.email || 'メール未登録（文面をコピーして送る）'));
+    row.append(cb, txt);
+    box.appendChild(row);
+  });
+  const note = mk('div', 'ml-rcpt-note');
+  note.id = 'ml-rcpt-note';
+  s.els.rcptNote = note;
+  box.appendChild(note);
+  mlFillRcptNote(s);
+  return box;
+}
+const mlNoteText = s => String(s.f.subject || '') + '\n\n' + String(s.f.body || '');
+function mlCopyTextBtn(s) {
+  const wrap = mk('div', 'ml-copy');
+  const msg = mk('span', 'rep-sub');
+  msg.id = 'ml-copy-msg';
+  msg.setAttribute('role', 'status');
+  const b = dBtn('文面をコピー', 'btn sm ghost inline', async () => {
+    const ok = await mlCopy(mlNoteText(s));
+    msg.textContent = ok ? '件名と本文をコピーしました。LINE などに貼り付けてください' : 'コピーできませんでした。本文の欄を長押しして選択してください';
+  });
+  b.id = 'ml-copy-text';
+  wrap.append(b, msg);
+  return wrap;
 }
 
 // 入力値の反映。値が変わっていなければ何もしない（type=email は blur 時の change でも呼ばれるため、無駄な保存を避ける）
@@ -241,6 +326,14 @@ function mlComposeCard(s) {
   head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + (s.draft.purpose === 'reminder' ? 'リマインドのメール' : '日程の連絡メール') : '✉ 依頼者へ送るメール') + (s.ro ? '' : '（下書き）')));
   head.appendChild(mk('span', 'rep-pill ' + (s.ro ? 'p-ok' : 'p-sent'), s.ro ? '送付済み' : '自動作成'));
   card.appendChild(head);
+  if (mlIsNote(s)) {
+    const phase = mlPhase(s);
+    const kind = mk('div', 'rep-sub ml-kind', (phase ? PhaseLogic.phaseTitle(phase) + ' ・ ' : '') + PhaseLogic.mailLabel(s.draft, phase) +
+      (phase && phase.scheduled_at ? ' ・ ' + PhaseLogic.fmtRange(phase.scheduled_at, phase.scheduled_end) : ''));
+    kind.id = 'ml-kind';
+    card.appendChild(kind);
+    card.appendChild(mlRcptBox(s));
+  }
 
   const to = edInput('ml-to', 'email', f.to, v => mlSet(s, 'to', v), { placeholder: '例: tanto@example.co.jp', autocomplete: 'off' });
   to.multiple = true; // 複数宛先はカンマ区切り
@@ -250,18 +343,21 @@ function mlComposeCard(s) {
   const body = edTextarea('ml-body', f.body, false, '', v => mlSet(s, 'body', v));
   Object.assign(s.els, { to, cc, subject, body });
 
-  card.appendChild(edField('宛先', to));
+  card.appendChild(edField(mlIsNote(s) ? '宛先（メールアドレス。上で選ぶと入ります・手で足せます）' : '宛先', to));
   card.appendChild(edField('CC', cc));
   card.appendChild(mlSenderNote());
   card.appendChild(edField('件名', subject));
   card.appendChild(edField('本文', body, s.ro || mlIsNote(s) ? '' : '「{{PDF_LINK}}」の行には、送信時に' + mlDoc(s) + 'PDFのリンクが入ります', 'ml-body-ff'));
   if (!mlIsNote(s)) card.appendChild(mlAttachment(s));
+  else if (!s.ro) card.appendChild(mlCopyTextBtn(s));
   if (!mlIsEst(s) && !mlIsNote(s)) {
     const quote = mk('div', 'ml-att ml-att-off', '＋ 見積書を添付（見積書機能の追加後に使えます）');
     quote.style.marginTop = '8px';
     card.appendChild(quote);
   }
-  card.appendChild(mk('div', 'rep-note', '送ったメールは案件のタイムラインに「送付した（宛先・件名・添付）」として残ります'));
+  card.appendChild(mk('div', 'rep-note', mlIsNote(s)
+    ? '「送信済みにする」と、案件のタイムラインに「' + PhaseLogic.mailLabel(s.draft, mlPhase(s)) + 'を送った（送った相手）」と残ります'
+    : '送ったメールは案件のタイムラインに「送付した（宛先・件名・添付）」として残ります'));
   if (disabled) card.querySelectorAll('input,textarea').forEach(e => { e.disabled = true; });
   return card;
 }
@@ -274,6 +370,7 @@ function mlBuildSent(s) {
     ['送付日時', mlStamp(d.sent_at) || '（不明）'],
     ['宛先', d.to_email || '（未入力）']
   ];
+  if (mlIsNote(s) && PhaseLogic.recipientsLabel(d.recipients)) rows.push(['送った相手', PhaseLogic.recipientsLabel(d.recipients)]);
   if (d.cc) rows.push(['CC', d.cc]);
   const dl = mk('dl', 'rep-auto');
   rows.forEach(([k, v]) => { dl.append(mk('dt', null, k), mk('dd', null, v)); });
@@ -355,17 +452,20 @@ function mlBuildWaiting(s) {
   const m = s.mail;
   const card = mk('div', 'rep-card ml-wait');
   card.id = 'ml-wait';
-  card.appendChild(mk('h3', null, '✉ メールアプリを開きました'));
-  card.appendChild(mk('div', null, 'メールアプリで送信できたら『送信済みにする』を押してください'));
+  card.appendChild(mk('h3', null, m.noMail ? '✉ 文面をコピーして送ってください' : '✉ メールアプリを開きました'));
+  card.appendChild(mk('div', null, m.noMail
+    ? '選んだ相手にメールアドレスがありません。『本文をコピー』で LINE などに貼り付けて送り、送れたら『送信済みにする』を押してください'
+    : 'メールアプリで送信できたら『送信済みにする』を押してください'));
   if (m.shortened) { // 本文が長く、mailto には全文を入れられなかった
     const warn = mk('div', 'ml-short-warn', '本文が長いため短縮してメールアプリを開きました。『本文をコピー』で全文を貼り付けてください');
     warn.id = 'ml-short-warn';
     warn.setAttribute('role', 'alert');
     card.appendChild(warn);
   }
-  card.appendChild(mk('div', 'rep-sub', '宛先: ' + (s.f.to || '') + (s.f.cc ? ' ／ CC: ' + s.f.cc : '')));
+  if (!m.noMail) card.appendChild(mk('div', 'rep-sub', '宛先: ' + (s.f.to || '') + (s.f.cc ? ' ／ CC: ' + s.f.cc : '')));
+  if (mlIsNote(s) && PhaseLogic.recipientsLabel(mlRcptKeys(s))) card.appendChild(mk('div', 'rep-sub', '送る相手: ' + PhaseLogic.recipientsLabel(mlRcptKeys(s))));
 
-  card.appendChild(mk('div', 'rep-group-ttl', 'メールアプリが開かないとき'));
+  card.appendChild(mk('div', 'rep-group-ttl', m.noMail ? 'コピーする' : 'メールアプリが開かないとき'));
   const copied = mk('div', 'rep-sub');
   copied.id = 'ml-copied';
   copied.setAttribute('role', 'status');
@@ -378,7 +478,7 @@ function mlBuildWaiting(s) {
     copy('件名をコピー', m.subject),
     copy('本文をコピー', m.fullBody, m.shortened ? 'btn sm inline ml-copy-emph' : null),
     ...(m.url ? [copy('PDFリンクをコピー', m.url)] : []), // 本文のリンク行を消して送ったときは PDF を作っていない
-    dBtn('メールアプリを開き直す', 'btn sm ghost inline', () => mlOpenMailto(m.mailto))
+    ...(m.noMail ? [] : [dBtn('メールアプリを開き直す', 'btn sm ghost inline', () => mlOpenMailto(m.mailto))])
   );
   card.append(acts, copied);
 
@@ -436,6 +536,7 @@ function mlSyncBusy(s) {
     ['to', 'cc', 'subject', 'body'].forEach(k => { if (s.els[k]) s.els[k].disabled = busy; });
   }
   document.querySelectorAll('#ml-wait button').forEach(b => { b.disabled = busy; });
+  if (s.phase === 'edit' && !s.ro) document.querySelectorAll('#ml-rcpt input').forEach(b => { b.disabled = busy; });
 }
 
 async function mlCopy(text) {
@@ -500,7 +601,13 @@ async function mlSend(s) {
   mlClearVal(s);
   const f = s.f;
   const to = String(f.to || '').trim();
-  if (!to) { mlShowVal(s, '宛先を入力してください'); s.els.to.focus(); return; }
+  // 日程連絡・リマインドで、選んだ相手が全員メール無し → メールアプリは開かず、文面をコピーして送る
+  const noMail = !to && mlIsNote(s) && mlRcptKeys(s).length > 0;
+  if (!to && !noMail) {
+    mlShowVal(s, mlIsNote(s) ? '送る相手を選ぶか、宛先のメールアドレスを入力してください（メールが無い人には「文面をコピー」で送れます）' : '宛先を入力してください');
+    s.els.to.focus();
+    return;
+  }
   if (!mlEmailsOk(to)) { mlShowVal(s, '宛先のメールアドレスの形式が正しくありません'); s.els.to.focus(); return; }
   if (!mlEmailsOk(f.cc)) { mlShowVal(s, 'CCのメールアドレスの形式が正しくありません'); s.els.cc.focus(); return; }
   if (!String(f.subject || '').trim()) { mlShowVal(s, '件名を入力してください'); s.els.subject.focus(); return; }
@@ -537,7 +644,7 @@ async function mlSend(s) {
     const built = ReportLogic.buildMailto({ to, cc: f.cc, subject: f.subject, body: f.body, link });
     const mailto = built.url;
     s.mail = {
-      mailto, url, subject: f.subject, shortened: built.shortened,
+      mailto, url, subject: f.subject, shortened: built.shortened, noMail,
       fullBody: link ? String(f.body).split(PDF_LINK).join(link) : String(f.body)
     };
     s.phase = 'waiting';
@@ -545,7 +652,7 @@ async function mlSend(s) {
     mlWaitSet(s); // タブが再読込されても「送信済みにする」待ちから再開できるように
     s.busy = false;
     mlRender(s);
-    mlOpenMailto(mailto);
+    if (!noMail) mlOpenMailto(mailto);
   } finally {
     s.busy = false;
     if (ml === s) {
@@ -566,7 +673,7 @@ async function mlMarkSent(s) {
   let sentRow = null;
   try {
     try {
-      sentRow = await ReportsApi.markSent(s.draft, { skipLog: estSend });
+      sentRow = await ReportsApi.markSent(s.draft, { skipLog: estSend, logText: mlIsNote(s) ? mlSentText(s) : null });
     } catch (e) {
       if (ml === s) mlShowVal(s, '送信済みにできませんでした: ' + errText(e));
       return;
@@ -580,14 +687,29 @@ async function mlMarkSent(s) {
     mlLsDel(mlDraftKey(s.id));
     if (ml !== s) return;
     s.ro = true; // 以降の保存・送信は受け付けない
-    location.hash = mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id; // 見積は見積書一覧へ（版の状態が見える）。報告書・日程の連絡は案件へ
+    // 送るメール（#outbox）から開いたときはそこへ。見積は見積書一覧へ（版の状態が見える）。報告書・日程の連絡は案件へ
+    location.hash = s.returnTo || (mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id);
   } finally {
     s.busy = false;
     if (ml === s) mlSyncBusy(s);
   }
 }
 
+// 日程連絡・リマインドのフェーズ（case_summaries.phases の要素。何回目 seq 付き）
+const mlPhase = s => ((s.caseRow && s.caseRow.phases) || []).find(p => p.id === s.draft.phase_id) || null;
+// 送信済みの記録: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。手で足した宛先はアドレスで
+function mlSentText(s) {
+  const phase = mlPhase(s);
+  const who = [PhaseLogic.recipientsLabel(mlRcptKeys(s)), mlManualTo(s).join(', ')].filter(Boolean).join('、');
+  return (phase ? PhaseLogic.phaseTitle(phase) + ': ' : '') + PhaseLogic.mailLabel(s.draft, phase) + 'を送った（' + (who || '宛先なし') + '）';
+}
+
 /* ---------- 入口 ---------- */
+// 戻り先つきで開く（送るメールの一覧から）。戻り先はこの下書きを開いたときだけ使う
+function openMailDraftFrom(id, hash) {
+  mlReturn = { id: String(id).toLowerCase(), hash };
+  openMailDraft(id);
+}
 // 一覧のカード等 → location.hash 変更 → hashchange → routeFromHash → ここ。hash がまだ違うときは hash を変えるだけ
 function openMailDraft(id) {
   if (!id) return;
@@ -598,6 +720,8 @@ function openMailDraft(id) {
 
 async function mlOpen(id) {
   const seq = ++mlSeq;
+  const returnTo = mlReturn && mlReturn.id === id ? mlReturn.hash : null; // 1回だけ使う（カードから開き直したときは案件へ戻る）
+  mlReturn = null;
   const prev = ml;
   showScreen('mail');
   renderHeaders();
@@ -626,9 +750,10 @@ async function mlOpen(id) {
   if (!draft) { mlMessage('メールの下書きが見つかりません', false); return; }
 
   const s = {
-    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate,
+    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate, returnTo,
     ro: draft.status !== 'draft', phase: 'edit', mail: null,
-    f: { to: draft.to_email || '', cc: draft.cc || '', subject: draft.subject || '', body: draft.body || '' },
+    f: { to: draft.to_email || '', cc: draft.cc || '', subject: draft.subject || '', body: draft.body || '',
+      recipients: Array.isArray(draft.recipients) ? draft.recipients.slice() : [] },
     dirty: false, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null, busy: false, restored: false, els: {}
   };
   if (s.ro) {

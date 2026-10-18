@@ -217,23 +217,29 @@ function buildDetail() {
       const toReports = () => { location.hash = '#case/' + cid + '/reports'; };
       b.disabled = true;
       let ds = null;
-      try { ds = (await ReportsApi.listDrafts(cid)).filter(d => d.status === 'draft'); } catch (e) { /* ⑤へ */ }
+      // 「今回は送らない」にした日程連絡・リマインドは除く
+      try { ds = (await ReportsApi.listDrafts(cid)).filter(d => d.status === 'draft' && !d.skipped_at); } catch (e) { /* ⑤へ */ }
       if (caseDetailId !== cid) return; // 取得中に別の画面へ移った
       b.disabled = false;
       if (!ds || ds.length === 0) { toReports(); return; }
       if (ds.length === 1) { openMailDraft(ds[0].id); return; }
-      if (!ds.some(d => d.estimate_id)) { toReports(); return; }
+      const isNote = d => d.purpose === 'schedule' || d.purpose === 'reminder';
+      if (!ds.some(d => d.estimate_id || isNote(d))) { toReports(); return; }
       mailList.replaceChildren(mk('b', null, '✉ 送信待ちの下書き ' + ds.length + '件'));
       ds.forEach(d => {
         const line = mk('div', 'rep-draft-line');
-        line.appendChild(mk('span', 'rep-sub', (d.estimate_id ? '見積書' : '報告書') + '・' + (d.subject || '（件名なし）')));
+        const ph = (currentCase.phases || []).find(p => p.id === d.phase_id) || null;
+        const kind = isNote(d) && typeof PhaseLogic !== 'undefined' ? PhaseLogic.mailLabel(d, ph) : d.estimate_id ? '見積書' : '報告書';
+        line.appendChild(mk('span', 'rep-sub', kind + '・' + (d.subject || '（件名なし）')));
         line.appendChild(dBtn('下書きを確認する', 'btn sm inline', () => openMailDraft(d.id)));
         mailList.appendChild(line);
       });
       mailList.hidden = false;
     });
     mailBanner.id = 'case-mail-banner';
-    mailBanner.append(mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件'), mk('span', 'rep-sub', 'メールを確認して送る →'));
+    const cnt = mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件');
+    cnt.id = 'case-mail-count';
+    mailBanner.append(cnt, mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
   root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, tools, toolsNote, mailBanner, mailList, tl].filter(Boolean));
@@ -245,6 +251,18 @@ function buildDetail() {
     catch (e) { console.warn('対応フェーズ欄の表示に失敗', e); phases.replaceChildren(mk('div', 'err', '対応フェーズ欄を表示できませんでした: ' + errText(e))); }
   }
   if (typeof renderTimeline === 'function') renderTimeline(tl);
+}
+
+// 「送信待ちの下書き n件」を実際の下書きに合わせる（case_summaries.drafts_to_send は「今回は送らない」も数えるため）。
+// 対応フェーズ欄の読み込み（js/phase-ui.js）が、この案件の mail_drafts を渡して呼ぶ
+function syncCaseMailBanner(caseId, drafts) {
+  const b = $('case-mail-banner');
+  if (!b || caseDetailId !== caseId) return;
+  const n = (drafts || []).filter(d => d.status === 'draft' && !d.skipped_at).length;
+  const c = $('case-mail-count');
+  if (c) c.textContent = '✉ 送信待ちの下書き ' + n + '件';
+  b.hidden = n === 0;
+  if (n === 0 && $('case-mail-list')) $('case-mail-list').hidden = true;
 }
 
 // ---- ヘッダ ----

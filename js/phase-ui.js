@@ -14,6 +14,7 @@ const PH_STEP_INDEX = {
   survey: { schedule: 0, visit: 1, report: 2, approval: 3, done: 4 },
   work: { estimate: 0, approval: 0, schedule: 1, work: 2, report: 3, bill: 4, payment: 4, done: 5 }
 };
+const PH_REMIND_STATE = { planned: '予定', due: '時刻を過ぎました（まもなく下書きができます）', draft: '下書きあり', sent: '送信済み', skipped: '送らない' };
 const PH_REPORT_STATUS = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '送付済み' };
 
 let ph = null;     // { gen, caseId, root, data: {phases, estimates, reports, notices, drafts}, editing: Set, confirmDel, adding, loadErr }
@@ -65,7 +66,16 @@ async function phLoad() {
     return s.loadErr;
   }
   if (!phAlive(s) || seq !== phSeq) return '';
-  const [phases, series, reports, notices, drafts] = res;
+  const [phases, series, reports] = res;
+  const notices = res[3];
+  let drafts = res[4];
+  // 時刻を過ぎたリマインドの下書きを作る・古い未送信のリマインドを消す（案件一覧と同じ。二重作成は DB の unique で防ぐ）
+  try {
+    const r = await PhasesApi.syncReminders([{ caseRow: currentCase, phases: phases || [] }], drafts || [], new Date());
+    r.errors.forEach(m => console.warn(m));
+    if (r.created.length || r.removed) drafts = await ReportsApi.listDrafts(s.caseId);
+  } catch (e) { console.warn('リマインドの確認に失敗', e); }
+  if (!phAlive(s) || seq !== phSeq) return '';
   s.loadErr = '';
   s.data = {
     phases: phases || [],
@@ -75,6 +85,7 @@ async function phLoad() {
     drafts: drafts || []
   };
   phDraw();
+  if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
   return '';
 }
 
@@ -277,13 +288,31 @@ function phScheduleBody(p, docs, errId) {
   }
   out.push(ml);
 
-  // リマインド（3日前・前日の 18:00 に下書きを作る。作るのはアプリを開いたとき＝次の更新）
-  if (!p.done_at && Date.parse(p.scheduled_at) > Date.now()) {
-    const slots = PhaseLogic.reminderSlots(p.scheduled_at, PhaseLogic.scheduleSetAt(p, docs.mails));
+  // リマインド（3日前・前日の 18:00 に、入居者・物件オーナー宛ての下書きを作る。作るのはアプリを開いたとき）
+  const open = !p.done_at && Date.parse(p.scheduled_at) > Date.now();
+  const rs = PhaseLogic.reminderState(p, docs.mails, new Date());
+  if (open || !rs.none) {
     const rm = mk('div', 'ph-remind');
-    rm.textContent = slots.length
-      ? '⏰ リマインド: ' + slots.map(x => PhaseLogic.fmtMDWHM(x.at)).join(' ・ ') + ' に下書きを作ります'
-      : '⏰ リマインドなし（日時を入れたのが前日18:00より後のため）';
+    if (rs.none) {
+      rm.textContent = '⏰ リマインドなし（日時を入れたのが前日18:00より後のため）';
+    } else {
+      rm.appendChild(mk('div', 'ph-rm-t', '⏰ リマインド（3日前・前日の18:00に下書きを作ります）'));
+      rs.slots.forEach(x => {
+        const row = mk('div', 'ph-rm');
+        row.dataset.slot = x.slot;
+        row.dataset.state = x.state;
+        row.appendChild(mk('span', null, x.label + ' ' + PhaseLogic.fmtMDWHM(x.at)));
+        row.appendChild(mk('span', 'ph-rm-s', PH_REMIND_STATE[x.state] +
+          (x.state === 'sent' && x.draft && x.draft.sent_at ? ' ' + PhaseLogic.fmtMD(x.draft.sent_at) : '')));
+        if (x.state === 'draft' || x.state === 'skipped') {
+          const b = dBtn(x.state === 'draft' ? '確認して送る' : '開く', (x.state === 'draft' ? 'btn sm inline' : 'linkbtn') + ' ph-rm-open',
+            () => openMailDraft(x.draft.id));
+          b.dataset.draftId = x.draft.id;
+          row.appendChild(b);
+        }
+        rm.appendChild(row);
+      });
+    }
     out.push(rm);
   }
   return out;
