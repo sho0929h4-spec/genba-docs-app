@@ -223,7 +223,7 @@ function buildDetail() {
       b.disabled = false;
       if (!ds || ds.length === 0) { toReports(); return; }
       if (ds.length === 1) { openMailDraft(ds[0].id); return; }
-      const isNote = d => d.purpose === 'schedule' || d.purpose === 'reminder';
+      const isNote = d => d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result';
       if (!ds.some(d => d.estimate_id || isNote(d))) { toReports(); return; }
       mailList.replaceChildren(mk('b', null, '✉ 送信待ちの下書き ' + ds.length + '件'));
       ds.forEach(d => {

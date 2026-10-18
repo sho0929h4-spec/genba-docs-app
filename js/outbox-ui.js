@@ -1,7 +1,7 @@
 // js/outbox-ui.js — 送るメール（#outbox）と案件一覧の「✉️ 送るメールが n件あります」… openOutbox() / refreshOutboxBanner(rows, isAlive)
 // 対応フェーズ Task 6。未送信の日程連絡（schedule）・リマインド（reminder）・送信待ちの報告書／見積書の下書きを案件ごとに出す。
 // リマインドはサーバーの定期実行を使わず、案件一覧・この画面・案件詳細を開いたときに作る（PhasesApi.syncReminders）。
-// 「確認して送る」→ mail-ui（⑨。戻り先はこの画面）、「今回は送らない」→ skipped_at（日程連絡・リマインドだけ。元に戻せる）。
+// 「確認して送る」→ mail-ui（⑨。戻り先はこの画面）、「今回は送らない」→ skipped_at（日程連絡・リマインド・調査結果のご報告だけ。元に戻せる）。
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、openMailDraftFrom は mail-ui.js、showScreen / renderHeaders / setMsg / $ は app.js
 
@@ -68,7 +68,7 @@ async function obLoad(seq) {
   obRender();
 }
 
-const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', estimate: 'ob-p-doc', report: 'ob-p-doc' };
+const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', survey_result: 'ob-p-res', estimate: 'ob-p-doc', report: 'ob-p-doc' };
 
 function obItemEl(it) {
   const d = it.draft;
@@ -81,7 +81,7 @@ function obItemEl(it) {
   row.appendChild(top);
   row.appendChild(mk('div', 'ob-subj', d.subject || '（件名なし）'));
   const info = [];
-  if (it.phase && it.phase.scheduled_at && it.canSkip) {
+  if (it.phase && it.phase.scheduled_at && (d.purpose === 'schedule' || d.purpose === 'reminder')) {
     info.push((it.phase.kind === 'survey' ? '調査日時 ' : '工事日 ') + PhaseLogic.fmtRange(it.phase.scheduled_at, it.phase.scheduled_end));
   }
   const who = PhaseLogic.recipientsLabel(d.recipients);

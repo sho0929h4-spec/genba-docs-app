@@ -73,11 +73,14 @@ const ReportsApi = (() => {
     async get(id) {
       return must(await sb.from('reports').select('*').eq('id', id).maybeSingle());
     },
-    // f: { work_type, worker_id, worker_name, phase_id }（協力業者用は worker_name だけ入れる。phase_id は対応フェーズのカードから作るとき）
+    // f: { work_type, worker_id, worker_name, phase_id, init }（協力業者用は worker_name だけ入れる。phase_id は対応フェーズのカードから作るとき）
+    //   init: 作成時の初期値（調査カードの調査結果 → 原因 f2 / 原因と判断した理由 reason / 次の対応方針 f4。文字列のキーだけ）
     async create(caseId, f = {}) {
+      const data = RL().emptyData();
+      for (const k of ['f2', 'reason', 'f4']) if (f.init && typeof f.init[k] === 'string' && f.init[k]) data[k] = f.init[k];
       const row = {
         case_id: caseId, status: 'draft', work_type: f.work_type || 'investigate',
-        worker_id: f.worker_id || null, worker_name: f.worker_name || null, data: RL().emptyData()
+        worker_id: f.worker_id || null, worker_name: f.worker_name || null, data
       };
       if (f.phase_id) row.phase_id = f.phase_id;
       const made = must(await sb.from('reports').insert(row).select().single());
@@ -323,7 +326,7 @@ const ReportsApi = (() => {
     // opts.skipLog: 呼び出し側（見積の送付＝EstimatesApi.onMailSent）が宛先・件名を含めて1件だけ記録するとき
     // opts.logText: 記録の文（日程連絡・リマインド: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。mail-ui が作る）
     async markSent(draft, opts = {}) {
-      const isNote = draft.purpose === 'schedule' || draft.purpose === 'reminder';
+      const isNote = draft.purpose === 'schedule' || draft.purpose === 'reminder' || draft.purpose === 'survey_result';
       const patch = { status: 'sent', sent_at: now(), sent_by: ctx.user.id };
       if (isNote) patch.skipped_at = null; // 「今回は送らない」にした後で送った（送信済みは送らないにできない: 020 の check）
       const rows = must(await sb.from('mail_drafts')
@@ -338,7 +341,7 @@ const ReportsApi = (() => {
           if (!rs || rs.length === 0) console.warn('報告書が確認済みでないため送付済みにしませんでした', row.report_id);
         } catch (e) { console.warn('報告書の状態更新に失敗', e); }
       }
-      const note = row.purpose === 'schedule' || row.purpose === 'reminder';
+      const note = row.purpose === 'schedule' || row.purpose === 'reminder' || row.purpose === 'survey_result';
       if (!opts.skipLog) await logSystem(row.case_id, () => (note && opts.logText) ? opts.logText
         : `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;

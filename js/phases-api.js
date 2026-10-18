@@ -5,7 +5,7 @@ const PhasesApi = (() => {
   const PL = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const UPDATE_COLS = ['scheduled_at', 'scheduled_end', 'done_at', 'bill_to_type', 'bill_to_name', 'billing_mode',
-    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note'];
+    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result']; // result: 調査結果（023）
   const pick = (obj, cols) => {
     const out = {};
     for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
@@ -117,6 +117,47 @@ const PhasesApi = (() => {
         }
       }
       return { phase: row, draft };
+    },
+
+    // 調査結果（case_phases.result。023）を保存し、「調査結果のご報告」（purpose survey_result）の下書きを作る/更新する。
+    //   未送信の下書きがあれば件名・本文を更新して「今回は送らない」を外す（宛先が空なら既定を入れる）。無ければ、何か入っているときだけ作る。
+    //   最初の保存（保存前の result が {}）のときだけタイムラインに「…の調査結果を記録した」。以後の変更は記録しない
+    //   result: PhaseLogic.normalizeResult の形。戻り値 { phase, draft, first }（draft は未送信の下書き or null）
+    async saveResult(phase, result, caseRow, title) {
+      const r = PL().normalizeResult(result);
+      const first = !phase.result || typeof phase.result !== 'object' || Object.keys(phase.result).length === 0;
+      const row = await api.update(phase.id, { result: r });
+      let draft = null;
+      try {
+        const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('purpose', 'survey_result')
+          .eq('status', 'draft').order('created_at', { ascending: false }));
+        const m = PL().surveyResultMail({ phase: row, caseRow, org: ctx.org, me: me() });
+        if (open && open.length) {
+          const d = open[0];
+          const patch = { subject: m.subject, body: m.body, skipped_at: null };
+          if (!String(d.to_email || '').trim()) {
+            const t = defaultTo(caseRow, 'survey_result');
+            patch.to_email = t.to || null;
+            patch.recipients = t.recipients;
+          }
+          const rows = must(await sb.from('mail_drafts').update(patch).eq('id', d.id).eq('status', 'draft').select());
+          draft = rows && rows[0] ? rows[0] : null;
+        }
+        if (!draft && PL().hasResult(r)) {
+          const t = defaultTo(caseRow, 'survey_result');
+          draft = must(await sb.from('mail_drafts').insert({
+            case_id: phase.case_id, phase_id: phase.id, purpose: 'survey_result',
+            to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
+          }).select().single());
+        }
+      } catch (e) {
+        const err = new Error('調査結果は保存しましたが、「調査結果のご報告」の下書きを作れませんでした: ' + (e && e.message ? e.message : e));
+        err.phase = row;
+        throw err;
+      } finally {
+        if (first) await logSystem(phase.case_id, `${title}の調査結果を記録した`);
+      }
+      return { phase: row, draft, first };
     },
 
     /* ===== リマインド・送るメール（対応フェーズ Task 6） ===== */

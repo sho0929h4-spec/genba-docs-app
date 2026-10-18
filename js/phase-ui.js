@@ -5,13 +5,13 @@
 // mk() は case-list.js、dBtn / errText / notifyTimeline / currentCase / caseGen / caseDetailId は case-detail.js、withBusy / $ は app.js
 //
 // カード（ワイヤーフレーム docs/mocks/mock-phases.html の 3・6）:
-//   調査: 調査日時 → 調査した → 報告書 → 見積書
+//   調査: 調査日時 → 調査した → 調査結果（Task 5b）→ 報告書 → 見積書
 //   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 完了 → 報告書 → 請求（準備中。Task 7）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
 const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分
 const PH_STEP_INDEX = {
-  survey: { schedule: 0, visit: 1, report: 2, approval: 3, done: 4 },
+  survey: { schedule: 0, visit: 1, report: 3, approval: 4, done: 5 }, // 2 = 調査結果（段階 report で未入力なら 2）
   work: { estimate: 0, approval: 0, schedule: 1, work: 2, report: 3, bill: 4, payment: 4, done: 5 }
 };
 const PH_REMIND_STATE = { planned: '予定', due: '時刻を過ぎました（まもなく下書きができます）', draft: '下書きあり', sent: '送信済み', skipped: '送らない' };
@@ -139,6 +139,11 @@ const phTitle = p => PhaseLogic.phaseTitle(p, phSeqOf(p));
 function phDraw() {
   const s = ph;
   if (!s || !s.root) return;
+  // 調査結果の入力欄は描き直しても同じ要素を使う（入力中の値・カーソル位置を失わない）。
+  // カードを作る時点で要素が付け替わってフォーカスが外れるので、先に覚えて最後に戻す
+  const ae = document.activeElement;
+  const keep = ae && s.root.contains(ae) && ae.closest && ae.closest('.ph-result')
+    ? { el: ae, a: ae.selectionStart, b: ae.selectionEnd } : null;
   const head = mk('div', 'taio-head');
   head.appendChild(mk('b', null, '対応フェーズ'));
   const adds = mk('div', 'ph-adds');
@@ -168,6 +173,12 @@ function phDraw() {
   }
   if (s.loadErr) nodes.push(mk('div', 'err', '最新の表示に更新できませんでした: ' + s.loadErr));
   s.root.replaceChildren(...nodes, err);
+  if (keep && keep.el.isConnected && document.activeElement !== keep.el) {
+    try {
+      keep.el.focus({ preventScroll: true });
+      if (typeof keep.a === 'number' && keep.el.setSelectionRange) keep.el.setSelectionRange(keep.a, keep.b);
+    } catch (e) { /* type によっては選択範囲を持たない */ }
+  }
 }
 
 function phAdd(btn, kind) {
@@ -185,6 +196,7 @@ function phAdd(btn, kind) {
 
 function phStep(state, n, title, body) {
   const st = mk('div', 'ph-st ' + state);
+  st.dataset.n = String(n);
   st.appendChild(mk('span', 'ph-dot', state === 'done' ? '✓' : String(n)));
   const d = mk('div', 'ph-d');
   d.appendChild(mk('div', 'ph-t', title));
@@ -193,15 +205,28 @@ function phStep(state, n, title, body) {
   return st;
 }
 
+// カードのステップの状態（'done' | 'now' | 'later'）。i はステップの番号（0 から）
+//   日時の段は日時が入っていないと済にしない（調査済みにした後で日時が未定のままのとき等）。
+//   調査結果の段は何か入っていれば済（調査前に入れても済）、調査済みで未入力なら「今」
+function phStepState(p, docs, i) {
+  const isSurvey = p.kind === 'survey';
+  const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date());
+  const map = isSurvey ? PH_STEP_INDEX.survey : PH_STEP_INDEX.work;
+  const hasRes = isSurvey && PhaseLogic.hasResult(phResultOf(p));
+  let cur = map[st.key] != null ? map[st.key] : 0;
+  if (isSurvey && st.key === 'report' && !hasRes) cur = 2;
+  const schedIdx = isSurvey ? 0 : 1;
+  const resIdx = isSurvey ? 2 : -1;
+  if (i === resIdx && hasRes) return 'done';
+  if (i < cur) return (i === schedIdx && !p.scheduled_at) || i === resIdx ? 'later' : 'done';
+  return i === cur ? 'now' : 'later';
+}
+
 function phCard(p) {
   const docs = phDocs(p);
   const isSurvey = p.kind === 'survey';
   const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date());
-  const map = isSurvey ? PH_STEP_INDEX.survey : PH_STEP_INDEX.work;
-  const cur = map[st.key] != null ? map[st.key] : 0;
-  // 日時の段は日時が入っていないと済にしない（調査済みにした後で日時が未定のままのとき等）
-  const schedIdx = isSurvey ? 0 : 1;
-  const stateOf = i => (i < cur ? (i === schedIdx && !p.scheduled_at ? 'later' : 'done') : i === cur ? 'now' : 'later');
+  const stateOf = i => phStepState(p, docs, i);
   const errId = 'ph-err-' + p.id;
 
   const card = mk('div', 'ph-card k-' + p.kind);
@@ -225,8 +250,9 @@ function phCard(p) {
     steps.append(
       phStep(stateOf(0), 1, '調査日時', phScheduleBody(p, docs, errId)),
       phStep(stateOf(1), 2, '調査した', phDoneBody(p, errId)),
-      phStep(stateOf(2), 3, '報告書', phReportsBody(p, docs, errId)),
-      phStep(stateOf(3), 4, '見積書（この調査の分）', phEstimatesBody(p, docs, errId)));
+      phStep(stateOf(2), 3, '調査結果', phResultBody(p, docs)),
+      phStep(stateOf(3), 4, '報告書', phReportsBody(p, docs, errId)),
+      phStep(stateOf(4), 5, '見積書（この調査の分）', phEstimatesBody(p, docs, errId)));
   } else {
     steps.append(
       phStep(stateOf(0), 1, '見積（この工事の分）', phEstimatesBody(p, docs, errId)),
@@ -426,7 +452,15 @@ function phEstimatesBody(p, docs, errId) {
     phMsg(errId, '');
     return withBusy(btn, async () => {
       try {
-        const row = await EstimatesApi.create(s.caseId, currentCase, { phase_id: p.id, phaseTitle: phTitle(p) });
+        // 工事カードから作る見積は、この案件の調査結果の注意事項を備考の初期値に（作成時だけ）
+        const opts = { phase_id: p.id, phaseTitle: phTitle(p) };
+        if (p.kind !== 'survey') {
+          await phResSettle();
+          const r = PhaseLogic.latestSurveyResult(phLivePhases());
+          if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
+        }
+        if (!phAlive(s)) return;
+        const row = await EstimatesApi.create(s.caseId, currentCase, opts);
         if (phAlive(s)) location.hash = '#estimate/' + row.id;
       } catch (e) { if (phAlive(s)) phMsg(errId, '見積書を作れませんでした: ' + errText(e)); }
     });
@@ -459,7 +493,14 @@ function phReportsBody(p, docs, errId) {
     return withBusy(btn, async () => {
       try {
         const meId = ctx && ctx.user ? ctx.user.id : null;
-        const row = await ReportsApi.create(s.caseId, { work_type: PH_WORK_TYPE[p.kind], worker_id: meId, phase_id: p.id, phaseTitle: phTitle(p) });
+        const f = { work_type: PH_WORK_TYPE[p.kind], worker_id: meId, phase_id: p.id, phaseTitle: phTitle(p) };
+        // 調査カードから作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
+        if (p.kind === 'survey') {
+          await phResSettle();
+          f.init = PhaseLogic.reportInit(phResultOf(p));
+        }
+        if (!phAlive(s)) return;
+        const row = await ReportsApi.create(s.caseId, f);
         if (phAlive(s)) location.hash = '#report/' + row.id;
       } catch (e) { if (phAlive(s)) phMsg(errId, '報告書を作れませんでした: ' + errText(e)); }
     });
@@ -496,6 +537,11 @@ function phNoticesBody(p, docs, errId) {
             data.timeEnd = phHm(p.scheduled_end);
           }
         }
+        // この案件の調査結果の注意事項を工事内容のチェックの初期値に（作成時だけ）
+        await phResSettle();
+        const r = PhaseLogic.latestSurveyResult(phLivePhases());
+        if (r) Object.assign(data, PhaseLogic.noticeInit(r));
+        if (!phAlive(s)) return;
         const row = await NoticesApi.create(s.caseId, currentCase, { phase_id: p.id, phaseTitle: phTitle(p), data });
         if (phAlive(s)) location.hash = '#notice/' + row.id;
       } catch (e) { if (phAlive(s)) phMsg(errId, '工事掲示を作れませんでした: ' + errText(e)); }
@@ -533,3 +579,266 @@ function phFoot(p, docs, errId) {
   } else foot.appendChild(del);
   return foot;
 }
+
+/* ---------- 調査結果と注意事項（対応フェーズ Task 5b） ---------- */
+// 調査カードの「調査結果」: 3つの文章欄と注意事項のボタン（押すとオン/オフ）。入力から1.5秒で自動保存（PhasesApi.saveResult）し、
+// 「調査結果のご報告」（purpose survey_result）の下書きを作る/更新する。
+// 入力の状態はフェーズごとのセッション（phRes）に持ち、カードを描き直しても同じ入力欄の要素を使う（入力中の値・カーソルを失わない）。
+// 保存の後はカードを描き直さず、メールの行とステップの丸だけを書き換える（入力中に要素が付け替わらない）。
+// 保存は1フェーズにつき直列（rs.chain）。保存中の入力は rs.dirty で次の保存に回す。画面を離れる・隠れるときは保留中の保存を flush する
+const PH_RES_DELAY = 1500;
+const PH_RES_TEXTS = [
+  { key: 'cause', label: '原因は何か', ph: '例: 上階 402 の浴室防水の劣化による漏水' },
+  { key: 'why', label: 'なぜそうなったか', ph: '例: 築20年で防水層が硬化し、目地から浸水' },
+  { key: 'scope', label: '復旧工事の範囲', ph: '例: 302 の天井ボード張替え・クロス貼替え（約6㎡）' }
+];
+const PH_RES_MAX = { text: 2000, drainRooms: 100, cautionOther: 200 };
+const phRes = new Map(); // phaseId → セッション（同じ案件を開き直しても入力中の値を引き継ぐ）
+
+const phResJson = v => JSON.stringify(PhaseLogic.normalizeResult(v));
+// 今の調査結果（入力中ならその値）
+function phResultOf(p) {
+  const rs = phRes.get(p.id);
+  return rs && rs.caseId === p.case_id ? rs.v : PhaseLogic.normalizeResult(p.result);
+}
+// 入力中の調査結果を反映したフェーズの並び（工事カードの引き継ぎ用）
+function phLivePhases() {
+  return ((ph && ph.data && ph.data.phases) || []).map(x => (phRes.has(x.id) ? Object.assign({}, x, { result: phResultOf(x) }) : x));
+}
+
+function phResSession(p) {
+  let rs = phRes.get(p.id);
+  const server = phResJson(p.result);
+  if (rs && rs.caseId !== p.case_id) rs = null;
+  if (!rs) {
+    rs = { id: p.id, caseId: p.case_id, kind: p.kind, v: PhaseLogic.normalizeResult(p.result), server: p.result || {},
+      serverJson: server, dirty: false, saving: false, timer: null, chain: Promise.resolve(), state: '', err: '',
+      lastSaved: null, draft: null, el: null, els: {} };
+    phRes.set(p.id, rs);
+  } else if (!rs.dirty && !rs.saving && !rs.timer && rs.serverJson !== server) {
+    // 別の画面・別の人が変えた（こちらに未保存の入力は無い）→ サーバーの値で作り直す
+    Object.assign(rs, { v: PhaseLogic.normalizeResult(p.result), server: p.result || {}, serverJson: server, el: null, els: {} });
+  }
+  rs.title = phTitle(p);
+  return rs;
+}
+
+function phResultBody(p, docs) {
+  const rs = phResSession(p);
+  if (!rs.el) phResBuild(rs);
+  phResFillMail(rs, docs.mails);
+  phResSetState(rs, rs.state);
+  return [rs.el];
+}
+
+function phResBuild(rs) {
+  const box = mk('div', 'ph-result');
+  box.dataset.phaseId = rs.id;
+  rs.els = {};
+  box.appendChild(mk('div', 'ph-sub', 'お客様に「どこからどこまで対応するか」「何に気をつけてもらうか」を伝えるための記録です。' +
+    '入れると「調査結果のご報告」メールの下書きができ、この調査で作る報告書・工事の見積書の備考・工事掲示に引き継がれます（作るときの初期値）'));
+  PH_RES_TEXTS.forEach(t => {
+    const ta = document.createElement('textarea');
+    ta.className = 'ph-res-' + t.key;
+    ta.rows = 2;
+    ta.maxLength = PH_RES_MAX.text;
+    ta.placeholder = t.ph;
+    ta.value = rs.v[t.key];
+    ta.addEventListener('input', () => { rs.v[t.key] = ta.value; phResChanged(rs); });
+    const l = mk('label', 'ph-rl', t.label);
+    l.appendChild(ta);
+    box.appendChild(l);
+    rs.els[t.key] = ta;
+  });
+  box.appendChild(mk('div', 'ph-cau-t', '注意事項（よくある項目。押して選ぶ）'));
+  const wrap = mk('div', 'ph-caus');
+  wrap.setAttribute('role', 'group');
+  wrap.setAttribute('aria-label', '注意事項');
+  const extras = [];
+  PhaseLogic.cautionChoices().forEach(c => {
+    const b = mk('button', 'ph-cau', c.label);
+    b.type = 'button';
+    b.dataset.key = c.key;
+    b.setAttribute('aria-pressed', rs.v.cautions.includes(c.key) ? 'true' : 'false');
+    b.addEventListener('click', () => {
+      const on = !rs.v.cautions.includes(c.key);
+      const set = new Set(rs.v.cautions);
+      if (on) set.add(c.key); else set.delete(c.key);
+      rs.v.cautions = PhaseLogic.cautionChoices().map(x => x.key).filter(k => set.has(k));
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      phResSyncExtras(rs);
+      phResChanged(rs);
+    });
+    wrap.appendChild(b);
+    if (c.extra) extras.push(c);
+  });
+  box.appendChild(wrap);
+  // 排水制限オンで号室の欄、その他オンで自由記入（オフにしても値は残す。文章・引き継ぎには使わない）
+  extras.forEach(c => {
+    const key = c.key === 'drain' ? 'drainRooms' : 'cautionOther';
+    const i = document.createElement('input');
+    i.type = 'text';
+    i.className = 'ph-res-' + key;
+    i.maxLength = PH_RES_MAX[key];
+    i.placeholder = c.extra.placeholder || '';
+    i.autocomplete = 'off';
+    i.value = rs.v[key];
+    i.addEventListener('input', () => { rs.v[key] = i.value; phResChanged(rs); });
+    const l = mk('label', 'ph-rl ph-res-x', c.key === 'drain' ? c.extra.label : 'その他の注意事項（自由記入）');
+    l.dataset.for = c.key;
+    l.appendChild(i);
+    box.appendChild(l);
+    rs.els[key] = i;
+    rs.els['x_' + c.key] = l;
+  });
+  const sv = mk('div', 'ph-res-save');
+  const save = mk('span', 'rep-save');
+  save.setAttribute('role', 'status');
+  const retry = dBtn('再試行', 'btn sm ghost inline ph-res-retry', () => phResFlush(rs));
+  retry.hidden = true;
+  sv.append(save, retry);
+  box.appendChild(sv);
+  const mail = mk('div', 'ph-mail ph-res-mail');
+  box.appendChild(mail);
+  Object.assign(rs.els, { save, retry, mail });
+  rs.el = box;
+  phResSyncExtras(rs);
+}
+
+function phResSyncExtras(rs) {
+  ['drain', 'other'].forEach(k => { if (rs.els['x_' + k]) rs.els['x_' + k].hidden = !rs.v.cautions.includes(k); });
+}
+
+function phResSetState(rs, state) {
+  rs.state = state;
+  const el = rs.els.save;
+  if (!el) return;
+  rs.els.retry.hidden = state !== 'error';
+  el.className = 'rep-save' + (state === 'saved' ? '' : state === 'error' ? ' err' : ' busy');
+  if (state === 'pending') el.textContent = '保存待ち…';
+  else if (state === 'saving') el.textContent = '保存中…';
+  else if (state === 'saved') el.textContent = '自動保存 ' + PhaseLogic.fmtMDHM(rs.lastSaved || new Date()).split(' ')[1];
+  else if (state === 'error') el.textContent = '保存できませんでした: ' + (rs.err || '');
+  else el.textContent = '';
+}
+
+// 「調査結果のご報告」の行（未送信の下書き → 確認して送る／送信済み／まだ無い）
+function phResFillMail(rs, mails) {
+  const el = rs.els.mail;
+  if (!el) return;
+  const own = (mails || []).filter(m => m.phase_id === rs.id && m.purpose === 'survey_result')
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  if (rs.draft && !own.some(m => m.id === rs.draft.id)) own.unshift(rs.draft);
+  const draft = own.find(m => m.status === 'draft');
+  const sent = own.find(m => m.status === 'sent');
+  const nodes = [];
+  if (draft) {
+    const who = PhaseLogic.recipientsLabel(draft.recipients);
+    nodes.push(mk('span', null, '✉️ 調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
+      (who ? '（' + who + '）' : '（宛先のメール未登録）')));
+    const b = dBtn('確認して送る', 'btn sm inline ph-res-open', async btn => {
+      btn.disabled = true;
+      try { await phResSettle(); } finally { btn.disabled = false; }
+      openMailDraft(btn.dataset.draftId);
+    });
+    b.dataset.draftId = draft.id;
+    nodes.push(b);
+  } else if (sent) {
+    nodes.push(mk('span', null, '✉️ 調査結果のご報告 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'));
+    nodes.push(mk('span', 'ph-sub', '（内容を直すと、新しい下書きができます）'));
+  } else {
+    nodes.push(mk('span', 'ph-sub', '✉️ 入力すると「調査結果のご報告」メールの下書きができます（宛先は依頼元から選びます）'));
+  }
+  el.replaceChildren(...nodes);
+}
+
+function phResChanged(rs) {
+  rs.dirty = true;
+  phResSetState(rs, 'pending');
+  clearTimeout(rs.timer);
+  rs.timer = setTimeout(() => phResFlush(rs), PH_RES_DELAY);
+}
+// 保留中の保存を今すぐ実行し、終わるまで待つ（直列。失敗しても throw しない: rs.dirty が残る）
+function phResFlush(rs) {
+  clearTimeout(rs.timer);
+  rs.timer = null;
+  rs.chain = rs.chain.then(() => phResDoSave(rs)).catch(e => {
+    rs.dirty = true;
+    rs.err = errText(e);
+    phResSetState(rs, 'error');
+  });
+  return rs.chain;
+}
+// 表示中の案件の保存を全部終わらせる（書類を作る・メールを開く前。初期値・本文を最新にするため）
+function phResSettle() {
+  const list = [...phRes.values()].filter(rs => ph && rs.caseId === ph.caseId);
+  return Promise.all(list.map(rs => (rs.dirty || rs.timer ? phResFlush(rs) : rs.chain)));
+}
+
+async function phResDoSave(rs) {
+  if (!rs.dirty) return;
+  const val = JSON.parse(JSON.stringify(rs.v));
+  rs.dirty = false;
+  rs.saving = true;
+  phResSetState(rs, 'saving');
+  const caseRow = typeof currentCase !== 'undefined' && currentCase && currentCase.id === rs.caseId ? currentCase : null;
+  let saved = null, msg = '';
+  try {
+    const r = await PhasesApi.saveResult({ id: rs.id, case_id: rs.caseId, kind: rs.kind, result: rs.server,
+      scheduled_at: phResPhase(rs, 'scheduled_at'), done_at: phResPhase(rs, 'done_at') },
+    val, caseRow || { id: rs.caseId }, rs.title || '調査');
+    saved = r.phase;
+    rs.draft = r.draft || null;
+    if (r.first) notifyTimeline();
+  } catch (e) {
+    saved = (e && e.phase) || null; // 調査結果は保存できて、下書きだけ失敗したときは e.phase がある
+    msg = errText(e);
+  }
+  rs.saving = false;
+  if (saved) {
+    rs.server = saved.result || {};
+    rs.serverJson = phResJson(saved.result);
+    rs.lastSaved = new Date();
+    phResApply(rs, saved);
+  }
+  if (msg) { // 失敗: 次の保存（再試行・次の入力）でもう一度送る
+    rs.dirty = true;
+    rs.err = msg;
+    phResSetState(rs, 'error');
+    return;
+  }
+  phResSetState(rs, rs.dirty ? 'pending' : 'saved');
+}
+const phResPhase = (rs, key) => {
+  const p = ph && ph.data && ph.data.phases.find(x => x.id === rs.id);
+  return p ? p[key] : null;
+};
+
+// 保存の結果を表示中のデータに入れ、メールの行・ステップの丸・送信待ちの数だけ書き換える（カードは描き直さない）
+function phResApply(rs, saved) {
+  const s = ph;
+  if (!s || !s.data || s.caseId !== rs.caseId) return;
+  const p = s.data.phases.find(x => x.id === rs.id);
+  if (!p) return;
+  p.result = saved.result;
+  if (saved.updated_at) p.updated_at = saved.updated_at;
+  if (rs.draft) {
+    const i = s.data.drafts.findIndex(d => d.id === rs.draft.id);
+    if (i >= 0) s.data.drafts[i] = rs.draft; else s.data.drafts.unshift(rs.draft);
+  }
+  const docs = phDocs(p);
+  phResFillMail(rs, docs.mails);
+  const st = rs.el && rs.el.closest('.ph-st');
+  if (st) {
+    const state = phStepState(p, docs, 2);
+    st.className = 'ph-st ' + state;
+    const dot = st.querySelector('.ph-dot');
+    if (dot) dot.textContent = state === 'done' ? '✓' : st.dataset.n || '3';
+  }
+  if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
+}
+
+function phResFlushAll() { phRes.forEach(rs => { if (rs.dirty || rs.timer) phResFlush(rs); }); }
+window.addEventListener('hashchange', phResFlushAll);
+window.addEventListener('beforeunload', phResFlushAll);
+document.addEventListener('visibilitychange', () => { if (document.hidden) phResFlushAll(); });

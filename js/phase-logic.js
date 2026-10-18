@@ -299,6 +299,7 @@
       const tail = [sl, isWork(k) ? kindLabel(k) : ''].filter(Boolean).join('・');
       return `${head}のお知らせ${tail ? `（${tail}）` : ''}`;
     }
+    if (d.purpose === 'survey_result') return '調査結果のご報告';
     if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
     return '報告書の送付';
   }
@@ -307,8 +308,8 @@
     const set = new Set(listOf(keys));
     return RECIPIENTS.filter(r => set.has(r.key)).map(r => r.label).join('・');
   }
-  // 「今回は送らない」にできるのは日程連絡・リマインドだけ
-  const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder');
+  // 「今回は送らない」にできるのは日程連絡・リマインド・調査結果のご報告だけ（書類の送付はできない）
+  const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result');
   // 未送信（送らないを除く）の下書きを案件ごとにまとめる。caseRows は case_summaries の行（phases 付き）
   //   → [{ caseRow, items: [{ draft, phase, label, title, canSkip }] }]（下書きの作成順。案件は一番古い下書きの順）
   function groupOutbox(caseRows, drafts) {
@@ -338,9 +339,9 @@
     ];
   }
   // 宛先の既定（mail_drafts.recipients の値）。メールがある人だけ
-  //   schedule: 元請・物件オーナー・入居者 ／ reminder: 入居者・物件オーナー ／ それ以外（報告書・見積）: 元請
+  //   schedule・survey_result: 元請・物件オーナー・入居者 ／ reminder: 入居者・物件オーナー ／ それ以外（報告書・見積）: 元請
   function defaultRecipients(caseRow, purpose) {
-    const order = purpose === 'schedule' ? ['client', 'owner', 'resident']
+    const order = purpose === 'schedule' || purpose === 'survey_result' ? ['client', 'owner', 'resident']
       : purpose === 'reminder' ? ['resident', 'owner'] : ['client'];
     const has = new Set(contacts(caseRow).filter(x => x.email).map(x => x.key));
     return order.filter(k => has.has(k));
@@ -411,6 +412,103 @@
       body: mailBody(k, phase, caseRow, org, me,
         `${what}の日が近づいてまいりましたので、改めてご案内いたします。`)
     };
+  }
+
+  /* ---------- 調査結果と注意事項（Task 5b。case_phases.result） ---------- */
+  // 文言の元は工事掲示（NoticeLogic.WORK_TYPES）と見積（EstimateLogic.NOTE_FIRST）。phase-logic.js の方が先に読み込まれるので、
+  // 使うときに取りに行く（node は require）
+  const inNode = typeof module !== 'undefined' && module.exports && typeof require === 'function';
+  const NL = () => (inNode ? require('./notice-logic.js') : root.NoticeLogic);
+  const EL = () => (inNode ? require('./estimate-logic.js') : root.EstimateLogic);
+  const MOVE_ITEMS_TEXT = '作業範囲の荷物の移動をお願いいたします。';
+  const EXTRA_CAUTIONS = [
+    { key: 'power_water', label: '電気・水道の提供をお願い' },
+    { key: 'move_items', label: '荷物の移動をお願い' }
+  ];
+  // 注意事項のボタンの並び: 工事掲示の工事内容（その他を除く）→ 電気・水道 → 荷物 → その他（自由記入）。label は WORK_TYPES のまま
+  function cautionChoices() {
+    const wt = NL().WORK_TYPES;
+    const pick = w => ({ key: w.key, label: w.label, extra: w.extra ? Object.assign({}, w.extra) : null });
+    return wt.filter(w => w.key !== 'other').map(pick).concat(EXTRA_CAUTIONS.map(x => Object.assign({ extra: null }, x)),
+      wt.filter(w => w.key === 'other').map(pick));
+  }
+  const cautionKeys = () => cautionChoices().map(c => c.key);
+  const text = v => (typeof v === 'string' ? v : v == null ? '' : String(v));
+  // DB の値 → 画面の形（足りないキーは空。知らない注意事項は落とす。並びはボタンの順）。文字列は前後の空白も残す（入力中の値）
+  function normalizeResult(raw) {
+    const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const set = new Set(Array.isArray(r.cautions) ? r.cautions : []);
+    return {
+      cause: text(r.cause), why: text(r.why), scope: text(r.scope),
+      cautions: cautionKeys().filter(k => set.has(k)),
+      cautionOther: text(r.cautionOther), drainRooms: text(r.drainRooms)
+    };
+  }
+  // 何か入っているか（3つの文章のどれか・注意事項のどれか）
+  function hasResult(raw) {
+    const r = normalizeResult(raw);
+    return !!(str(r.cause) || str(r.why) || str(r.scope) || r.cautions.length);
+  }
+  // 選んだ注意事項 → 文の配列。工事掲示の文（騒音+振動は「騒音・振動」の1文、その他は句点を足す: NoticeLogic.bodySentences）、
+  // 電気・水道は見積の NOTE_FIRST、荷物は「作業範囲の荷物の移動をお願いいたします。」。同じ文は1回。その他は最後
+  function cautionSentences(raw) {
+    const r = normalizeResult(raw);
+    const on = new Set(r.cautions);
+    const workTypes = {};
+    NL().WORK_TYPES.forEach(w => { workTypes[w.key] = on.has(w.key) && w.key !== 'other'; });
+    const out = NL().bodySentences({ workTypes });
+    if (on.has('power_water')) out.push(EL().NOTE_FIRST);
+    if (on.has('move_items')) out.push(MOVE_ITEMS_TEXT);
+    if (on.has('other')) out.push(...NL().bodySentences({ workTypes: { other: true }, otherWorkText: r.cautionOther }));
+    return out.filter((t, i) => t && out.indexOf(t) === i);
+  }
+  // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない
+  function surveyResultMail({ phase, caseRow, org, me } = {}) {
+    const p = phase || {};
+    const r = normalizeResult(p.result);
+    const orgName = str(org && org.name);
+    const lines = ['いつもお世話になっております。'];
+    if (orgName) lines.push(`${orgName}でございます。`);
+    const day = jst(p.done_at || p.scheduled_at);
+    lines.push(day ? `${day.m}月${day.d}日に実施した調査の結果をご報告いたします。` : '調査の結果をご報告いたします。');
+    const section = (head, body) => { if (str(body)) lines.push('', `■ ${head}`, str(body)); };
+    section('原因', r.cause);
+    section('経緯', r.why);
+    section('復旧工事の範囲', r.scope);
+    const sentences = cautionSentences(r);
+    if (sentences.length) {
+      lines.push('', '■ 工事の際のお願い・ご注意');
+      const drainText = (NL().WORK_TYPES.find(w => w.key === 'drain') || {}).text;
+      const rooms = r.cautions.includes('drain') ? NL().normalizeRooms(r.drainRooms) : '';
+      sentences.forEach(t => {
+        lines.push('・' + t);
+        if (rooms && t === drainText) lines.push(`　（排水制限のかかる号室: ${rooms}）`);
+      });
+    }
+    lines.push('', 'お見積書は別途お送りいたします。');
+    lines.push(...signature(org, me));
+    return { subject: subjectOf('調査結果のご報告', 'survey', caseRow), body: lines.join('\n') };
+  }
+  // 工事カードで使う調査結果: この案件の調査のうち、何か入っている一番新しい（並びの最後の）もの。無ければ null
+  function latestSurveyResult(phases) {
+    const list = listOf(phases).filter(p => p.kind === 'survey' && hasResult(p.result));
+    return list.length ? normalizeResult(list[list.length - 1].result) : null;
+  }
+  // 報告書（調査区分）の初期値: 原因 f2 ／ 原因と判断した理由 reason ／ 次の対応方針 f4
+  function reportInit(raw) {
+    const r = normalizeResult(raw);
+    return { f2: str(r.cause), reason: str(r.why), f4: str(r.scope) };
+  }
+  // 見積書の備考の初期値（data.notes.extra）。NOTE_FIRST は備考の1行目に必ず入るので除く（重複は1回）
+  function estimateNoteExtra(raw) {
+    return cautionSentences(raw).filter(t => t !== EL().NOTE_FIRST).join('\n');
+  }
+  // 工事掲示の工事内容チェックの初期値 → { workTypes, drainRooms, otherWorkText }（WORK_TYPES の7種だけ）
+  function noticeInit(raw) {
+    const r = normalizeResult(raw);
+    const workTypes = {};
+    NL().WORK_TYPES.forEach(w => { workTypes[w.key] = r.cautions.includes(w.key); });
+    return { workTypes, drainRooms: workTypes.drain ? str(r.drainRooms) : '', otherWorkText: workTypes.other ? str(r.cautionOther) : '' };
   }
 
   /* ---------- 書類の共有記録 ---------- */
@@ -548,6 +646,8 @@
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
     phaseTitle, stage, caseNext, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
+    MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, cautionSentences, surveyResultMail, latestSurveyResult,
+    reportInit, estimateNoteExtra, noticeInit,
     billingBasis, billingAmount, billToLabel, groupBilling };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;

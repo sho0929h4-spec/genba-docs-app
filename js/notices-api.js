@@ -71,9 +71,12 @@ const NoticesApi = (() => {
       const data = NL().emptyData(caseRow);
       data.contact = contactSnapshot();
       if (opts && opts.data) {
-        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd']) {
+        // drainRooms / otherWorkText / workTypes: 工事カードから作るときの調査結果の注意事項（作成時の初期値だけ）
+        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'drainRooms', 'otherWorkText']) {
           if (typeof opts.data[k] === 'string') data[k] = opts.data[k];
         }
+        const wt = opts.data.workTypes;
+        if (wt && typeof wt === 'object') for (const k of Object.keys(data.workTypes)) if (wt[k] === true) data.workTypes[k] = true;
       }
       const row = { case_id: caseId, ...patchOf(data) };
       if (opts && opts.phase_id) row.phase_id = opts.phase_id;

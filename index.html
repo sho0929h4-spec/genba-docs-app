@@ -287,6 +287,7 @@
   .ob-pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;}
   .ob-p-sched{background:#e8f0fe;color:#1d4ed8;}
   .ob-p-rem{background:#fff4c2;color:#92400e;}
+  .ob-p-res{background:#e7f4ea;color:#166534;}
   .ob-p-doc{background:#f0ecfb;color:#6d28d9;}
   .ob-ph{font-size:12px;font-weight:700;color:var(--navy2);}
   .ob-subj{font-size:14px;font-weight:700;margin:4px 0 2px;overflow-wrap:anywhere;}
@@ -315,6 +316,21 @@
   .ph-confirm{background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 11px;margin:4px 0;font-size:13px;display:grid;gap:6px;width:100%;overflow-wrap:anywhere;}
   .ph-err{margin:0 12px 8px;}
   .ph-err:empty{display:none;}
+  /* 調査結果（対応フェーズ Task 5b） */
+  .ph-result{display:grid;gap:8px;min-width:0;}
+  .ph-result label.ph-rl{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:var(--muted);min-width:0;}
+  .ph-result textarea,.ph-result input[type=text]{width:100%;min-width:0;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);line-height:1.5;}
+  .ph-result textarea{min-height:64px;max-height:260px;resize:vertical;field-sizing:content;}
+  .ph-result input[type=text]{min-height:44px;}
+  .ph-cau-t{font-size:12px;font-weight:700;color:var(--muted);}
+  .ph-caus{display:flex;flex-wrap:wrap;gap:6px;}
+  .ph-cau{min-height:40px;padding:6px 12px;border-radius:999px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-size:13px;font-family:inherit;cursor:pointer;text-align:left;max-width:100%;overflow-wrap:anywhere;}
+  .ph-cau::before{content:'＋ ';color:var(--muted);}
+  .ph-cau[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff;font-weight:700;}
+  .ph-cau[aria-pressed=true]::before{content:'✓ ';color:#fff;}
+  .ph-cau:focus-visible{outline:3px solid #93c5fd;outline-offset:2px;}
+  .ph-res-save{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;min-height:20px;}
+  .ph-res-save .rep-save:empty{display:none;}
   .tag.cust{background:#e6f4f1;color:#0f766e;}
   .attach[hidden]{display:none;}
   .tl-actions .tl-right{margin-left:auto;}
@@ -1055,44 +1071,44 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=edad949"></script>
-<script src="js/supabase-config.js?v=edad949"></script>
-<script src="js/supabase.js?v=edad949"></script>
-<script src="js/auth.js?v=edad949"></script>
-<script src="js/storage.js?v=edad949"></script>
-<script src="js/quota.js?v=edad949"></script>
-<script src="js/case-logic.js?v=edad949"></script>
-<script src="js/phase-logic.js?v=edad949"></script>
-<script src="js/image.js?v=edad949"></script>
-<script src="js/cases-api.js?v=edad949"></script>
-<script src="js/clients-api.js?v=edad949"></script>
-<script src="js/phases-api.js?v=edad949"></script>
+<script src="js/crypto-util.js?v=cb42a28"></script>
+<script src="js/supabase-config.js?v=cb42a28"></script>
+<script src="js/supabase.js?v=cb42a28"></script>
+<script src="js/auth.js?v=cb42a28"></script>
+<script src="js/storage.js?v=cb42a28"></script>
+<script src="js/quota.js?v=cb42a28"></script>
+<script src="js/case-logic.js?v=cb42a28"></script>
+<script src="js/phase-logic.js?v=cb42a28"></script>
+<script src="js/image.js?v=cb42a28"></script>
+<script src="js/cases-api.js?v=cb42a28"></script>
+<script src="js/clients-api.js?v=cb42a28"></script>
+<script src="js/phases-api.js?v=cb42a28"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=edad949"></script>
-<script src="js/reports-api.js?v=edad949"></script>
-<script src="js/report-pdf.js?v=edad949"></script>
-<script src="js/notice-logic.js?v=edad949"></script>
-<script src="js/notices-api.js?v=edad949"></script>
-<script src="js/notice-pdf.js?v=edad949"></script>
-<script src="js/estimate-logic.js?v=edad949"></script>
-<script src="js/estimates-api.js?v=edad949"></script>
-<script src="js/estimate-pdf.js?v=edad949"></script>
-<script src="js/case-list.js?v=edad949"></script>
-<script src="js/clients-ui.js?v=edad949"></script>
-<script src="js/case-detail.js?v=edad949"></script>
-<script src="js/phase-ui.js?v=edad949"></script>
-<script src="js/team.js?v=edad949"></script>
-<script src="js/timeline.js?v=edad949"></script>
-<script src="js/report-form.js?v=edad949"></script>
-<script src="js/report-ui.js?v=edad949"></script>
-<script src="js/report-share.js?v=edad949"></script>
-<script src="js/report-edit.js?v=edad949"></script>
-<script src="js/mail-ui.js?v=edad949"></script>
-<script src="js/outbox-ui.js?v=edad949"></script>
-<script src="js/notice-ui.js?v=edad949"></script>
-<script src="js/notice-edit.js?v=edad949"></script>
-<script src="js/estimate-ui.js?v=edad949"></script>
-<script src="js/app.js?v=edad949"></script>
+<script src="js/report-logic.js?v=cb42a28"></script>
+<script src="js/reports-api.js?v=cb42a28"></script>
+<script src="js/report-pdf.js?v=cb42a28"></script>
+<script src="js/notice-logic.js?v=cb42a28"></script>
+<script src="js/notices-api.js?v=cb42a28"></script>
+<script src="js/notice-pdf.js?v=cb42a28"></script>
+<script src="js/estimate-logic.js?v=cb42a28"></script>
+<script src="js/estimates-api.js?v=cb42a28"></script>
+<script src="js/estimate-pdf.js?v=cb42a28"></script>
+<script src="js/case-list.js?v=cb42a28"></script>
+<script src="js/clients-ui.js?v=cb42a28"></script>
+<script src="js/case-detail.js?v=cb42a28"></script>
+<script src="js/phase-ui.js?v=cb42a28"></script>
+<script src="js/team.js?v=cb42a28"></script>
+<script src="js/timeline.js?v=cb42a28"></script>
+<script src="js/report-form.js?v=cb42a28"></script>
+<script src="js/report-ui.js?v=cb42a28"></script>
+<script src="js/report-share.js?v=cb42a28"></script>
+<script src="js/report-edit.js?v=cb42a28"></script>
+<script src="js/mail-ui.js?v=cb42a28"></script>
+<script src="js/outbox-ui.js?v=cb42a28"></script>
+<script src="js/notice-ui.js?v=cb42a28"></script>
+<script src="js/notice-edit.js?v=cb42a28"></script>
+<script src="js/estimate-ui.js?v=cb42a28"></script>
+<script src="js/app.js?v=cb42a28"></script>
 </body>
 </html>

@@ -146,6 +146,8 @@ const EstimatesApi = (() => {
       if (!c) c = must(await sb.from('case_summaries').select('*').eq('id', caseId).maybeSingle());
       const me = ctx.membership ? { display_name: ctx.membership.display_name || '' } : null;
       const e = EL().emptyEstimate(c || {}, ctx.org, me);
+      // 工事カードから作るときは、調査結果の注意事項の文を備考の初期値に（opts.noteExtra。NOTE_FIRST は備考の1行目に必ず入る）
+      if (opts && typeof opts.noteExtra === 'string' && opts.noteExtra.trim()) e.data.notes.extra = opts.noteExtra.trim();
       const tt = withTotals(e.lines);
       const ins = {
         case_id: caseId, series_id: CryptoUtil.uuid(), version: 1, status: 'draft',

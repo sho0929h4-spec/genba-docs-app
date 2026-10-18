@@ -15,9 +15,10 @@
 const ML_DELAY = 1000;                       // 入力から保存までの待ち（ミリ秒）
 // 見積の下書き（draft.estimate_id）と報告書の下書き（draft.report_id）で文言・戻り先を出し分ける
 const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
-// 調査日・工事日の連絡／リマインド（purpose schedule / reminder。対応フェーズ）: 書類なし・PDFなし・戻り先は案件
-const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id &&
-  (s.draft.purpose === 'schedule' || s.draft.purpose === 'reminder'));
+// 調査日・工事日の連絡／リマインド／調査結果のご報告（purpose schedule / reminder / survey_result。対応フェーズ）:
+// 書類なし・PDFなし・送る相手は依頼元から選ぶ・戻り先は案件
+const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '調査結果のご報告メール' };
+const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id && !!ML_NOTE_TITLE[s.draft.purpose]);
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
 // s.returnTo: 「送るメール」（#outbox）から開いたときはそこへ戻る（openMailDraftFrom）
@@ -323,13 +324,14 @@ function mlComposeCard(s) {
   const card = mk('div', 'rep-card');
   const head = mk('div', 'rep-between');
   head.style.marginBottom = '10px';
-  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + (s.draft.purpose === 'reminder' ? 'リマインドのメール' : '日程の連絡メール') : '✉ 依頼者へ送るメール') + (s.ro ? '' : '（下書き）')));
+  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + ML_NOTE_TITLE[s.draft.purpose] : '✉ 依頼者へ送るメール') + (s.ro ? '' : '（下書き）')));
   head.appendChild(mk('span', 'rep-pill ' + (s.ro ? 'p-ok' : 'p-sent'), s.ro ? '送付済み' : '自動作成'));
   card.appendChild(head);
   if (mlIsNote(s)) {
     const phase = mlPhase(s);
+    const dated = s.draft.purpose !== 'survey_result' && phase && phase.scheduled_at; // 調査結果のご報告は日時を出さない
     const kind = mk('div', 'rep-sub ml-kind', (phase ? PhaseLogic.phaseTitle(phase) + ' ・ ' : '') + PhaseLogic.mailLabel(s.draft, phase) +
-      (phase && phase.scheduled_at ? ' ・ ' + PhaseLogic.fmtRange(phase.scheduled_at, phase.scheduled_end) : ''));
+      (dated ? ' ・ ' + PhaseLogic.fmtRange(phase.scheduled_at, phase.scheduled_end) : ''));
     kind.id = 'ml-kind';
     card.appendChild(kind);
     card.appendChild(mlRcptBox(s));
