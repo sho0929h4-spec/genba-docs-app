@@ -26,7 +26,6 @@ const ReportsApi = (() => {
     if (await AppStorage.sizeOf(path, bucket) > 0) throw new Error('PDFを削除できませんでした。もう一度お試しください');
     return 0;
   }
-  const CONFIRM_TITLE = '報告書を確認する';
 
   const pick = (obj, cols) => {
     const out = {};
@@ -38,14 +37,6 @@ const ReportsApi = (() => {
     const base = String(n || '').replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '').replace(/^[._-]+/, '').slice(0, 60);
     return (base || 'photo') + '.jpg';
   };
-  // 「報告書を確認する」の次やることのタイトル（報告書ごとに一意。confirm は完全一致で完了にする）
-  // 協力業者の提出は DB の share_submit と同じ形（worker_name = 協力業者名）
-  function confirmTitle(r) {
-    if (r.submitted_via === 'share') return `${CONFIRM_TITLE}（${r.worker_name || ''}）`;
-    const label = RL().WORK_TYPE_LABEL[r.work_type] || r.work_type;
-    const m = /^\d{4}-(\d{2})-(\d{2})/.exec(String(r.work_date || ''));
-    return `${CONFIRM_TITLE}（${m ? `${label} ${+m[1]}/${+m[2]}` : label}）`;
-  }
   const reportDir = (caseId, reportId) => `${ctx.org.id}/cases/${caseId}/reports/${reportId}`;
 
   // body は文字列または関数。関数なら try の内側で評価する（文言生成の失敗で本処理を壊さない）
@@ -82,13 +73,16 @@ const ReportsApi = (() => {
     async get(id) {
       return must(await sb.from('reports').select('*').eq('id', id).maybeSingle());
     },
-    // f: { work_type, worker_id, worker_name }（協力業者用は worker_name だけ入れる）
+    // f: { work_type, worker_id, worker_name, phase_id }（協力業者用は worker_name だけ入れる。phase_id は対応フェーズのカードから作るとき）
     async create(caseId, f = {}) {
       const row = {
         case_id: caseId, status: 'draft', work_type: f.work_type || 'investigate',
         worker_id: f.worker_id || null, worker_name: f.worker_name || null, data: RL().emptyData()
       };
-      return must(await sb.from('reports').insert(row).select().single());
+      if (f.phase_id) row.phase_id = f.phase_id;
+      const made = must(await sb.from('reports').insert(row).select().single());
+      await logSystem(caseId, () => `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`);
+      return made;
     },
     // 下書きの間だけ保存できる（status=draft の行だけを更新し、0行なら提出済みとみなす）
     async save(id, fields) {
@@ -170,28 +164,16 @@ const ReportsApi = (() => {
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
       await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を提出した`);
-      try {
-        const c = must(await sb.from('cases').select('assignee_id').eq('id', row.case_id).maybeSingle());
-        must(await sb.from('case_actions').insert({
-          case_id: row.case_id, kind: 'other', ball: 'us', title: confirmTitle(row), assignee_id: (c && c.assignee_id) || null
-        }));
-      } catch (e) { console.warn('次やることの追加に失敗', e); }
+      // 次やること（case_actions）への「報告書を確認する」の追加はやめた（対応フェーズ。確認待ちは報告書の状態 submitted で分かる）
       return row;
     },
-    // 確認済みにして、その報告書の確認タスクを完了・依頼者への送付メール下書きを作って返す
+    // 確認済みにして、依頼者への送付メール下書きを作って返す
     async confirm(report, caseRow) {
       const rows = must(await sb.from('reports')
         .update({ status: 'confirmed', confirmed_at: now(), confirmed_by: ctx.user.id })
         .eq('id', report.id).eq('status', 'submitted').select());
       if (!rows || rows.length === 0) throw new Error('確認待ちの報告書ではありません');
       const row = rows[0];
-      try {
-        const acts = must(await sb.from('case_actions').select('id').eq('case_id', row.case_id)
-          .is('done_at', null).eq('title', confirmTitle(row)));
-        if (acts && acts.length) {
-          must(await sb.from('case_actions').update({ done_at: now() }).in('id', acts.map(a => a.id)));
-        }
-      } catch (e) { console.warn('次やることの完了に失敗', e); }
       let draft, draftErr;
       try { draft = await api.createDraft(row, caseRow); }
       catch (e) { draftErr = e; }
@@ -209,9 +191,9 @@ const ReportsApi = (() => {
       let c = caseRow;
       if (!c) c = must(await sb.from('cases').select('*').eq('id', report.case_id).maybeSingle());
       const m = RL().buildMail({ caseRow: c, org: ctx.org, report });
-      return must(await sb.from('mail_drafts').insert({
-        case_id: report.case_id, report_id: report.id, to_email: m.to || null, subject: m.subject, body: m.body
-      }).select().single());
+      const ins = { case_id: report.case_id, report_id: report.id, purpose: 'report', to_email: m.to || null, subject: m.subject, body: m.body };
+      if (report.phase_id) ins.phase_id = report.phase_id; // 対応フェーズの報告書なら、送付メールも同じフェーズ（共有記録 docTrack）
+      return must(await sb.from('mail_drafts').insert(ins).select().single());
     },
 
     /* ===== 協力業者URL ===== */
@@ -352,7 +334,8 @@ const ReportsApi = (() => {
           if (!rs || rs.length === 0) console.warn('報告書が確認済みでないため送付済みにしませんでした', row.report_id);
         } catch (e) { console.warn('報告書の状態更新に失敗', e); }
       }
-      if (!opts.skipLog) await logSystem(row.case_id, () => `依頼者へ送付した（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
+      const note = row.purpose === 'schedule' || row.purpose === 'reminder';
+      if (!opts.skipLog) await logSystem(row.case_id, () => `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;
     }
   };

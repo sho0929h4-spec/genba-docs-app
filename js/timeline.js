@@ -1,8 +1,8 @@
-// js/timeline.js — 案件詳細のタイムライン（投稿・写真/PDF添付・依頼の反映済み管理・削除・お客様へのお知らせ）
+// js/timeline.js — 案件詳細のタイムライン（投稿・写真/PDF添付・依頼の反映済み管理・削除・操作の自動記録）
 // ユーザー入力・ファイル名は createElement + textContent で描画する（innerHTML は使わない）
 // mk() は case-list.js、memberName / errText は case-detail.js、ctx は app.js のものを使う
-// お客様へのお知らせ（type 'customer'）: 見せる相手（audiences）を選んで文字だけ投稿する。お客様ページ（p.html）に出る。
-//   投稿は PortalsApi.addUpdate、表示名は PortalLogic（どちらも無ければ種別ごと出さない）
+// 投稿できるのは メモ・依頼された・決定事項。操作の記録（system）は各 API が操作の成功後に1行書く。
+// お客様へのお知らせ（type 'customer'）はお客様ページの廃止で投稿をやめた（過去の記録は「お客様へ」として表示だけ）
 //
 // case-detail.js から呼ばれる:
 //   renderTimeline(rootEl) … 案件を読み込むたびに1回（currentCase は設定済み）
@@ -13,16 +13,13 @@
 //   inst.listSeq … 一覧取得ごとの番号。後から始まった取得があれば前の応答は捨てる
 //   投稿の完了時は「その案件のタイムラインがいま表示中か」を確かめてから画面を触る
 let tlInst = null;
-const tlHasCustomer = () => typeof PortalLogic !== 'undefined' && typeof PortalsApi !== 'undefined';
-const tlAllAudiences = () => (tlHasCustomer() ? PortalLogic.AUDIENCE_KEYS.slice() : []);
-const tlNewDraft = caseId => ({ caseId, type: 'memo', body: '', files: [], audiences: tlAllAudiences(), posting: false });
+const tlNewDraft = caseId => ({ caseId, type: 'memo', body: '', files: [], posting: false });
 let tlDraft = tlNewDraft(null);
 
-const TL_TYPES = [['memo', 'メモ'], ['request', '依頼された'], ['decision', '決定事項'], ['customer', 'お客様へのお知らせ']];
+const TL_TYPES = [['memo', 'メモ'], ['request', '依頼された'], ['decision', '決定事項']];
 const TL_TAG_CLASS = { memo: 'memo', request: 'req', decision: 'dec', system: 'sys', customer: 'cust' };
 const tlTagLabel = t => (t === 'customer' ? 'お客様へ' : CaseLogic.entryLabel(t));
 const TL_PH_MEMO = '記録を残す（LINEのスクショ貼り付けOK）';
-const TL_PH_CUSTOMER = 'お客様のページに出るお知らせ（文字だけ）。例：10/20（月）9時から給水管の工事を行います。';
 const TL_URL_TTL = 50 * 60 * 1000; // 署名URLは1時間有効。余裕を見て50分で取り直す
 
 const tlLive = inst => inst === tlInst && inst.root.isConnected;
@@ -56,7 +53,7 @@ function renderTimeline(root) {
   // -- 入力欄 --
   const box = mk('div', 'tl-input');
   const typeRow = mk('div', 'tl-type');
-  const chipEls = TL_TYPES.filter(([key]) => key !== 'customer' || tlHasCustomer()).map(([key, label]) => {
+  const chipEls = TL_TYPES.map(([key, label]) => {
     const b = mk('button', 'chip', label);
     b.type = 'button';
     b.addEventListener('click', () => {
@@ -68,29 +65,6 @@ function renderTimeline(root) {
     typeRow.appendChild(b);
     return [key, b];
   });
-
-  // お客様へのお知らせ: 見せる相手（既定: すべて）
-  const audBox = mk('div', 'tl-aud');
-  audBox.hidden = true;
-  const audEls = [];
-  if (tlHasCustomer()) {
-    audBox.appendChild(mk('div', 'tl-aud-q', '見せる相手（チェックした相手のお客様ページに出ます）'));
-    const chks = mk('div', 'tl-aud-chks');
-    PortalLogic.AUDIENCES.forEach(a => {
-      const l = mk('label', 'tl-chk');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = a.key;
-      cb.addEventListener('change', () => {
-        tlDraft.audiences = audEls.filter(x => x.checked).map(x => x.value);
-        if (tlDraft.audiences.length > 0 && err.textContent === PortalLogic.audiencesError([])) err.textContent = '';
-      });
-      l.append(cb, document.createTextNode(a.label));
-      chks.appendChild(l);
-      audEls.push(cb);
-    });
-    audBox.append(chks, mk('div', 'tl-aud-note', '文字だけ送れます（写真・ファイルは添付できません）。社内の記録とは別に、お客様が読む文章として書いてください。'));
-  }
 
   const ta = document.createElement('textarea');
   ta.placeholder = TL_PH_MEMO;
@@ -128,7 +102,7 @@ function renderTimeline(root) {
   right.append(status, submit);
   const actions = mk('div', 'tl-actions');
   actions.append(attach, right);
-  box.append(typeRow, audBox, ta, fileList, actions, err, fileInput);
+  box.append(typeRow, ta, fileList, actions, err, fileInput);
 
   // -- 一覧 --
   const listErr = mk('div', 'err');
@@ -140,11 +114,6 @@ function renderTimeline(root) {
 
   function syncChips() {
     chipEls.forEach(([key, b]) => b.classList.toggle('on', tlDraft.type === key));
-    const cust = tlDraft.type === 'customer';
-    audBox.hidden = !cust;
-    attach.hidden = cust; // お客様へのお知らせは文字だけ
-    ta.placeholder = cust ? TL_PH_CUSTOMER : TL_PH_MEMO;
-    submit.textContent = cust ? 'お知らせする' : '記録する';
   }
 
   function renderFiles() {
@@ -172,14 +141,12 @@ function renderTimeline(root) {
     submit.disabled = busy;
     attach.disabled = busy;
     chipEls.forEach(([, b]) => { b.disabled = busy; });
-    audEls.forEach(cb => { cb.disabled = busy; });
     status.textContent = busy ? (tlDraft.files.length > 0 ? 'アップロード中…' : '記録中…') : '';
     renderFiles();
   }
 
   function syncForm() {
     ta.value = tlDraft.body;
-    audEls.forEach(cb => { cb.checked = tlDraft.audiences.includes(cb.value); });
     syncChips();
     setBusy();
   }
@@ -187,10 +154,6 @@ function renderTimeline(root) {
   function addFiles(fs) {
     if (tlDraft.posting) return;
     err.textContent = '';
-    if (tlDraft.type === 'customer') {
-      err.textContent = 'お客様へのお知らせには写真・ファイルを添付できません（文字だけ）';
-      return;
-    }
     const ok = fs.filter(tlFileOk);
     if (ok.length < fs.length) err.textContent = '写真かPDF以外は添付できません';
     tlDraft.files.push(...ok);
@@ -204,14 +167,7 @@ function renderTimeline(root) {
     const type = d.type;
     const body = ta.value.trim();
     const files = d.files.slice();
-    const audiences = d.audiences.slice();
     err.textContent = '';
-    if (type === 'customer') {
-      if (files.length > 0) { err.textContent = 'お客様へのお知らせには写真・ファイルを添付できません。添付を外してください'; return; }
-      if (!body) { err.textContent = 'お知らせの内容を入力してください'; ta.focus(); return; }
-      const m = PortalLogic.audiencesError(audiences);
-      if (m) { err.textContent = m; return; }
-    }
     if (!body && files.length === 0) {
       err.textContent = '内容を入力するか、ファイルを添付してください';
       ta.focus();
@@ -221,8 +177,7 @@ function renderTimeline(root) {
     setBusy();
     let failure = null;
     try {
-      if (type === 'customer') await PortalsApi.addUpdate(caseId, body, audiences);
-      else await CasesApi.addEntry(caseId, type, body, files);
+      await CasesApi.addEntry(caseId, type, body, files);
     } catch (e) {
       failure = e;
     }
@@ -234,7 +189,6 @@ function renderTimeline(root) {
       d.body = '';
       d.files = [];
       d.type = 'memo';
-      d.audiences = tlAllAudiences();
     }
     if (!live) return;
     cur.syncForm();
@@ -315,10 +269,6 @@ function tlEntryEl(inst, e) {
   box.appendChild(who);
 
   if (e.body) box.appendChild(mk('div', 'body', e.body));
-  if (e.type === 'customer' && typeof PortalLogic !== 'undefined') {
-    const names = PortalLogic.audienceNames(e.audiences);
-    box.appendChild(mk('div', 'tl-aud-line', '表示中: ' + (names || '（なし）')));
-  }
 
   const atts = Array.isArray(e.attachments) ? e.attachments : [];
   if (atts.length > 0) {

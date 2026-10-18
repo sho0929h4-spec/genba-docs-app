@@ -37,8 +37,19 @@ const CasesApi = (() => {
       // cases の insert は表単位で付与済みだが、送る列は更新と同じ許可列に揃える（created_by 等は DB の既定値）
       return must(await sb.from('cases').insert(pick(fields, CASE_COLS)).select().single());
     },
-    async updateCase(id, fields) {
-      return must(await sb.from('cases').update(pick(fields, CASE_COLS)).eq('id', id).select().single());
+    // before: 変更前の行（渡すと、依頼元が変わったときタイムラインに記録する）
+    async updateCase(id, fields, before) {
+      const row = must(await sb.from('cases').update(pick(fields, CASE_COLS)).eq('id', id).select().single());
+      if (before) {
+        const norm = v => (v == null ? '' : String(v).trim());
+        const groups = [['元請', ['client_id', 'client_name', 'client_email']],
+          ['物件オーナー', ['owner_name', 'owner_email', 'owner_tel']],
+          ['入居者', ['resident_name', 'resident_email', 'resident_tel']]];
+        const changed = groups.filter(([, cols]) => cols.some(c =>
+          Object.prototype.hasOwnProperty.call(fields, c) && norm(fields[c]) !== norm(before[c]))).map(([l]) => l);
+        if (changed.length) await logSystem(id, `依頼元を変更した（${changed.join('・')}）`);
+      }
+      return row;
     },
     async setStatus(id, status) {
       const row = must(await sb.from('cases').update({ status }).eq('id', id).select().single());

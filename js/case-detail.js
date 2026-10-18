@@ -1,4 +1,4 @@
-// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・関係者・次やること・書類・対応履歴と精算）
+// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・依頼元・対応フェーズ・書類）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）
 // mk() は case-list.js、withBusy / setMsg / showScreen / $ は app.js のものを使う
 //
@@ -7,20 +7,15 @@
 //   caseMembers   … [{user_id, display_name}]（投稿者名の解決用）
 // timeline.js 側が定義すれば呼ばれるフック:
 //   renderTimeline(rootEl)  … 詳細の初回描画時に1回
-//   refreshTimeline()       … 次やること済/対応履歴追加/精算確認/状態変更で自動記録が増えた後
-// portal-ui.js 側が定義すれば呼ばれるフック:
-//   renderPortals(rootEl)   … 詳細の初回描画時に1回（「👥 お客様ページ」欄。書類欄の下）
+//   refreshTimeline()       … フェーズの操作・状態変更などで自動記録が増えた後
+// phase-ui.js 側が定義すれば呼ばれるフック:
+//   renderPhases(rootEl)    … 詳細の初回描画時に1回（「対応フェーズ」欄。依頼元の下）
 let currentCase = null;
 let caseMembers = [];
-let caseActions = [];
-let caseWorks = [];
 
 let caseDetailId = null;   // 表示中（または読み込み中）の案件ID
 let caseGen = 0;           // 案件を開くたびに増やす。古い応答/操作結果を捨てる
-const casePartSeq = { head: 0, actions: 0, works: 0 }; // 部分更新ごとの番号
-let nextFormKind = null;   // 次やること追加フォームの種類（null=閉）
-let workFormKind = null;   // 対応履歴追加フォームの種類（null=閉）
-const editingSettle = new Set(); // 精算予定日を編集中の work.id
+const casePartSeq = { head: 0 }; // 部分更新ごとの番号
 
 const errText = e => (e && e.message ? e.message : String(e));
 
@@ -49,26 +44,6 @@ function dSelect(options, value) {
   s.value = value;
   if (s.value !== value) s.value = options.length ? options[0][0] : '';
   return s;
-}
-
-function dDate(value) {
-  const i = document.createElement('input');
-  i.type = 'date';
-  i.value = value || '';
-  return i;
-}
-
-function localDateTimeValue(d) {
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function memberOptions(noneLabel) {
-  const opts = [['', noneLabel]];
-  caseMembers.forEach(m => {
-    opts.push([m.user_id, (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '')]);
-  });
-  return opts;
 }
 
 // 自動記録(system)が増える操作の後に呼ぶ。timeline.js が refreshTimeline を定義していれば再読み込みさせる
@@ -108,20 +83,12 @@ async function loadCase(id) {
   caseDetailId = id;
   currentCase = null;
   caseMembers = [];
-  caseActions = [];
-  caseWorks = [];
-  partyClient = null;
-  nextFormKind = null;
-  workFormKind = null;
-  editingSettle.clear();
   renderDetailMessage('読み込み中…', false);
 
   let results;
   try {
     results = await Promise.all([
       CasesApi.getSummary(id),
-      CasesApi.listActions(id),
-      CasesApi.listWorks(id),
       CasesApi.listMembers()
     ]);
   } catch (e) {
@@ -130,14 +97,12 @@ async function loadCase(id) {
     return;
   }
   if (gen !== caseGen) return; // より新しい読み込みが始まっている
-  const [row, actions, works, members] = results;
+  const [row, members] = results;
   if (!row) {
     renderDetailMessage('案件が見つかりません', false);
     return;
   }
   currentCase = row;
-  caseActions = actions || [];
-  caseWorks = works || [];
   caseMembers = members || [];
   buildDetail();
 }
@@ -149,21 +114,13 @@ async function refreshPart(part) {
   const seq = ++casePartSeq[part];
   let data;
   try {
-    if (part === 'head') {
-      data = await CasesApi.getSummary(id);
-      if (!data) throw new Error('案件が見つかりません');
-    } else if (part === 'actions') {
-      data = await CasesApi.listActions(id);
-    } else {
-      data = await CasesApi.listWorks(id);
-    }
+    data = await CasesApi.getSummary(id);
+    if (!data) throw new Error('案件が見つかりません');
   } catch (e) {
     return gen === caseGen && seq === casePartSeq[part] ? errText(e) : '';
   }
   if (gen !== caseGen || seq !== casePartSeq[part]) return '';
-  if (part === 'head') { currentCase = data; renderHead(); renderParties(); }
-  else if (part === 'actions') { caseActions = data || []; renderNextRows(); }
-  else { caseWorks = data || []; renderWorksSum(); renderWorksRows(); }
+  currentCase = data; renderHead(); renderParties();
   return '';
 }
 
@@ -191,20 +148,16 @@ function buildDetail() {
   const headBox = mk('div');
   headBox.id = 'case-head-box';
 
-  // 関係者（元請／物件オーナー／入居者）。編集は案件のポップアップ
+  // 依頼元（元請／物件オーナー／入居者）。編集は案件のポップアップ
   const parties = mk('div', 'taio');
   parties.id = 'case-parties';
 
-  const next = mk('div', 'next');
-  const nextHead = mk('div', 'taio-head');
-  nextHead.appendChild(mk('b', null, '次やること'));
-  const nextRows = mk('div'); nextRows.id = 'case-next-rows';
-  const nextForm = mk('div'); nextForm.id = 'case-next-form';
-  const nextChips = mk('div', 'taio-add'); nextChips.id = 'case-next-chips';
-  nextChips.style.marginTop = '10px';
-  nextChips.style.marginBottom = '0';
-  const nextErr = mk('div', 'err'); nextErr.id = 'case-next-err';
-  next.append(nextHead, nextRows, nextForm, nextChips, nextErr);
+  // 対応フェーズ（調査・原因元工事・復旧工事のカード。js/phase-ui.js）
+  let phases = null;
+  if (typeof renderPhases === 'function') {
+    phases = mk('div', 'taio ph-box');
+    phases.id = 'case-phases';
+  }
 
   const tools = mk('div', 'tools');
   [['📋', '報告書'], ['🧾', '見積書'], ['📢', '工事掲示']].forEach(([ic, nm]) => {
@@ -248,25 +201,7 @@ function buildDetail() {
   toolsNote.id = 'case-tools-note';
   toolsNote.hidden = true;
 
-  const works = mk('div', 'taio');
-  const worksHead = mk('div', 'taio-head');
-  worksHead.appendChild(mk('b', null, '対応履歴と精算'));
-  const worksSum = mk('span', 'taio-sum'); worksSum.id = 'case-works-sum';
-  worksHead.appendChild(worksSum);
-  const worksChips = mk('div', 'taio-add'); worksChips.id = 'case-works-chips';
-  const worksForm = mk('div'); worksForm.id = 'case-works-form';
-  const worksRows = mk('div'); worksRows.id = 'case-works-rows';
-  const worksErr = mk('div', 'err'); worksErr.id = 'case-works-err';
-  works.append(worksHead, worksChips, worksForm, worksRows, worksErr);
-
   const tl = mk('div'); tl.id = 'case-timeline';
-
-  // お客様ページ（portal-ui.js があるときだけ）
-  let portals = null;
-  if (typeof renderPortals === 'function') {
-    portals = mk('div', 'taio pt-box');
-    portals.id = 'case-portals';
-  }
 
   // 依頼者へ送るメール（報告書・見積書）の下書きが残っているとき（⑨ のある版だけ）。行き先:
   //   1件 → その⑨ / 報告書の下書きだけ → ⑤の「送信待ちの下書き」 /
@@ -301,20 +236,13 @@ function buildDetail() {
     mailBanner.append(mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件'), mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, next, tools, toolsNote, mailBanner, mailList, portals, works, tl].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, tools, toolsNote, mailBanner, mailList, tl].filter(Boolean));
 
   renderHead();
   renderParties();
-  renderNextRows();
-  renderNextChips();
-  renderNextForm();
-  renderWorksSum();
-  renderWorksChips();
-  renderWorksForm();
-  renderWorksRows();
-  if (portals) {
-    try { renderPortals(portals); }
-    catch (e) { console.warn('お客様ページ欄の表示に失敗', e); portals.replaceChildren(mk('div', 'err', 'お客様ページ欄を表示できませんでした: ' + errText(e))); }
+  if (phases) {
+    try { renderPhases(phases); }
+    catch (e) { console.warn('対応フェーズ欄の表示に失敗', e); phases.replaceChildren(mk('div', 'err', '対応フェーズ欄を表示できませんでした: ' + errText(e))); }
   }
   if (typeof renderTimeline === 'function') renderTimeline(tl);
 }
@@ -336,13 +264,13 @@ function renderHead() {
   const hot = !done && (ds === 'overdue' || ds === 'near');
   const due = mk('span', hot ? 'hot' : null, c.due_date ? '📅 期日 ' + CaseLogic.formatMD(c.due_date) : '📅 期日未設定');
   meta.appendChild(due);
-  card.appendChild(meta); // 元請・連絡先は下の「関係者」欄（renderParties）
+  card.appendChild(meta); // 元請・連絡先は下の「依頼元」欄（renderParties）
 
   const act = mk('div', 'head-act');
   act.appendChild(dBtn('編集', 'linkbtn', () => {
     openCaseModal(currentCase, async () => {
-      partyClient = null;
       const m = await refreshPart('head');
+      notifyTimeline(); // 依頼元を変えたときの自動記録を出す
       if (m) setMsg('case-head-err', '保存しましたが、最新の表示に更新できませんでした: ' + m);
     });
   }));
@@ -378,11 +306,9 @@ function renderHead() {
   $('case-head-box').replaceChildren(card);
 }
 
-// ---- 関係者 ----
-// 元請は元請マスタ（担当者名・電話はマスタの行を別に取る）、物件オーナー・入居者は案件の列
-let partyClient = null;   // { id, row } 取得済みの元請マスタの行（row=null は見つからない）
-let partySeq = 0;
-
+// ---- 依頼元 ----
+// 元請は元請マスタ（担当者名・メール・電話は case_summaries の client_contact / client_master_email / client_tel。migration 022）、
+// 物件オーナー・入居者は案件の列
 function partyContact(email, tel) {
   const sub = mk('div', 'pty-sub');
   if (email) {
@@ -413,31 +339,31 @@ function renderParties() {
   const c = currentCase;
   const head = mk('div', 'taio-head');
   head.style.marginBottom = '0';
-  head.appendChild(mk('b', null, '関係者'));
-  head.appendChild(dBtn('関係者を編集', 'linkbtn', () => {
+  head.appendChild(mk('b', null, '依頼元'));
+  head.appendChild(dBtn('依頼元を編集', 'linkbtn', () => {
     openCaseModal(currentCase, async () => {
-      partyClient = null; // 元請を選び直した・マスタを足した場合に担当者名・電話を取り直す
       const m = await refreshPart('head');
+      notifyTimeline(); // 依頼元を変えたときの自動記録を出す
       if (m) setMsg('case-head-err', '保存しましたが、最新の表示に更新できませんでした: ' + m);
     }, { focus: 'parties' });
   }));
 
   // 元請
   const gc = mk('div', 'pty-v');
-  const k = c.client_id && partyClient && partyClient.id === c.client_id ? partyClient.row : null;
+  const master = !!c.client_id && !!c.client_master_name;
   const gcName = c.client_master_name || c.client_name;
   if (gcName) {
     const line = mk('div');
-    line.appendChild(mk('b', null, gcName + (k && k.contact_name ? ' ' + k.contact_name + '様' : '')));
+    line.appendChild(mk('b', null, gcName + (master && c.client_contact ? ' ' + c.client_contact + '様' : '')));
     if (c.client_id && c.client_billing_mode) {
       const m = c.client_billing_mode === 'monthly' ? 'monthly' : 'single';
       line.appendChild(mk('span', 'pty-tag ' + m, ClientsApi.BILLING_LABEL[m]));
     }
     if (!c.client_id) line.appendChild(mk('span', 'pty-tag', '元請マスタに未登録'));
     gc.appendChild(line);
-    gc.appendChild(partyContact(k ? k.email : c.client_email, k ? k.tel : null));
+    gc.appendChild(partyContact(master ? (c.client_master_email || c.client_email) : c.client_email, master ? c.client_tel : null));
   } else {
-    gc.appendChild(mk('span', 'pty-none', '未選択（「関係者を編集」から元請マスタで選ぶ）'));
+    gc.appendChild(mk('span', 'pty-none', '未選択（「依頼元を編集」から元請マスタで選ぶ）'));
   }
 
   const person = (nm, email, tel) => {
@@ -451,294 +377,4 @@ function renderParties() {
     partyRow('client', '元請', gc),
     partyRow('owner', '物件オーナー', person(c.owner_name, c.owner_email, c.owner_tel)),
     partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)));
-
-  // 元請マスタの行（担当者名・電話）。まだ取っていなければ取ってから描き直す。取れなくても表示は続ける
-  if (c.client_id && !(partyClient && partyClient.id === c.client_id) && typeof ClientsApi !== 'undefined') {
-    const seq = ++partySeq;
-    const gen = caseGen;
-    const id = c.client_id;
-    ClientsApi.get(id).then(row => {
-      if (seq !== partySeq || gen !== caseGen) return;
-      partyClient = { id, row: row || null };
-      renderParties();
-    }).catch(e => console.warn('元請マスタの読み込みに失敗', e));
-  }
-}
-
-// ---- 次やること ----
-function renderNextRows() {
-  const box = $('case-next-rows');
-  if (caseActions.length === 0) {
-    box.replaceChildren(mk('div', 'nx-empty', '次やることはありません'));
-    return;
-  }
-  box.replaceChildren(...caseActions.map(actionRowEl));
-}
-
-function actionRowEl(a) {
-  const today = CaseLogic.todayStr();
-  const us = a.ball === 'us';
-  const row = mk('div', 'nx-row');
-
-  const l = mk('div', 'nx-l');
-  l.appendChild(mk('span', 'ball' + (us ? ' me' : ''), us ? '🔴 自分の番' : '🟡 相手待ち'));
-  l.appendChild(mk('b', null, a.title));
-  if (a.started_on) {
-    const days = CaseLogic.daysBetween(a.started_on, today);
-    l.appendChild(mk('span', 'nx-sub',
-      CaseLogic.formatMD(a.started_on) + '開始' + (days >= 0 ? '・' + days + '日経過' : '')));
-  }
-  const who = memberName(a.assignee_id);
-  l.appendChild(a.assignee_id
-    ? mk('span', 'who-pill', '👤 ' + who)
-    : mk('span', 'who-pill none', '担当なし'));
-  row.appendChild(l);
-
-  const r = mk('div', 'nx-r');
-  if (a.due_date) {
-    const ds = CaseLogic.dueState(a.due_date, today);
-    const hot = ds === 'overdue' || ds === 'near';
-    r.appendChild(mk('span', 'nx-due' + (hot ? ' near' : ''),
-      (us ? '期限 ' : '次回確認 ') + CaseLogic.formatMD(a.due_date)));
-  }
-  r.appendChild(dBtn('済にする ✓', 'linkbtn', b => {
-    const gen = caseGen;
-    runOp(b, 'case-next-err', 'actions', '完了処理', async () => {
-      await CasesApi.completeAction(a);
-      if (gen === caseGen) notifyTimeline();
-    });
-  }));
-  r.appendChild(dBtn('削除', 'linkbtn danger', b => {
-    if (!confirm('削除しますか？')) return;
-    runOp(b, 'case-next-err', 'actions', '削除', () => CasesApi.deleteAction(a.id));
-  }));
-  row.appendChild(r);
-  return row;
-}
-
-function renderNextChips() {
-  const box = $('case-next-chips');
-  box.replaceChildren(...CaseLogic.ACTION_KINDS.map(k => {
-    const c = dBtn('＋ ' + k.label, 'chip' + (nextFormKind === k.key ? ' on' : ''), () => {
-      nextFormKind = nextFormKind === k.key ? null : k.key;
-      setMsg('case-next-err', '');
-      renderNextChips();
-      renderNextForm();
-    });
-    return c;
-  }));
-}
-
-function renderNextForm() {
-  const box = $('case-next-form');
-  if (!nextFormKind) { box.replaceChildren(); return; }
-  const k = CaseLogic.actionKind(nextFormKind);
-  const id = currentCase.id;
-  const today = CaseLogic.todayStr();
-
-  const form = mk('div', 'addform');
-  form.appendChild(mk('div', 'af-ttl', '＋ ' + k.label + ' を追加'));
-  const grid = mk('div', 'af-grid');
-
-  const title = document.createElement('input');
-  title.type = 'text';
-  title.value = k.title;
-  title.autocomplete = 'off';
-  title.maxLength = 200;
-  const titleLabel = dField('内容', title);
-  titleLabel.className = 'span-all';
-
-  const defAssignee = currentCase.assignee_id && caseMembers.some(m => m.user_id === currentCase.assignee_id)
-    ? currentCase.assignee_id : ctx.user.id;
-  const asg = dSelect(memberOptions('担当なし'), defAssignee);
-
-  const ball = dSelect([['us', '🔴 自分の番'], ['them', '🟡 相手待ち']], k.ball);
-  const due = dDate('');
-  const dueText = document.createTextNode(k.ball === 'us' ? '期限' : '次回確認日');
-  const dueLabel = mk('label');
-  dueLabel.append(dueText, due);
-  ball.addEventListener('change', () => { dueText.textContent = ball.value === 'us' ? '期限' : '次回確認日'; });
-
-  grid.append(titleLabel, dField('担当', asg), dField('ボール', ball), dueLabel);
-
-  let started = null;
-  if (k.key === 'insurance') {
-    started = dDate(today);
-    grid.appendChild(dField('申請日', started));
-  }
-  form.appendChild(grid);
-
-  const acts = mk('div', 'af-act');
-  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline', () => {
-    nextFormKind = null;
-    setMsg('case-next-err', '');
-    renderNextChips();
-    renderNextForm();
-  }));
-  acts.appendChild(dBtn('追加', 'btn sm inline', b => {
-    const t = title.value.trim();
-    if (!t) { setMsg('case-next-err', '内容を入力してください'); title.focus(); return; }
-    const gen = caseGen;
-    const fields = {
-      kind: k.key,
-      ball: ball.value,
-      title: t,
-      assignee_id: asg.value || null,
-      due_date: due.value || null,
-      started_on: started ? started.value || null : null
-    };
-    runOp(b, 'case-next-err', 'actions', '追加', async () => {
-      await CasesApi.addAction(id, fields);
-      if (gen !== caseGen) return;
-      nextFormKind = null;
-      renderNextChips();
-      renderNextForm();
-    });
-  }));
-  form.appendChild(acts);
-  box.replaceChildren(form);
-  if (!title.value) title.focus();
-}
-
-// ---- 対応履歴と精算 ----
-function renderWorksSum() {
-  const n = caseWorks.filter(w => !w.settled_at).length;
-  const sum = $('case-works-sum');
-  sum.replaceChildren(document.createTextNode('精算未確認 '));
-  const b = mk('b', n > 0 ? 'hot' : null, n + '件');
-  sum.appendChild(b);
-}
-
-function renderWorksChips() {
-  const box = $('case-works-chips');
-  box.replaceChildren(...CaseLogic.WORK_KINDS.map(k =>
-    dBtn('＋ ' + k.label, 'chip' + (workFormKind === k.key ? ' on' : ''), () => {
-      workFormKind = workFormKind === k.key ? null : k.key;
-      setMsg('case-works-err', '');
-      renderWorksChips();
-      renderWorksForm();
-    })));
-}
-
-function renderWorksForm() {
-  const box = $('case-works-form');
-  if (!workFormKind) { box.replaceChildren(); return; }
-  const kind = workFormKind;
-  const id = currentCase.id;
-  const isOther = kind === 'other';
-
-  const form = mk('div', 'addform');
-  form.style.marginTop = '0';
-  form.style.marginBottom = '10px';
-  form.appendChild(mk('div', 'af-ttl', '＋ ' + CaseLogic.workLabel(kind) + ' を記録'));
-  const grid = mk('div', 'af-grid');
-
-  const at = document.createElement('input');
-  at.type = 'datetime-local';
-  at.value = localDateTimeValue(new Date());
-  const worker = dSelect(memberOptions('未設定'), ctx.user.id);
-  const settle = dDate('');
-  const label = document.createElement('input');
-  label.type = 'text';
-  label.autocomplete = 'off';
-  label.maxLength = 200;
-  label.placeholder = isOther ? '内容（必須）' : '補足（任意）';
-  const labelField = dField(isOther ? '内容（必須）' : '補足（任意）', label);
-  labelField.className = 'span-all';
-
-  grid.append(dField('対応日時', at), dField('対応者', worker), dField('精算予定日（任意）', settle), labelField);
-  form.appendChild(grid);
-
-  const acts = mk('div', 'af-act');
-  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline', () => {
-    workFormKind = null;
-    setMsg('case-works-err', '');
-    renderWorksChips();
-    renderWorksForm();
-  }));
-  acts.appendChild(dBtn('追加', 'btn sm inline', b => {
-    const text = label.value.trim();
-    if (isOther && !text) { setMsg('case-works-err', '内容を入力してください'); label.focus(); return; }
-    const when = new Date(at.value);
-    if (!at.value || isNaN(when.getTime())) { setMsg('case-works-err', '対応日時を入力してください'); return; }
-    const gen = caseGen;
-    const fields = {
-      kind,
-      label: text || null,
-      worked_at: when.toISOString(),
-      worker_id: worker.value || null,
-      settle_due: settle.value || null
-    };
-    runOp(b, 'case-works-err', 'works', '追加', async () => {
-      await CasesApi.addWork(id, fields);
-      if (gen !== caseGen) return;
-      workFormKind = null;
-      renderWorksChips();
-      renderWorksForm();
-      notifyTimeline();
-    });
-  }));
-  form.appendChild(acts);
-  box.replaceChildren(form);
-}
-
-function renderWorksRows() {
-  const box = $('case-works-rows');
-  if (caseWorks.length === 0) {
-    box.replaceChildren(mk('div', 'nx-empty', '対応履歴はまだありません'));
-    return;
-  }
-  box.replaceChildren(...caseWorks.map(workRowEl));
-}
-
-function workRowEl(w) {
-  const row = mk('div', 'to-row');
-  const l = mk('div', 'to-l');
-  l.appendChild(mk('span', 'wk-tag', CaseLogic.workLabel(w.kind)));
-  l.appendChild(mk('b', null, CaseLogic.formatDateTime(w.worked_at)));
-  if (w.worker_id) l.appendChild(mk('span', 'to-who', memberName(w.worker_id)));
-  if (w.label) l.appendChild(mk('span', 'to-label', w.label));
-  row.appendChild(l);
-
-  const r = mk('div', 'to-r');
-  if (editingSettle.has(w.id)) {
-    const d = dDate(w.settle_due);
-    r.appendChild(mk('span', 'to-pay', '精算:'));
-    r.appendChild(d);
-    r.appendChild(dBtn('保存', 'btn sm inline', b => {
-      const v = d.value || null;
-      runOp(b, 'case-works-err', 'works', '精算予定日の変更', async () => {
-        await CasesApi.updateWork(w.id, { settle_due: v });
-        editingSettle.delete(w.id);
-      });
-    }));
-    r.appendChild(dBtn('キャンセル', 'linkbtn', () => {
-      editingSettle.delete(w.id);
-      renderWorksRows();
-    }));
-  } else {
-    r.appendChild(mk('span', 'to-pay', '精算: ' + (w.settle_due ? CaseLogic.formatMD(w.settle_due) : '未定')));
-    r.appendChild(dBtn(w.settle_due ? '変更' : '設定', 'linkbtn', () => {
-      editingSettle.add(w.id);
-      renderWorksRows();
-    }));
-  }
-
-  const settled = !!w.settled_at;
-  r.appendChild(dBtn(settled ? '精算確認済み ✓' : '精算未確認 → タップで✓', 'settle-btn' + (settled ? ' ok' : ''), b => {
-    const gen = caseGen;
-    runOp(b, 'case-works-err', 'works', '精算状態の変更', async () => {
-      await CasesApi.setSettled(w, !settled);
-      if (gen === caseGen && !settled) notifyTimeline();
-    });
-  }));
-  r.appendChild(dBtn('削除', 'linkbtn danger', b => {
-    if (!confirm('削除しますか？')) return;
-    runOp(b, 'case-works-err', 'works', '削除', async () => {
-      await CasesApi.deleteWork(w.id);
-      editingSettle.delete(w.id);
-    });
-  }));
-  row.appendChild(r);
-  return row;
 }

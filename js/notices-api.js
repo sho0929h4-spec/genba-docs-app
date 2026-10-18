@@ -65,12 +65,25 @@ const NoticesApi = (() => {
     async get(id) {
       return must(await sb.from('notices').select('*').eq('id', id).maybeSingle());
     },
-    // 新規作成。物件名は案件名、連絡先は会社マスタのスナップショット
-    async create(caseId, caseRow) {
+    // 新規作成。物件名は案件名、連絡先は会社マスタのスナップショット。
+    // opts.phase_id: 対応フェーズ（工事）のカードから作るとき。opts.data: 工事日など最初に入れておく値（workDate / timeStart 等）
+    async create(caseId, caseRow, opts = {}) {
       const data = NL().emptyData(caseRow);
       data.contact = contactSnapshot();
+      if (opts && opts.data) {
+        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd']) {
+          if (typeof opts.data[k] === 'string') data[k] = opts.data[k];
+        }
+      }
       const row = { case_id: caseId, ...patchOf(data) };
-      return must(await sb.from('notices').insert(row).select().single());
+      if (opts && opts.phase_id) row.phase_id = opts.phase_id;
+      const made = must(await sb.from('notices').insert(row).select().single());
+      if (opts && opts.phaseTitle) { // 対応フェーズのカードから作ったときはタイムラインに記録（失敗しても作成は成功扱い）
+        try {
+          must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system', body: `${opts.phaseTitle}の工事掲示を作った` }));
+        } catch (e) { console.warn('自動記録に失敗', e); }
+      }
+      return made;
     },
     // data と一覧用の列を一緒に保存する。0行なら失敗（削除済み・権限なし）
     async save(id, data) {
@@ -88,6 +101,7 @@ const NoticesApi = (() => {
       const data = clone(notice.data || {});
       data.roomNo = '';
       const row = { case_id: notice.case_id, ...patchOf(data) };
+      if (notice.phase_id) row.phase_id = notice.phase_id; // 複製も同じフェーズ
       return must(await sb.from('notices').insert(row).select().single());
     },
     // 連絡先を会社マスタの最新で上書きして保存する。更新後の行を返す

@@ -15,9 +15,13 @@
 const ML_DELAY = 1000;                       // 入力から保存までの待ち（ミリ秒）
 // 見積の下書き（draft.estimate_id）と報告書の下書き（draft.report_id）で文言・戻り先を出し分ける
 const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
+// 調査日・工事日の連絡／リマインド（purpose schedule / reminder。対応フェーズ）: 書類なし・PDFなし・戻り先は案件
+const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id &&
+  (s.draft.purpose === 'schedule' || s.draft.purpose === 'reminder'));
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
-const mlListHash = s => '#case/' + s.draft.case_id + (mlIsEst(s) ? '/estimates' : '/reports');
+const mlListHash = s => '#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports');
+const mlBackLabel = s => (mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 let ml = null;      // 表示中の画面の状態
 let mlSeq = 0;      // openMailDraft のたびに増やす
@@ -70,7 +74,7 @@ function mlMessage(text, isErr, backDraft) {
   const nodes = [];
   if (backDraft && backDraft.case_id) {
     const b = { draft: backDraft };
-    nodes.push(dBtn('← ' + mlDoc(b) + '一覧', 'back', () => { location.hash = mlListHash(b); }));
+    nodes.push(dBtn(mlBackLabel(b), 'back', () => { location.hash = mlListHash(b); }));
   }
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   $('mail-root').replaceChildren(...nodes);
@@ -167,7 +171,7 @@ function mlShowVal(s, text) {
 
 /* ---------- 描画 ---------- */
 function mlBackBtn(s) {
-  const b = dBtn('← ' + mlDoc(s) + '一覧', 'back', () => mlLeave(s, mlListHash(s)));
+  const b = dBtn(mlBackLabel(s), 'back', () => mlLeave(s, mlListHash(s)));
   s.els.back = b;
   return b;
 }
@@ -234,7 +238,7 @@ function mlComposeCard(s) {
   const card = mk('div', 'rep-card');
   const head = mk('div', 'rep-between');
   head.style.marginBottom = '10px';
-  head.appendChild(mk('b', null, '✉ 依頼者へ送るメール' + (s.ro ? '' : '（下書き）')));
+  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + (s.draft.purpose === 'reminder' ? 'リマインドのメール' : '日程の連絡メール') : '✉ 依頼者へ送るメール') + (s.ro ? '' : '（下書き）')));
   head.appendChild(mk('span', 'rep-pill ' + (s.ro ? 'p-ok' : 'p-sent'), s.ro ? '送付済み' : '自動作成'));
   card.appendChild(head);
 
@@ -250,9 +254,9 @@ function mlComposeCard(s) {
   card.appendChild(edField('CC', cc));
   card.appendChild(mlSenderNote());
   card.appendChild(edField('件名', subject));
-  card.appendChild(edField('本文', body, s.ro ? '' : '「{{PDF_LINK}}」の行には、送信時に' + mlDoc(s) + 'PDFのリンクが入ります', 'ml-body-ff'));
-  card.appendChild(mlAttachment(s));
-  if (!mlIsEst(s)) {
+  card.appendChild(edField('本文', body, s.ro || mlIsNote(s) ? '' : '「{{PDF_LINK}}」の行には、送信時に' + mlDoc(s) + 'PDFのリンクが入ります', 'ml-body-ff'));
+  if (!mlIsNote(s)) card.appendChild(mlAttachment(s));
+  if (!mlIsEst(s) && !mlIsNote(s)) {
     const quote = mk('div', 'ml-att ml-att-off', '＋ 見積書を添付（見積書機能の追加後に使えます）');
     quote.style.marginTop = '8px';
     card.appendChild(quote);
@@ -511,7 +515,9 @@ async function mlSend(s) {
 
     const PDF_LINK = ReportLogic.PDF_LINK;
     let url = '';
-    if (!String(f.body || '').includes(PDF_LINK)) {
+    if (mlIsNote(s)) {
+      // 日程の連絡・リマインドは書類が無いので PDF のリンクは作らない
+    } else if (!String(f.body || '').includes(PDF_LINK)) {
       // 本文からリンクの行が消されている → PDFを作らず、リンクなしで開くかどうか確認
       if (!confirm('本文に「' + PDF_LINK + '」の行がないため、' + mlDoc(s) + 'PDFのリンクはメールに入りません。このまま進みますか？')) return;
     } else {
@@ -574,7 +580,7 @@ async function mlMarkSent(s) {
     mlLsDel(mlDraftKey(s.id));
     if (ml !== s) return;
     s.ro = true; // 以降の保存・送信は受け付けない
-    location.hash = mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id; // 見積は見積書一覧へ（版の状態が見える）
+    location.hash = mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id; // 見積は見積書一覧へ（版の状態が見える）。報告書・日程の連絡は案件へ
   } finally {
     s.busy = false;
     if (ml === s) mlSyncBusy(s);

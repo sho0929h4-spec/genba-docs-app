@@ -670,10 +670,10 @@ async function eueNewVerPanel(s) {
   panel.replaceChildren(...nodes);
 }
 
-// 「承諾された」: confirm → EstimatesApi.accept → 採用版（案件の次やること「承諾待ち」も完了）
+// 「承諾された」: confirm → EstimatesApi.accept → 採用版（対応フェーズの段階が「承諾待ち」から進む）
 async function eueAccept(s) {
   if (s.busy) return;
-  if (!confirm('この版（' + euNumberText(s.row) + '・' + euYen(s.row.total) + '）を、依頼者に承諾された採用版として記録しますか？\n案件の次やること「承諾待ち」も完了になります。')) return;
+  if (!confirm('この版（' + euNumberText(s.row) + '・' + euYen(s.row.total) + '）を、依頼者に承諾された採用版として記録しますか？')) return;
   eueActsBusy(s, 'accept');
   setMsg('eu-acts-msg', '');
   let row = null, msg = '';

@@ -66,8 +66,14 @@ function renderClients() {
     h.appendChild(mk('b', null, k.name));
     h.appendChild(clientModeTag(k.billing_mode));
     l.appendChild(h);
-    const sub = clientSubText(k);
+    // 担当・メールは1行、電話はタップで発信できるリンク（36px 以上）
+    const sub = clientSubText(Object.assign({}, k, { tel: null }));
     if (sub) l.appendChild(mk('div', 'cl-sub', sub));
+    if (k.tel) {
+      const a = mk('a', 'cl-tel', '☎ ' + k.tel);
+      a.href = 'tel:' + String(k.tel).replace(/[^0-9+]/g, '');
+      l.appendChild(a);
+    }
     if (k.memo) l.appendChild(mk('div', 'cl-memo', k.memo));
     const b = mk('button', 'linkbtn cl-edit', '編集');
     b.type = 'button';

@@ -110,7 +110,7 @@ function caseRowEl(r) {
 }
 
 // ---- モーダル ----
-// 関係者: 元請は元請マスタ（clients）から選ぶ（その場で「＋ 新しい元請」も追加できる）。物件オーナー・入居者は案件の列。
+// 依頼元: 元請は元請マスタ（clients）から選ぶ（その場で「＋ 新しい元請」も追加できる）。物件オーナー・入居者は案件の列。
 // 保存時に cases.client_id と、互換の client_name / client_email を選んだマスタの値で更新する
 const CM_LEGACY = '__legacy__'; // 元請マスタに紐付いていない旧データ（client_name だけの案件）。選んだままなら元請は変えない
 let caseModalClients = [];       // 元請マスタ（名前順）。読み込めなかったら []
@@ -239,7 +239,7 @@ async function saveNewClient() {
   setMsg('cm-msg', '元請「' + made.name + '」を元請マスタに追加して選びました', true);
 }
 
-// opts.focus === 'parties' … 案件詳細の「関係者を編集」から開いたとき（関係者の欄へ移る）
+// opts.focus === 'parties' … 案件詳細の「依頼元を編集」から開いたとき（依頼元の欄へ移る）
 async function openCaseModal(row, onSaved, opts) {
   const seq = ++caseModalSeq;
   caseModalRow = row || null;
@@ -355,7 +355,7 @@ async function saveCaseModal() {
   let created = null;
   let errMsg = '';
   try {
-    if (row) await CasesApi.updateCase(row.id, fields);
+    if (row) await CasesApi.updateCase(row.id, fields, row);
     else created = await CasesApi.createCase(fields);
   } catch (e) {
     errMsg = '保存できませんでした: ' + (e && e.message ? e.message : e);

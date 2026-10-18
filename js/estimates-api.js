@@ -140,17 +140,21 @@ const EstimatesApi = (() => {
     async get(id) {
       return must(await sb.from('estimates').select('*').eq('id', id).maybeSingle());
     },
-    // 新しい系列の v1 下書き
-    async create(caseId, caseRow) {
+    // 新しい系列の v1 下書き。opts.phase_id: 対応フェーズのカードから作るとき（次の版も同じフェーズ。migration 021）
+    async create(caseId, caseRow, opts = {}) {
       let c = caseRow;
       if (!c) c = must(await sb.from('case_summaries').select('*').eq('id', caseId).maybeSingle());
       const me = ctx.membership ? { display_name: ctx.membership.display_name || '' } : null;
       const e = EL().emptyEstimate(c || {}, ctx.org, me);
       const tt = withTotals(e.lines);
-      return must(await sb.from('estimates').insert({
+      const ins = {
         case_id: caseId, series_id: CryptoUtil.uuid(), version: 1, status: 'draft',
         data: e.data, lines: tt.lines, subtotal: tt.subtotal, tax: tt.tax, total: tt.total
-      }).select().single());
+      };
+      if (opts && opts.phase_id) ins.phase_id = opts.phase_id;
+      const row = must(await sb.from('estimates').insert(ins).select().single());
+      await logSystem(caseId, `${opts && opts.phaseTitle ? opts.phaseTitle + 'の' : ''}見積書（下書き）を作った`);
+      return row;
     },
     // 下書きのみ。lines を渡したら正規化して合計も一緒に送る
     async save(id, fields) {
@@ -222,7 +226,7 @@ const EstimatesApi = (() => {
         .order('created_at', { ascending: false }));
       return (rows && rows[0]) || null;
     },
-    // 承諾: accepted・accepted_at、同案件の未完了の「承諾待ち」（kind='approval'）を完了、タイムライン記録
+    // 承諾: accepted・accepted_at、タイムライン記録（次やること「承諾待ち」の完了はやめた。段階は対応フェーズの見積から出る）
     async accept(est) {
       if (!est || !est.id) throw new Error('見積書が見つかりません');
       if (await api.hasNewer(est)) throw new Error('この版より新しい版があります。最新の版で承諾してください');
@@ -230,13 +234,6 @@ const EstimatesApi = (() => {
         .eq('id', est.id).in('status', ['issued', 'sent']).select());
       if (!rows || rows.length === 0) throw new Error('提出済みか送付済みの見積書だけ承諾にできます');
       const row = rows[0];
-      try {
-        const acts = must(await sb.from('case_actions').select('id').eq('case_id', row.case_id)
-          .is('done_at', null).eq('kind', 'approval'));
-        if (acts && acts.length) {
-          must(await sb.from('case_actions').update({ done_at: now() }).in('id', acts.map(a => a.id)));
-        }
-      } catch (e) { console.warn('次やることの完了に失敗', e); }
       const n = await resolveLinked(row);
       await logSystem(row.case_id, () => `見積書（${displayNumber(row)}）が承諾された（${EL().yen(row.total)}）${n ? `（依頼${n}件を反映済みに）` : ''}`);
       return row;
@@ -252,9 +249,9 @@ const EstimatesApi = (() => {
       let c = caseRow;
       if (!c) c = must(await sb.from('cases').select('*').eq('id', est.case_id).maybeSingle());
       const m = buildMail({ caseRow: c, org: ctx.org, est });
-      return must(await sb.from('mail_drafts').insert({
-        case_id: est.case_id, estimate_id: est.id, to_email: m.to || null, subject: m.subject, body: m.body
-      }).select().single());
+      const ins = { case_id: est.case_id, estimate_id: est.id, purpose: 'estimate', to_email: m.to || null, subject: m.subject, body: m.body };
+      if (est.phase_id) ins.phase_id = est.phase_id; // 対応フェーズの見積なら、送付メールも同じフェーズ（共有記録 docTrack）
+      return must(await sb.from('mail_drafts').insert(ins).select().single());
     },
     // mail-ui の markSent の後に呼ぶ: status sent・sent_at、紐付けた依頼を対応済みに、タイムライン記録。
     // 依頼を対応済みにするのは系列の最新版のときだけ（古い版を送っても反映済みにしない）:

@@ -111,7 +111,7 @@
   .modal .ff input,.modal .ff select{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
   .modal-act{display:flex;gap:8px;margin-top:6px;}
   .modal-act .btn{flex:1;}
-  /* 案件ポップアップの関係者（元請はマスタから選ぶ・物件オーナー・入居者） */
+  /* 案件ポップアップの依頼元（元請はマスタから選ぶ・物件オーナー・入居者） */
   .modal.wide{max-width:460px;}
   .cm-sec{border-top:1px solid var(--border);margin:4px 0 10px;padding-top:12px;}
   .cm-sec-ttl{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:10px;}
@@ -131,7 +131,7 @@
   .cm-party-ttl{font-size:12px;font-weight:700;color:var(--navy2);margin:4px 0 6px;}
   .cm-party .ff{margin-bottom:8px;}
   @media(min-width:480px){ .cm-party{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 8px;} .cm-party-ttl,.cm-party .ff:nth-child(2){grid-column:1 / -1;} }
-  /* 案件詳細の関係者欄 */
+  /* 案件詳細の依頼元欄 */
   .pty-row{display:grid;grid-template-columns:84px minmax(0,1fr);gap:2px 10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px;}
   .pty-k{font-size:12px;font-weight:700;color:var(--muted);padding-top:1px;}
   .pty-v{min-width:0;overflow-wrap:anywhere;}
@@ -148,6 +148,7 @@
   .cl-row b{font-size:15px;}
   .cl-sub{font-size:12px;color:var(--muted);margin-top:2px;}
   .cl-edit{flex:0 0 auto;white-space:nowrap;}
+  .cl-tel{display:inline-flex;align-items:center;min-height:36px;font-size:13px;font-weight:700;color:var(--navy2);text-decoration:none;overflow-wrap:anywhere;}
   .cl-memo{font-size:12px;color:var(--muted);white-space:pre-wrap;margin-top:2px;}
   .cl-empty{font-size:13px;color:var(--muted);padding:6px 0 10px;}
   .cl-form{background:#f7faff;border:1px dashed #b9cde6;border-radius:12px;padding:14px;margin-top:12px;}
@@ -170,7 +171,7 @@
   .muted{color:var(--muted);}
   .linkbtn{background:none;border:0;padding:6px 8px;min-height:36px;font-family:inherit;font-size:12px;font-weight:700;color:var(--navy2);cursor:pointer;}
   .linkbtn.danger{color:var(--red);}
-  .linkbtn:disabled,.settle-btn:disabled{opacity:.6;cursor:default;}
+  .linkbtn:disabled{opacity:.6;cursor:default;}
   .who-pill.none{background:#fdecea;color:var(--red);}
   .case-head{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;}
   .case-head .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
@@ -181,29 +182,14 @@
   .addr{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
   .addr span:first-child{min-width:0;overflow-wrap:anywhere;}
   .maplinks a{color:var(--navy2);font-weight:700;text-decoration:none;font-size:12px;}
-  .next{background:#fff;border:2px solid var(--navy);border-radius:14px;padding:12px 14px;margin-bottom:12px;}
-  .nx-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap;}
   .nx-l{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap;min-width:0;}
   .nx-l b{min-width:0;overflow-wrap:anywhere;}
   .nx-sub{font-size:11px;color:var(--muted);}
-  .nx-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .nx-due{font-size:12px;font-weight:700;color:var(--muted);}
   .nx-due.near{color:var(--red);}
   .nx-empty{font-size:13px;color:var(--muted);padding:9px 0;border-top:1px solid var(--border);}
   .taio{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:12px;}
   .taio-head{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:8px;}
-  .taio-sum{font-size:12px;color:var(--muted);}
-  .taio-add{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
-  .to-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--border);flex-wrap:wrap;}
-  .to-l{display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap;min-width:0;}
-  .to-who{font-size:11px;color:var(--muted);}
-  .to-label{font-size:12px;color:var(--text);overflow-wrap:anywhere;}
-  .to-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .to-pay{font-size:12px;color:var(--muted);}
-  .to-r input[type=date]{padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
-  .wk-tag{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700;background:#eef3fa;color:var(--navy2);white-space:nowrap;}
-  .settle-btn{font-size:11px;font-weight:700;padding:5px 12px;min-height:36px;border-radius:999px;border:0;background:#fdecea;color:var(--red);cursor:pointer;font-family:inherit;}
-  .settle-btn.ok{background:#eafaf1;color:var(--green);}
   .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0;}
   .toolbtn{background:#fff;color:var(--text);border:1.5px solid var(--border);border-radius:12px;padding:10px 6px;text-align:center;cursor:pointer;font-family:inherit;}
   .toolbtn .ic{font-size:20px;}
@@ -251,46 +237,52 @@
   .entry-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
   .req-status{font-size:11px;font-weight:700;padding:2px 12px;min-height:36px;border-radius:999px;border:0;background:#fdecea;color:var(--red);cursor:pointer;font-family:inherit;}
   .req-status.ok{background:#eafaf1;color:var(--green);}
-  /* ===== お客様ページ欄（案件詳細）・お客様へのお知らせ ===== */
-  .pt-lead{margin:-2px 0 4px;}
-  .pt-row{border-top:1px solid var(--border);padding:10px 0;min-width:0;}
-  .pt-label{font-size:14px;min-width:0;overflow-wrap:anywhere;}
-  .pt-sub{display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;font-size:12px;margin-top:2px;}
-  .pt-opened{color:var(--green);font-weight:700;}
-  .pt-unopened{color:var(--muted);}
-  .pt-acts{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;margin-top:8px;}
-  .pt-acts .btn.sm{white-space:nowrap;}
-  .pt-open{display:inline-flex;align-items:center;min-height:36px;padding:6px 8px;font-size:12px;font-weight:700;color:var(--navy2);text-decoration:none;}
-  .pt-acts .pt-revoke{margin-left:auto;}
-  .pt-confirm{background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 11px;margin-top:8px;font-size:13px;color:var(--text);overflow-wrap:anywhere;}
-  .pt-confirm .pt-acts{margin-top:6px;}
-  .btn.pt-danger{background:var(--red);}
-  .pt-status:empty,.pt-fb:empty{display:none;}
-  .pt-status{margin-top:4px;overflow-wrap:anywhere;}
-  .pt-fallback{width:100%;margin-top:6px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#f7faff;color:var(--text);resize:vertical;}
-  .pt-new-wrap{margin:10px 0 0;}
-  .pt-form .pt-q{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;}
-  .pt-chips{margin-bottom:6px;}
-  .pt-sees{font-size:12px;color:var(--navy2);background:#fff;border:1px solid var(--border);border-radius:8px;padding:7px 10px;overflow-wrap:anywhere;}
-  .pt-field{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);margin-top:8px;min-width:0;}
-  .pt-field input{width:100%;min-width:0;padding:9px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
-  .pt-issued{background:#fff;border:2px solid var(--navy);border-radius:12px;padding:12px;margin-top:10px;min-width:0;overflow-wrap:anywhere;}
-  .pt-issued .shr-link{margin-top:8px;}
-  .pt-issued>.linkbtn{display:block;margin:4px 0 -4px auto;}
-  .pt-revoked{margin-top:10px;font-size:12px;color:var(--muted);}
-  .pt-revoked summary{cursor:pointer;min-height:36px;display:flex;align-items:center;font-weight:700;color:var(--navy2);}
-  .pt-rv-row{display:flex;gap:4px 10px;flex-wrap:wrap;align-items:baseline;padding:6px 0;border-top:1px solid var(--border);}
-  .pt-rv-label{color:var(--text);overflow-wrap:anywhere;min-width:0;text-decoration:line-through;}
+  /* ===== 対応フェーズ（案件詳細のカード。js/phase-ui.js） ===== */
+  .ph-adds{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .ph-add{min-height:36px;padding:6px 12px;border-radius:10px;border:1.5px dashed var(--navy2);background:#fff;color:var(--navy2);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .ph-add:disabled{opacity:.6;cursor:default;}
+  .ph-empty{font-size:13px;color:var(--muted);padding:9px 0;border-top:1px solid var(--border);}
+  .ph-list{display:grid;gap:12px;}
+  .ph-card{border:1.5px solid var(--border);border-radius:14px;overflow:hidden;min-width:0;}
+  .ph-card.k-survey{border-color:#2563a8;} .ph-card.k-cause{border-color:#8a4b0f;} .ph-card.k-repair{border-color:#0f7a6b;}
+  .ph-hd{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#eef3fa;flex-wrap:wrap;}
+  .ph-kind{display:inline-flex;align-items:center;border-radius:999px;padding:1px 10px;font-size:12px;font-weight:700;color:#fff;white-space:nowrap;}
+  .ph-kind.k-survey{background:#2563a8;} .ph-kind.k-cause{background:#8a4b0f;} .ph-kind.k-repair{background:#0f7a6b;}
+  .ph-n{font-size:14px;}
+  .ph-sp{flex:1;}
+  .ph-stage{font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
+  .ph-stage.us{background:#fdecea;color:var(--red);} .ph-stage.them{background:#fdf3e4;color:var(--amber);} .ph-stage.done{background:#e7f4ea;color:var(--green);}
+  .ph-steps{display:grid;}
+  .ph-st{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;padding:10px 12px;border-top:1px solid var(--border);}
+  .ph-dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid var(--border);color:var(--muted);background:#fff;}
+  .ph-st.done .ph-dot{background:var(--green);border-color:var(--green);color:#fff;}
+  .ph-st.now .ph-dot{border-color:var(--amber);color:var(--amber);}
+  .ph-d{display:grid;gap:6px;min-width:0;}
+  .ph-t{font-size:13px;font-weight:700;}
+  .ph-row{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;min-width:0;}
+  .ph-when{font-size:14px;font-weight:700;overflow-wrap:anywhere;}
+  .ph-when.none{color:var(--muted);font-weight:400;}
+  .ph-sub{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .ph-done{font-size:13px;font-weight:700;color:var(--green);}
+  .ph-mail{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;font-size:12px;overflow-wrap:anywhere;}
+  .ph-mail .btn.sm{white-space:nowrap;}
+  .ph-remind{background:#fff4c2;border-radius:9px;padding:6px 10px;font-size:12px;overflow-wrap:anywhere;}
+  .ph-form{background:#f7faff;border:1px dashed #b9cde6;border-radius:10px;padding:10px 12px;display:grid;gap:8px;}
+  .ph-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);min-width:0;}
+  .ph-form input{width:100%;min-width:0;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);min-height:44px;}
+  .ph-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+  .ph-doc{border:1px solid var(--border);border-radius:10px;padding:6px 10px;display:grid;gap:4px;min-width:0;}
+  .ph-doc-t{font-size:13px;min-width:0;overflow-wrap:anywhere;}
+  .ph-track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;font-size:11px;text-align:center;}
+  .ph-track span{border-radius:6px;padding:3px 2px;background:#eef3fa;color:var(--muted);overflow-wrap:anywhere;}
+  .ph-track span.on{background:#e7f4ea;color:var(--green);font-weight:700;}
+  .ph-mkdoc{justify-self:start;min-height:36px;padding:6px 12px;border-radius:9px;border:1.5px dashed var(--navy2);background:#fff;color:var(--navy2);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .ph-mkdoc:disabled{opacity:.6;cursor:default;}
+  .ph-foot{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;padding:4px 12px 6px;border-top:1px solid var(--border);}
+  .ph-confirm{background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 11px;margin:4px 0;font-size:13px;display:grid;gap:6px;width:100%;overflow-wrap:anywhere;}
+  .ph-err{margin:0 12px 8px;}
+  .ph-err:empty{display:none;}
   .tag.cust{background:#e6f4f1;color:#0f766e;}
-  .tl-aud{background:#f2faf8;border:1px solid #cde9e3;border-radius:10px;padding:8px 10px;margin-bottom:8px;}
-  .tl-aud[hidden]{display:none;}
-  .tl-aud-q{font-size:12px;font-weight:700;color:#0f766e;margin-bottom:4px;}
-  .tl-aud-chks{display:flex;flex-wrap:wrap;gap:4px 6px;}
-  .tl-chk{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 10px 0 6px;border:1.5px solid var(--border);border-radius:999px;background:#fff;font-size:13px;cursor:pointer;}
-  .tl-chk input{width:18px;height:18px;margin:0;accent-color:#0f766e;}
-  .tl-chk:has(input:checked){border-color:#0f766e;}
-  .tl-aud-note{font-size:11px;color:var(--muted);margin-top:4px;}
-  .entry .tl-aud-line{font-size:12px;color:#0f766e;font-weight:700;margin-top:4px;}
   .attach[hidden]{display:none;}
   .tl-actions .tl-right{margin-left:auto;}
   /* ===== TEAM（チーム状況）・表示切替タブ ===== */
@@ -911,7 +903,7 @@
     <div class="ff"><label for="cm-assignee">担当者 <span class="opt">あとからでOK</span></label><select id="cm-assignee"></select></div>
     <div class="ff"><label for="cm-address">現場住所 <span class="opt">あとからでOK</span></label><input type="text" id="cm-address" placeholder="例: 東京都中野区中央2-1-5" autocomplete="off"></div>
     <div class="cm-sec" id="cm-parties">
-      <div class="cm-sec-ttl">関係者 <span class="opt">あとからでOK</span></div>
+      <div class="cm-sec-ttl">依頼元 <span class="opt">あとからでOK</span></div>
       <div class="ff"><label for="cm-client">元請（管理会社）<span class="opt">元請マスタから選ぶ</span></label>
         <div class="cm-client-row"><select id="cm-client"></select><button class="btn sm ghost inline" id="cm-client-add" type="button">＋ 新しい元請</button></div>
         <div class="cm-client-info" id="cm-client-info"></div>
@@ -1016,43 +1008,43 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=3f61973"></script>
-<script src="js/supabase-config.js?v=3f61973"></script>
-<script src="js/supabase.js?v=3f61973"></script>
-<script src="js/auth.js?v=3f61973"></script>
-<script src="js/storage.js?v=3f61973"></script>
-<script src="js/quota.js?v=3f61973"></script>
-<script src="js/case-logic.js?v=3f61973"></script>
-<script src="js/image.js?v=3f61973"></script>
-<script src="js/cases-api.js?v=3f61973"></script>
-<script src="js/clients-api.js?v=3f61973"></script>
+<script src="js/crypto-util.js?v=924fa2c"></script>
+<script src="js/supabase-config.js?v=924fa2c"></script>
+<script src="js/supabase.js?v=924fa2c"></script>
+<script src="js/auth.js?v=924fa2c"></script>
+<script src="js/storage.js?v=924fa2c"></script>
+<script src="js/quota.js?v=924fa2c"></script>
+<script src="js/case-logic.js?v=924fa2c"></script>
+<script src="js/phase-logic.js?v=924fa2c"></script>
+<script src="js/image.js?v=924fa2c"></script>
+<script src="js/cases-api.js?v=924fa2c"></script>
+<script src="js/clients-api.js?v=924fa2c"></script>
+<script src="js/phases-api.js?v=924fa2c"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=3f61973"></script>
-<script src="js/reports-api.js?v=3f61973"></script>
-<script src="js/report-pdf.js?v=3f61973"></script>
-<script src="js/notice-logic.js?v=3f61973"></script>
-<script src="js/notices-api.js?v=3f61973"></script>
-<script src="js/notice-pdf.js?v=3f61973"></script>
-<script src="js/estimate-logic.js?v=3f61973"></script>
-<script src="js/estimates-api.js?v=3f61973"></script>
-<script src="js/estimate-pdf.js?v=3f61973"></script>
-<script src="js/portal-logic.js?v=3f61973"></script>
-<script src="js/portals-api.js?v=3f61973"></script>
-<script src="js/case-list.js?v=3f61973"></script>
-<script src="js/clients-ui.js?v=3f61973"></script>
-<script src="js/case-detail.js?v=3f61973"></script>
-<script src="js/team.js?v=3f61973"></script>
-<script src="js/timeline.js?v=3f61973"></script>
-<script src="js/portal-ui.js?v=3f61973"></script>
-<script src="js/report-form.js?v=3f61973"></script>
-<script src="js/report-ui.js?v=3f61973"></script>
-<script src="js/report-share.js?v=3f61973"></script>
-<script src="js/report-edit.js?v=3f61973"></script>
-<script src="js/mail-ui.js?v=3f61973"></script>
-<script src="js/notice-ui.js?v=3f61973"></script>
-<script src="js/notice-edit.js?v=3f61973"></script>
-<script src="js/estimate-ui.js?v=3f61973"></script>
-<script src="js/app.js?v=3f61973"></script>
+<script src="js/report-logic.js?v=924fa2c"></script>
+<script src="js/reports-api.js?v=924fa2c"></script>
+<script src="js/report-pdf.js?v=924fa2c"></script>
+<script src="js/notice-logic.js?v=924fa2c"></script>
+<script src="js/notices-api.js?v=924fa2c"></script>
+<script src="js/notice-pdf.js?v=924fa2c"></script>
+<script src="js/estimate-logic.js?v=924fa2c"></script>
+<script src="js/estimates-api.js?v=924fa2c"></script>
+<script src="js/estimate-pdf.js?v=924fa2c"></script>
+<script src="js/case-list.js?v=924fa2c"></script>
+<script src="js/clients-ui.js?v=924fa2c"></script>
+<script src="js/case-detail.js?v=924fa2c"></script>
+<script src="js/phase-ui.js?v=924fa2c"></script>
+<script src="js/team.js?v=924fa2c"></script>
+<script src="js/timeline.js?v=924fa2c"></script>
+<script src="js/report-form.js?v=924fa2c"></script>
+<script src="js/report-ui.js?v=924fa2c"></script>
+<script src="js/report-share.js?v=924fa2c"></script>
+<script src="js/report-edit.js?v=924fa2c"></script>
+<script src="js/mail-ui.js?v=924fa2c"></script>
+<script src="js/notice-ui.js?v=924fa2c"></script>
+<script src="js/notice-edit.js?v=924fa2c"></script>
+<script src="js/estimate-ui.js?v=924fa2c"></script>
+<script src="js/app.js?v=924fa2c"></script>
 </body>
 </html>
