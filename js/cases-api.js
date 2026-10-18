@@ -10,8 +10,6 @@ const CasesApi = (() => {
   const CASE_COLS = ['name', 'address', 'client_name', 'client_email', 'assignee_id', 'due_date', 'status',
     'client_id', 'owner_name', 'owner_email', 'owner_tel', 'resident_name', 'resident_email', 'resident_tel',
     'room']; // 025: 号室
-  const WORK_COLS = ['kind', 'label', 'worked_at', 'worker_id', 'settle_due', 'settled_at'];
-  const ACTION_COLS = ['kind', 'ball', 'title', 'due_date', 'started_on', 'assignee_id', 'done_at'];
   const pick = (obj, cols) => {
     const out = {};
     for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
@@ -58,52 +56,8 @@ const CasesApi = (() => {
       return row;
     },
 
-    async listActions(caseId) {
-      return must(await sb.from('case_actions').select('*').eq('case_id', caseId).is('done_at', null)
-        .order('due_date', { ascending: true, nullsFirst: false }).order('created_at'));
-    },
-    // チーム状況用: 進行中の案件の未完了の次やること全部（案件名つき）
-    async listOpenActionsAll() {
-      return must(await sb.from('case_actions').select('*, cases!inner(name,status)')
-        .is('done_at', null).eq('cases.status', 'open'));
-    },
-    async addAction(caseId, a) {
-      return must(await sb.from('case_actions').insert({ case_id: caseId, ...a }).select().single());
-    },
-    // 次やることの更新。許可列のみ（assignee_id で担当者を振る）
-    async updateAction(id, fields) {
-      return must(await sb.from('case_actions').update(pick(fields, ACTION_COLS)).eq('id', id).select().single());
-    },
-    async completeAction(action) {
-      must(await sb.from('case_actions').update({ done_at: new Date().toISOString() }).eq('id', action.id));
-      await logSystem(action.case_id, () => L().sys.actionDone(action.title));
-    },
-    async deleteAction(id) {
-      const rows = must(await sb.from('case_actions').delete().eq('id', id).select('id'));
-      if (!rows || rows.length === 0) throw new Error('削除できませんでした');
-    },
-
-    async listWorks(caseId) {
-      return must(await sb.from('case_works').select('*').eq('case_id', caseId).order('worked_at', { ascending: false }));
-    },
-    async addWork(caseId, w) {
-      const row = must(await sb.from('case_works').insert({ case_id: caseId, ...w }).select().single());
-      await logSystem(caseId, () => L().sys.workAdded(row.kind, row.label, row.worked_at));
-      return row;
-    },
-    async updateWork(id, fields) {
-      return must(await sb.from('case_works').update(pick(fields, WORK_COLS)).eq('id', id).select().single());
-    },
-    async setSettled(work, settled) {
-      const row = must(await sb.from('case_works')
-        .update({ settled_at: settled ? new Date().toISOString() : null }).eq('id', work.id).select().single());
-      if (settled) await logSystem(work.case_id, () => L().sys.settled(work.kind));
-      return row;
-    },
-    async deleteWork(id) {
-      const rows = must(await sb.from('case_works').delete().eq('id', id).select('id'));
-      if (!rows || rows.length === 0) throw new Error('削除できませんでした');
-    },
+    // 旧い次やること（case_actions）・対応履歴と精算（case_works）は対応フェーズ（case_phases）に置き換えた（2026-10-18）。
+    // 表は DB に残す（読み取りのみ）が、画面からは読み書きしない
 
     async listEntries(caseId) {
       return must(await sb.from('timeline_entries').select('*').eq('case_id', caseId).order('created_at', { ascending: false }));

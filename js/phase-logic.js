@@ -198,11 +198,78 @@
       count[p.kind] = (count[p.kind] || 0) + 1;
       const st = stage(p, null, now);
       return { i, row: { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
-        key: st.key, label: st.label, ball: st.ball, mark: MARK[st.ball] || '', date: st.date, late: !!st.late } };
+        seq: p.seq != null ? p.seq : count[p.kind],
+        key: st.key, label: st.label, ball: st.ball, mark: MARK[st.ball] || '', date: st.date, late: !!st.late,
+        workerId: p.worker_id || null, workerName: str(p.worker_name) || null } };
     }).filter(x => x.row.ball);
     const rank = b => (b === 'us' ? 0 : 1);
     rows.sort((a, b) => rank(a.row.ball) - rank(b.row.ball) || a.i - b.i);
     return rows.map(x => x.row);
+  }
+
+  // 「次:」の1行の文（caseNext の行）→ '10/20 9:00 調査に行く' / '見積の承諾待ち（10/16 送付）' / '請求する（完了 10/14）'
+  function nextText(row) {
+    if (!row) return '';
+    if (row.key === 'approval' && row.date) return `${row.label}（${fmtMD(row.date)} 送付）`;
+    if ((row.key === 'report' || row.key === 'bill') && row.date) {
+      return `${row.label}（${row.kind === 'survey' ? '調査' : '完了'} ${fmtMD(row.date)}）`;
+    }
+    return row.label;
+  }
+
+  // 案件一覧のチップ用（caseRow = case_summaries の行）
+  //   next: caseNext の行。us / them: 🔴 / 🟡 の段階があるか
+  //   mineTurn: 自分が担当する 🔴 の段階がある（その段階のフェーズの作業担当者が自分、または案件の担当者が自分）
+  //   mine: 案件の担当者か、どれかのフェーズの作業担当者が自分
+  //   unpaid: 請求済み・未入金のフェーズの数
+  function caseFlags(caseRow, meId, now) {
+    const c = caseRow || {};
+    const next = caseNext(c.phases, now);
+    const phases = listOf(c.phases);
+    const meCase = !!meId && c.assignee_id === meId;
+    return {
+      next,
+      us: next.some(r => r.ball === 'us'),
+      them: next.some(r => r.ball === 'them'),
+      mineTurn: !!meId && next.some(r => r.ball === 'us' && (meCase || r.workerId === meId)),
+      mine: meCase || (!!meId && phases.some(p => p.worker_id === meId)),
+      unpaid: phases.filter(p => p.billed_at && !p.paid_at).length
+    };
+  }
+
+  // チーム状況: 進行中の案件の 🔴 の段階を担当者（フェーズの作業担当者。無ければ案件の担当）ごとに数える。🟡 は相手待ちとして別に一覧
+  //   → { summary: { us, them, late, unassigned }, byMember: [{ user_id, name, items, late }], unassigned: [item], waiting: [item] }
+  //   item = caseNext の行 + { caseId, caseName, who, whoName, text }。並びは 予定・期限を過ぎたもの → 日付の早い順 → 案件名
+  function teamStages(caseRows, members, now) {
+    const nameOf = new Map(listOf(members).map(m => [m.user_id, str(m.display_name) || '(名前なし)']));
+    const us = [], them = [];
+    for (const c of listOf(caseRows)) {
+      if (c.status !== 'open') continue;
+      for (const r of caseNext(c.phases, now)) {
+        const who = r.workerId || c.assignee_id || null;
+        const whoName = !who ? '' : nameOf.get(who)
+          || (who === r.workerId ? r.workerName : str(c.assignee_name)) || '不明';
+        const it = Object.assign({}, r, { caseId: c.id, caseName: str(c.name), who, whoName, text: nextText(r) });
+        (r.ball === 'us' ? us : them).push(it);
+      }
+    }
+    const t = x => (x.date ? ms(x.date) : Infinity);
+    const sort = list => list.sort((a, b) => (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b)
+      || (a.caseName < b.caseName ? -1 : a.caseName > b.caseName ? 1 : 0));
+    sort(us); sort(them);
+    const mine = new Map();
+    us.filter(x => x.who).forEach(x => { if (!mine.has(x.who)) mine.set(x.who, []); mine.get(x.who).push(x); });
+    const order = listOf(members).map(m => m.user_id).filter(id => mine.has(id));
+    mine.forEach((_, id) => { if (!order.includes(id)) order.push(id); }); // 退会済み等はメンバー順の後ろ
+    const byMember = order.map(id => {
+      const items = mine.get(id);
+      return { user_id: id, name: items[0].whoName, items, late: items.filter(x => x.late).length };
+    });
+    const unassigned = us.filter(x => !x.who);
+    return {
+      summary: { us: us.length, them: them.length, late: us.concat(them).filter(x => x.late).length, unassigned: unassigned.length },
+      byMember, unassigned, waiting: them
+    };
   }
 
   /* ---------- リマインド ---------- */
@@ -951,7 +1018,7 @@
 
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, caseNext, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    phaseTitle, stage, caseNext, nextText, caseFlags, teamStages, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     PLAN_SPOTS, PLAN_DURATIONS, PLAN_ASKS, normalizePlan, planLines, hasPlan, setPlanSection,

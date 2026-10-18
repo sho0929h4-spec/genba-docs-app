@@ -11,14 +11,17 @@ let caseListSeq = 0;          // 一覧取得のリクエスト番号。古い�
 let caseLoading = false;
 let caseLoadFailed = false;
 
+// チップ。🔴 自分の番 / 🟡 相手待ち / 💴 入金待ち は対応フェーズの段階から（CaseLogic → PhaseLogic.caseFlags）
 const CHIP_LABELS = {
   open: '進行中',
   mine_turn: '🔴 自分の番',
+  waiting: '🟡 相手待ち',
   mine: '自分の担当',
-  requests: '⚠️ 未対応の依頼',
-  unsettled: '💰 精算未確認',
+  requests: '⚠️ 未対応の依頼あり',
+  unpaid: '💴 入金待ち',
   done: '完了'
 };
+const NEXT_MAX = 2; // カードの「次:」は最大2行（🔴 を先）
 
 function mk(tag, cls, text) {
   const e = document.createElement(tag);
@@ -60,21 +63,22 @@ async function openCases() {
 
 function renderCaseList() {
   const me = ctx.user.id;
-  const counts = CaseLogic.countByFilter(caseRows, me);
+  const now = new Date();
+  const counts = CaseLogic.countByFilter(caseRows, me, now);
   document.querySelectorAll('#case-chips .chip').forEach(chip => {
     const k = chip.dataset.filter;
     chip.textContent = CHIP_LABELS[k] + ' ' + (counts[k] || 0);
     chip.classList.toggle('on', k === caseFilter);
   });
 
-  const rows = CaseLogic.filterCases(caseRows, caseFilter, $('case-search').value, me);
+  const rows = CaseLogic.filterCases(caseRows, caseFilter, $('case-search').value, me, now);
   const list = $('case-list');
-  list.replaceChildren(...rows.map(caseRowEl));
+  list.replaceChildren(...rows.map(r => caseRowEl(r, now)));
   $('case-loading').hidden = !caseLoading;
   $('case-empty').hidden = caseLoading || caseLoadFailed || rows.length > 0;
 }
 
-function caseRowEl(r) {
+function caseRowEl(r, now) {
   const today = CaseLogic.todayStr();
   const el = mk('div', 'case');
   el.dataset.id = r.id;
@@ -92,24 +96,34 @@ function caseRowEl(r) {
   meta.appendChild(mk('span', 'st ' + (r.status === 'done' ? 'done' : 'open'), r.status === 'done' ? '完了' : '進行中'));
   el.appendChild(meta);
 
-  if (r.next_title) {
-    const us = r.next_ball === 'us';
-    const nx = mk('div', 'nx-line');
-    nx.appendChild(mk('span', 'ball' + (us ? ' me' : ''), us ? '🔴 社内対応' : '🟡 相手待ち'));
-    if (r.next_assignee_name) nx.appendChild(mk('span', 'who-pill', '👤 ' + r.next_assignee_name));
-    let text = '次: ' + r.next_title;
-    if (r.next_due) text += (us ? '（期限 ' : '（次回確認 ') + CaseLogic.formatMD(r.next_due) + '）';
-    nx.appendChild(mk('span', null, text));
-    el.appendChild(nx);
-  }
+  // 次: 各フェーズの今の段階（PhaseLogic.caseNext）。完了した案件は入金待ちだけ
+  const all = PhaseLogic.caseNext(r.phases, now || new Date());
+  const next = r.status === 'done' ? all.filter(x => x.key === 'payment') : all;
+  const kindCount = {};
+  (r.phases || []).forEach(p => { kindCount[p.kind] = (kindCount[p.kind] || 0) + 1; });
+  next.slice(0, NEXT_MAX).forEach(x => el.appendChild(nextLineEl(r, x, kindCount)));
+  if (next.length > NEXT_MAX) el.appendChild(mk('div', 'nx-more', 'ほか ' + (next.length - NEXT_MAX) + '件'));
 
   const badges = mk('div', 'badges');
   if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '⚠️ 未対応の依頼 ' + r.open_requests));
-  if (r.unsettled_works > 0) badges.appendChild(mk('span', 'bdg alert', '💰 精算未確認 ' + r.unsettled_works));
   badges.appendChild(mk('span', 'bdg', '💬 ' + (r.timeline_count || 0) + '件'));
   el.appendChild(badges);
 
   return el;
+}
+
+// 「[調査] 次: 🔴 10/20 9:00 調査に行く」。同じ種類が複数あれば何回目、作業担当者が案件の担当者と違えば名前を添える
+function nextLineEl(r, x, kindCount) {
+  const nx = mk('div', 'nx-line' + (x.late ? ' late' : ''));
+  nx.dataset.phase = x.phaseId || '';
+  nx.dataset.ball = x.ball;
+  const k = PhaseLogic.KINDS.find(z => z.key === x.kind);
+  nx.appendChild(mk('span', 'ph-kind k-' + x.kind, (k ? k.short : '') + (kindCount[x.kind] > 1 ? ' ' + x.seq + '回目' : '')));
+  nx.appendChild(mk('span', 'nx-text', '次: ' + x.mark + ' ' + PhaseLogic.nextText(x)));
+  if (x.ball === 'us' && x.workerId && x.workerId !== r.assignee_id && x.workerName) {
+    nx.appendChild(mk('span', 'who-pill', '👤 ' + x.workerName));
+  }
+  return nx;
 }
 
 // ---- モーダル ----

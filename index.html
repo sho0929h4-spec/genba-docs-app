@@ -86,6 +86,10 @@
   .case .due.near{color:var(--red);}
   .case .meta{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-top:4px;flex-wrap:wrap;}
   .nx-line{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;margin-top:7px;flex-wrap:wrap;}
+  .nx-line + .nx-line{margin-top:4px;}
+  .nx-line .nx-text{min-width:0;overflow-wrap:anywhere;}
+  .nx-line.late .nx-text{color:var(--red);}
+  .nx-more{font-size:12px;color:var(--muted);margin-top:4px;}
   .badges{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
   .bdg{font-size:11px;background:#eef3fa;color:var(--navy2);padding:2px 8px;border-radius:999px;}
   .bdg.alert{background:#fdecea;color:var(--red);font-weight:700;}
@@ -443,6 +447,7 @@
   .mt-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap;font-size:13px;}
   .mt-l{display:flex;flex-direction:column;gap:1px;min-width:0;}
   .mt-l b{min-width:0;overflow-wrap:anywhere;}
+  .mt-l b.hot{color:var(--red);}
   .mt-case{font-size:11px;color:var(--muted);overflow-wrap:anywhere;}
   .mt-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .poke{font-size:11px;font-weight:700;color:var(--navy2);border:1.5px solid var(--navy2);background:#fff;border-radius:8px;padding:3px 8px;min-height:36px;cursor:pointer;font-family:inherit;}
@@ -802,9 +807,10 @@
     <div class="chips" id="case-chips">
       <button class="chip on" type="button" data-filter="open">進行中 0</button>
       <button class="chip" type="button" data-filter="mine_turn">🔴 自分の番 0</button>
+      <button class="chip" type="button" data-filter="waiting">🟡 相手待ち 0</button>
       <button class="chip" type="button" data-filter="mine">自分の担当 0</button>
-      <button class="chip" type="button" data-filter="requests">⚠️ 未対応の依頼 0</button>
-      <button class="chip" type="button" data-filter="unsettled">💰 精算未確認 0</button>
+      <button class="chip" type="button" data-filter="requests">⚠️ 未対応の依頼あり 0</button>
+      <button class="chip" type="button" data-filter="unpaid">💴 入金待ち 0</button>
       <button class="chip" type="button" data-filter="done">完了 0</button>
     </div>
     <div class="err" id="case-list-msg"></div>
@@ -855,7 +861,7 @@
   <div class="wrap" id="billing-root"></div>
 </section>
 
-<!-- TEAM (チーム状況: 管理者が「誰がどこで止まっているか」を見る。中身は js/team.js が作る) -->
+<!-- TEAM (チーム状況: 対応フェーズの 🔴 の段階を担当者ごとに見る。中身は js/team.js が作る) -->
 <section class="screen" id="screen-team">
   <div class="hdr">
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
@@ -876,7 +882,7 @@
     <div class="team-sum" id="team-sum"></div>
     <div id="team-body"></div>
     <div class="empty" id="team-loading" hidden>読み込み中…</div>
-    <div class="empty" id="team-empty" hidden>止まっている「次やること」はありません</div>
+    <div class="empty" id="team-empty" hidden>自社の番（🔴）の段階も、相手待ち（🟡）もありません</div>
   </div>
 </section>
 
@@ -1206,46 +1212,46 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=681ee63"></script>
-<script src="js/supabase-config.js?v=681ee63"></script>
-<script src="js/supabase.js?v=681ee63"></script>
-<script src="js/auth.js?v=681ee63"></script>
-<script src="js/storage.js?v=681ee63"></script>
-<script src="js/quota.js?v=681ee63"></script>
-<script src="js/case-logic.js?v=681ee63"></script>
-<script src="js/phase-logic.js?v=681ee63"></script>
-<script src="js/image.js?v=681ee63"></script>
-<script src="js/cases-api.js?v=681ee63"></script>
-<script src="js/clients-api.js?v=681ee63"></script>
-<script src="js/phases-api.js?v=681ee63"></script>
+<script src="js/crypto-util.js?v=50c7d90"></script>
+<script src="js/supabase-config.js?v=50c7d90"></script>
+<script src="js/supabase.js?v=50c7d90"></script>
+<script src="js/auth.js?v=50c7d90"></script>
+<script src="js/storage.js?v=50c7d90"></script>
+<script src="js/quota.js?v=50c7d90"></script>
+<script src="js/case-logic.js?v=50c7d90"></script>
+<script src="js/phase-logic.js?v=50c7d90"></script>
+<script src="js/image.js?v=50c7d90"></script>
+<script src="js/cases-api.js?v=50c7d90"></script>
+<script src="js/clients-api.js?v=50c7d90"></script>
+<script src="js/phases-api.js?v=50c7d90"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=681ee63"></script>
-<script src="js/reports-api.js?v=681ee63"></script>
-<script src="js/report-pdf.js?v=681ee63"></script>
-<script src="js/notice-logic.js?v=681ee63"></script>
-<script src="js/notices-api.js?v=681ee63"></script>
-<script src="js/notice-pdf.js?v=681ee63"></script>
-<script src="js/estimate-logic.js?v=681ee63"></script>
-<script src="js/estimates-api.js?v=681ee63"></script>
-<script src="js/estimate-pdf.js?v=681ee63"></script>
-<script src="js/case-list.js?v=681ee63"></script>
-<script src="js/clients-ui.js?v=681ee63"></script>
-<script src="js/case-detail.js?v=681ee63"></script>
-<script src="js/phase-ui.js?v=681ee63"></script>
-<script src="js/billing-ui.js?v=681ee63"></script>
-<script src="js/team.js?v=681ee63"></script>
-<script src="js/timeline.js?v=681ee63"></script>
-<script src="js/report-form.js?v=681ee63"></script>
-<script src="js/report-ui.js?v=681ee63"></script>
-<script src="js/report-share.js?v=681ee63"></script>
-<script src="js/report-edit.js?v=681ee63"></script>
-<script src="js/mail-ui.js?v=681ee63"></script>
-<script src="js/outbox-ui.js?v=681ee63"></script>
-<script src="js/staff-inbox.js?v=681ee63"></script>
-<script src="js/notice-ui.js?v=681ee63"></script>
-<script src="js/notice-edit.js?v=681ee63"></script>
-<script src="js/estimate-ui.js?v=681ee63"></script>
-<script src="js/app.js?v=681ee63"></script>
+<script src="js/report-logic.js?v=50c7d90"></script>
+<script src="js/reports-api.js?v=50c7d90"></script>
+<script src="js/report-pdf.js?v=50c7d90"></script>
+<script src="js/notice-logic.js?v=50c7d90"></script>
+<script src="js/notices-api.js?v=50c7d90"></script>
+<script src="js/notice-pdf.js?v=50c7d90"></script>
+<script src="js/estimate-logic.js?v=50c7d90"></script>
+<script src="js/estimates-api.js?v=50c7d90"></script>
+<script src="js/estimate-pdf.js?v=50c7d90"></script>
+<script src="js/case-list.js?v=50c7d90"></script>
+<script src="js/clients-ui.js?v=50c7d90"></script>
+<script src="js/case-detail.js?v=50c7d90"></script>
+<script src="js/phase-ui.js?v=50c7d90"></script>
+<script src="js/billing-ui.js?v=50c7d90"></script>
+<script src="js/team.js?v=50c7d90"></script>
+<script src="js/timeline.js?v=50c7d90"></script>
+<script src="js/report-form.js?v=50c7d90"></script>
+<script src="js/report-ui.js?v=50c7d90"></script>
+<script src="js/report-share.js?v=50c7d90"></script>
+<script src="js/report-edit.js?v=50c7d90"></script>
+<script src="js/mail-ui.js?v=50c7d90"></script>
+<script src="js/outbox-ui.js?v=50c7d90"></script>
+<script src="js/staff-inbox.js?v=50c7d90"></script>
+<script src="js/notice-ui.js?v=50c7d90"></script>
+<script src="js/notice-edit.js?v=50c7d90"></script>
+<script src="js/estimate-ui.js?v=50c7d90"></script>
+<script src="js/app.js?v=50c7d90"></script>
 </body>
 </html>
