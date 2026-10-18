@@ -4,8 +4,7 @@
 (function (root) {
   // 相手の種類。label = 画面に出す名前、short = 一覧で並べるときの短い名前（「・」でつなぐため）
   const AUDIENCES = [
-    { key: 'gc', label: '元請・発注者', short: '元請' },
-    { key: 'pm', label: '管理会社', short: '管理会社' },
+    { key: 'gc', label: '元請', short: '元請' },
     { key: 'owner', label: '物件オーナー', short: 'オーナー' },
     { key: 'resident', label: '入居者', short: '入居者' }
   ];
@@ -23,7 +22,6 @@
       if (!name) return '元請 御中';
       return /(御中|様)$/.test(name) ? name : name + ' 御中';
     }
-    if (audience === 'pm') return '管理会社 御中';
     if (audience === 'owner') return 'オーナー様';
     if (audience === 'resident') return '入居者の皆様';
     return '';
