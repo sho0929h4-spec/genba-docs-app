@@ -777,7 +777,6 @@ function phBillingBody(p, docs, errId) {
       box.appendChild(dl);
     }
   }
-  box.appendChild(st);
   out.push(box);
   return out;
 }
@@ -1525,7 +1524,7 @@ function phWorkerBody(p, docs, errId) {
     }
     box.appendChild(acts);
     // 担当者への確認依頼のメール（下書き → 確認して送る／送信済み）
-    const own = docs.mails.filter(m => m.purpose === 'staff_notice' && !m.remind_slot)
+    const own = docs.mails.filter(m => m.purpose === 'staff_notice' && !m.remind_slot && (!m.worker_id || m.worker_id === p.worker_id)) // 027: 前の担当者に送った分は出さない
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     const draft = own.find(m => m.status === 'draft');
     const sent = own.find(m => m.status === 'sent');

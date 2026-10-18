@@ -330,7 +330,8 @@
       const staff = d.purpose === 'staff_notice' && !!d.remind_slot; // 担当者向けの前日のお知らせ（Task 6b）も同じ規則。担当者がいなくなっても消す
       if ((d.purpose !== 'reminder' && !staff) || d.status !== 'draft') return false;
       const p = byId.get(d.phase_id);
-      if (!p || !p.scheduled_at || p.done_at || (staff && !p.worker_id)) return true;
+      // 担当者向けは、担当者がいなくなった・別の人に変わった（027 の worker_id）ときも消す
+      if (!p || !p.scheduled_at || p.done_at || (staff && (!p.worker_id || (d.worker_id && d.worker_id !== p.worker_id)))) return true;
       if (nowMs != null && nowMs >= ms(p.scheduled_at)) return true;
       return d.remind_for !== jstYmd(p.scheduled_at);
     });
@@ -751,7 +752,8 @@
   }
   // 担当者向けの前日のお知らせを今作るか（アプリを開いたときに呼ぶ）→ [{ phase_id, slot: 'd1', remind_for }]
   //   入居者向けの前日リマインドと同じ時刻（前日 18:00）・同じ条件（予定を入れた時点で過ぎていれば作らない・予定の時刻を過ぎたら作らない）。
-  //   担当者が決まっているフェーズだけ。同じ (phase_id, d1, remind_for) の staff_notice が既にあれば作らない
+  //   担当者が決まっているフェーズだけ。同じ (phase_id, d1, remind_for, 担当者) の staff_notice が既にあれば作らない
+  //   （担当者を変えたら新しい担当者向けを作る。DB の unique も worker_id 込み: migration 027。worker_id の無い古い行は同じ担当者とみなす）
   function dueStaffReminders(phases, existingDrafts, now) {
     const nowMs = ms(now) != null ? ms(now) : Date.now();
     const drafts = listOf(existingDrafts);
@@ -761,7 +763,8 @@
       if (nowMs >= ms(p.scheduled_at)) continue;
       const d1 = reminderSlots(p.scheduled_at, scheduleSetAt(p, drafts)).find(x => x.slot === 'd1');
       if (!d1 || ms(d1.at) > nowMs) continue;
-      const exists = drafts.some(d => d.purpose === 'staff_notice' && d.phase_id === p.id && d.remind_slot === 'd1' && d.remind_for === d1.remind_for);
+      const exists = drafts.some(d => d.purpose === 'staff_notice' && d.phase_id === p.id && d.remind_slot === 'd1' && d.remind_for === d1.remind_for
+        && (!d.worker_id || d.worker_id === p.worker_id));
       if (!exists) out.push({ phase_id: p.id, kind: p.kind, slot: 'd1', label: d1.label, at: d1.at, remind_for: d1.remind_for });
     }
     return out;

@@ -326,7 +326,9 @@ const ReportsApi = (() => {
     // opts.skipLog: 呼び出し側（見積の送付＝EstimatesApi.onMailSent）が宛先・件名を含めて1件だけ記録するとき
     // opts.logText: 記録の文（日程連絡・リマインド: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。mail-ui が作る）
     async markSent(draft, opts = {}) {
-      const isNote = draft.purpose === 'schedule' || draft.purpose === 'reminder' || draft.purpose === 'survey_result';
+      // 連絡メール（日程・リマインド・調査結果・担当者へのメール）: 「今回は送らない」にできる＝ skipped_at を戻してから送信済みにする
+      const NOTE_PURPOSES = ['schedule', 'reminder', 'survey_result', 'staff_notice'];
+      const isNote = NOTE_PURPOSES.includes(draft.purpose);
       const patch = { status: 'sent', sent_at: now(), sent_by: ctx.user.id };
       if (isNote) patch.skipped_at = null; // 「今回は送らない」にした後で送った（送信済みは送らないにできない: 020 の check）
       const rows = must(await sb.from('mail_drafts')
@@ -341,7 +343,7 @@ const ReportsApi = (() => {
           if (!rs || rs.length === 0) console.warn('報告書が確認済みでないため送付済みにしませんでした', row.report_id);
         } catch (e) { console.warn('報告書の状態更新に失敗', e); }
       }
-      const note = row.purpose === 'schedule' || row.purpose === 'reminder' || row.purpose === 'survey_result';
+      const note = NOTE_PURPOSES.includes(row.purpose);
       if (!opts.skipLog) await logSystem(row.case_id, () => (note && opts.logText) ? opts.logText
         : `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;

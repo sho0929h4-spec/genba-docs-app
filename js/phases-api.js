@@ -22,6 +22,16 @@ const PhasesApi = (() => {
     } catch (e) { console.warn('自動記録に失敗', e); }
   }
   const me = () => (ctx && ctx.membership ? { display_name: ctx.membership.display_name || '' } : null);
+  // 自動で作るリマインド（お客様向け・担当者向け）の署名「担当 ○○」: 開いた人ではなく案件の担当者（assignee）。
+  //   無ければフェーズの作業担当者、それも無ければ開いた人。members（memberships の行）があれば名前はそこから引く
+  function autoSigner(caseRow, phase, members) {
+    const c = caseRow || {};
+    const p = phase || {};
+    const nameOf = id => { const m = id && (members || []).find(x => x.user_id === id); return m ? String(m.display_name || '').trim() : ''; };
+    const name = nameOf(c.assignee_id) || String(c.assignee_name || '').trim()
+      || nameOf(p.worker_id) || String(p.worker_name || '').trim();
+    return name ? { display_name: name } : me();
+  }
   // 宛先の既定（関係者のうちメールがある人）→ { recipients, to }
   function defaultTo(caseRow, purpose) {
     const keys = PL().defaultRecipients(caseRow, purpose);
@@ -201,7 +211,8 @@ const PhasesApi = (() => {
         for (const d of open) {
           let body = PL().setPlanSection(d.body, lines);
           if (body == null) {
-            const args = { phase: row, caseRow, org: ctx.org, me: me(), recipients: d.recipients || [], slot: d.remind_slot };
+            const args = { phase: row, caseRow, org: ctx.org, me: d.purpose === 'reminder' ? autoSigner(caseRow, row) : me(),
+              recipients: d.recipients || [], slot: d.remind_slot };
             body = (d.purpose === 'schedule' ? PL().scheduleMail(args) : PL().reminderMail(args)).body;
           }
           if (body === d.body) continue;
@@ -243,7 +254,7 @@ const PhasesApi = (() => {
           draft = rows && rows[0] ? rows[0] : null;
         }
         if (!draft) {
-          draft = must(await sb.from('mail_drafts').insert(Object.assign({ case_id: row.case_id, phase_id: row.id, purpose: 'staff_notice' }, patch))
+          draft = must(await sb.from('mail_drafts').insert(Object.assign({ case_id: row.case_id, phase_id: row.id, purpose: 'staff_notice', worker_id: row.worker_id }, patch))
             .select().single());
         }
       } catch (e) {
@@ -369,7 +380,7 @@ const PhasesApi = (() => {
     // 時刻を過ぎていて未作成のリマインドを作る（サーバーの定期実行は使わない。案件一覧・案件を開いたときに呼ぶ）。
     //   entries: [{ caseRow, phases }]（phases は case_summaries.phases か case_phases の行）。drafts: そのフェーズの mail_drafts
     //   先に古い未送信のリマインド（日付が変わった・完了・予定の時刻を過ぎた）を消す。
-    //   二重作成は DB の unique (phase_id, remind_slot, remind_for) で防ぐ（別のタブ・別の人が同時に作っても1件。unique 違反は無視）
+    //   二重作成は DB の unique (phase_id, purpose, remind_slot, remind_for, worker_id) で防ぐ（別のタブ・別の人が同時に作っても1件。unique 違反は無視）
     //   → { created: [行], removed: n, errors: [文] }
     async syncReminders(entries, drafts, now) {
       const at = now || new Date();
@@ -388,11 +399,18 @@ const PhasesApi = (() => {
         } catch (e) { out.errors.push('古いリマインドを消せませんでした: ' + (e && e.message ? e.message : e)); }
       }
       const due = PL().dueReminders(phases, list.concat((drafts || []).filter(d => d.purpose === 'schedule')), at);
+      // 担当者向けの前日のお知らせ（宛先は担当者のメール。メールが無くても作る: アプリ内の 🔔 と文面コピーで伝える）
+      const staffDue = PL().dueStaffReminders(phases, list.concat((drafts || []).filter(d => d.purpose === 'schedule')), at);
+      // 署名（案件の担当者の名前）と担当者のメールを引くため、作るものがあるときだけ社内メンバーを読む
+      let members = [];
+      if (due.length || staffDue.length) {
+        try { members = await api.members(); } catch (e) { out.errors.push('担当者を読み込めませんでした: ' + (e && e.message ? e.message : e)); }
+      }
       for (const r of due) {
         const p = phases.find(x => x.id === r.phase_id);
         const caseRow = caseOf.get(r.phase_id) || {};
         const t = defaultTo(caseRow, 'reminder');
-        const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: me(), slot: r.slot, recipients: t.recipients });
+        const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: autoSigner(caseRow, p, members), slot: r.slot, recipients: t.recipients });
         const { data, error } = await sb.from('mail_drafts').insert({
           case_id: caseRow.id || p.case_id, phase_id: r.phase_id, purpose: 'reminder', remind_slot: r.slot, remind_for: r.remind_for,
           to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
@@ -404,18 +422,15 @@ const PhasesApi = (() => {
         }
         out.created.push(data);
       }
-      // 担当者向けの前日のお知らせ（宛先は担当者のメール。メールが無くても作る: アプリ内の 🔔 と文面コピーで伝える）
-      const staffDue = PL().dueStaffReminders(phases, list.concat((drafts || []).filter(d => d.purpose === 'schedule')), at);
       if (staffDue.length) {
-        let members = [];
-        try { members = await api.members(); } catch (e) { out.errors.push('担当者を読み込めませんでした: ' + (e && e.message ? e.message : e)); }
         for (const r of staffDue) {
           const p = phases.find(x => x.id === r.phase_id);
           const caseRow = withWorker(caseOf.get(r.phase_id) || {}, p.worker_id, members);
           const caseId = caseRow.id || p.case_id;
-          const m = PL().staffReminderMail({ phase: p, caseRow, org: ctx.org, me: me(), link: linkOf(caseId, p.id) });
+          const m = PL().staffReminderMail({ phase: p, caseRow, org: ctx.org, me: autoSigner(caseRow, p, members), link: linkOf(caseId, p.id) });
           const { data, error } = await sb.from('mail_drafts').insert({
             case_id: caseId, phase_id: r.phase_id, purpose: 'staff_notice', remind_slot: 'd1', remind_for: r.remind_for,
+            worker_id: p.worker_id, // DB のトリガー（027）がフェーズの今の担当者で入れ直す。unique は担当者ごと
             to_email: caseRow.worker_email || null, recipients: ['worker'], subject: m.subject, body: m.body
           }).select().single();
           if (error) {
