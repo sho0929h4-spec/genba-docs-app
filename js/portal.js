@@ -1,5 +1,6 @@
 // js/portal.js — お客様ページ（p.html#{token}。ログイン不要・読み取り専用）
-// 見せる範囲はサーバー側の portal_open（migration 018/019）が相手の種類ごとに絞る。ここは表示だけ。
+// 見せる範囲はサーバー側の portal_open（migration 018/019/021）が相手の種類ごとに絞る。ここは表示だけ。
+// 進み具合（stages）は 021 からフェーズで作る: 受付 → 調査 → 原因元工事 → 復旧工事 → 完了（フェーズの無い段は来ない）。
 // セキュリティ・作りの決まり:
 //   ・token は URL の # 以降にだけある（# 以降はサーバーへ送られない）。DB へは RPC の引数としてだけ渡す。画面・console には出さない。
 //   ・Supabase は js/supabase.js の既定クライアント sb（ログイン中ならそのセッション）で呼ぶ。
@@ -156,7 +157,7 @@
     card.appendChild(mk('h2', null, '進み具合'));
     const ol = mk('ol', 'p-steps');
     const view = PortalLogic.stageView(stages);
-    // 完了済みの案件で、工事の記録が無く「予定日」だけ残っている（工事のお知らせの日が先）ときは予定を出さない
+    // 完了済みの案件で、調査・工事が「済」にならず「予定日」だけ残っているときは予定・日程未定を出さない
     const finished = view.some(s => s.key === 'done' && s.state === 'done');
     view.forEach(s => {
       if (finished && s.state === 'planned') Object.assign(s, { state: 'todo', mark: '○', dateText: '' });

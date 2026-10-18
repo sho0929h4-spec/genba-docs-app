@@ -124,8 +124,10 @@
     return m ? (+m[2]) + '/' + (+m[3]) : '';
   }
 
-  // 進み具合（portal_open の stages）→ 表示用。state: done=済（✓）/ planned=予定日あり（●）/ todo=まだ（○）
-  //   工事で日付が無いものは「日程未定」
+  // 進み具合（portal_open の stages。migration 021: 受付 → 調査 → 原因元工事 → 復旧工事 → 完了、フェーズの無い段は来ない）→ 表示用。
+  //   state: done=済（✓）/ planned=予定日あり（●）/ todo=まだ（○）
+  //   調査・工事（survey / cause / repair。旧 work も）で日付が無いものは「日程未定」
+  const SCHEDULED_KEYS = ['survey', 'cause', 'repair', 'work'];
   function stageView(stages) {
     const list = Array.isArray(stages) ? stages.filter(s => s && typeof s === 'object') : [];
     return list.map(s => {
@@ -133,7 +135,7 @@
       let state, dateText;
       if (s.done) { state = 'done'; dateText = date; }
       else if (date) { state = 'planned'; dateText = date + ' 予定'; }
-      else { state = 'todo'; dateText = s.key === 'work' ? '日程未定' : ''; }
+      else { state = 'todo'; dateText = SCHEDULED_KEYS.includes(s.key) ? '日程未定' : ''; }
       return { key: s.key, label: String(s.label || ''), state, mark: { done: '✓', planned: '●', todo: '○' }[state], dateText };
     });
   }

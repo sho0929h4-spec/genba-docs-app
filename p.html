@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Ctext x='32' y='46' font-size='38' font-weight='700' text-anchor='middle' fill='%23fff' font-family='Hiragino Kaku Gothic ProN,Noto Sans JP,sans-serif'%3E現%3C/text%3E%3C/svg%3E">
 <title>工事の進み具合</title>
 <!-- お客様ページ（ログイン不要・読み取り専用）。URL の # 以降が合言葉（token）。中身は js/portal.js が作る。
-     見せる範囲はサーバー側（portal_open。migration 018/019）で相手の種類ごとに絞る -->
+     見せる範囲はサーバー側（portal_open。migration 018/019/021）で相手の種類ごとに絞る。進み具合の段の数はフェーズによって2〜5 -->
 <style>
   :root{--navy:#1a3a5c;--navy2:#22507e;--border:#dde5ef;--bg:#f0f4f8;--text:#1e293b;--muted:#64748b;--red:#c0392b;--green:#1e7e34;--green-bg:#e8f5ec;--amber:#b45309;--amber-bg:#fdf3e6;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -42,7 +42,7 @@
   .p-addr{font-size:13px;color:var(--muted);margin-top:6px;overflow-wrap:anywhere;}
   .p-done-pill{display:inline-block;margin-top:8px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--green-bg);color:var(--green);}
   /* 進み具合: 4段のステップ（横並び。線でつなぐ） */
-  .p-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;}
+  .p-steps{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);list-style:none;}
   .p-step{position:relative;text-align:center;min-width:0;padding:0 2px;}
   .p-step::before{content:'';position:absolute;top:15px;left:calc(-50% + 20px);right:calc(50% + 20px);height:3px;border-radius:2px;background:var(--border);}
   .p-step:first-child::before{display:none;}
@@ -50,9 +50,9 @@
   .p-mark{position:relative;width:32px;height:32px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;background:#fff;border:2.5px solid var(--border);color:var(--muted);}
   .p-step.done .p-mark{background:var(--green);border-color:var(--green);color:#fff;}
   .p-step.planned .p-mark{border-color:var(--amber);background:var(--amber-bg);color:var(--amber);font-size:12px;}
-  .p-step-l{display:block;font-size:13px;font-weight:700;margin-top:6px;}
+  .p-step-l{display:block;font-size:13px;font-weight:700;margin-top:6px;line-height:1.35;word-break:keep-all;}
   .p-step.todo .p-step-l{color:var(--muted);}
-  .p-step-d{display:block;font-size:11px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere;}
+  .p-step-d{display:block;font-size:11px;color:var(--muted);line-height:1.4;white-space:nowrap;}
   .p-step.planned .p-step-d{color:var(--amber);font-weight:700;}
   .p-legend{font-size:11px;color:var(--muted);margin-top:10px;text-align:center;}
   /* お知らせ */
@@ -88,6 +88,8 @@
   .p-time{font-size:12px;color:var(--muted);margin-top:8px;}
   .p-err{font-size:13px;color:var(--red);margin-top:8px;overflow-wrap:anywhere;}
   .p-warn{font-size:12px;color:var(--muted);margin-top:12px;overflow-wrap:anywhere;}
+  /* 5段（受付・調査・原因元工事・復旧工事・完了）でも狭い画面で段名・日付を折り返さない */
+  @media(max-width:480px){ .p-step{padding:0;} .p-step-l{font-size:12px;letter-spacing:-.03em;} .p-step-d{font-size:10.5px;letter-spacing:-.02em;} }
   @media(min-width:700px){ .p-hero h1{font-size:22px;} .p-card{padding:18px 20px;} .p-step-d{font-size:12px;} }
 </style>
 </head>
@@ -100,11 +102,11 @@
 </header>
 <main class="wrap" id="p-root"></main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/supabase-config.js?v=9a4a280"></script>
-<script src="js/supabase.js?v=9a4a280"></script>
-<script src="js/storage.js?v=9a4a280"></script>
-<script src="js/notice-logic.js?v=9a4a280"></script>
-<script src="js/portal-logic.js?v=9a4a280"></script>
-<script src="js/portal.js?v=9a4a280"></script>
+<script src="js/supabase-config.js?v=905e266"></script>
+<script src="js/supabase.js?v=905e266"></script>
+<script src="js/storage.js?v=905e266"></script>
+<script src="js/notice-logic.js?v=905e266"></script>
+<script src="js/portal-logic.js?v=905e266"></script>
+<script src="js/portal.js?v=905e266"></script>
 </body>
 </html>
