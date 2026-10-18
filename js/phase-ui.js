@@ -6,7 +6,7 @@
 //
 // カード（ワイヤーフレーム docs/mocks/mock-phases.html の 3・6）:
 //   調査: 調査日時 → 調査した → 調査結果（Task 5b）→ 報告書 → 見積書
-//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 完了 → 報告書 → 請求（準備中。Task 7）
+//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 完了 → 報告書 → 請求（Task 7。調査は調査費用の見積があるときだけ請求の段）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
 const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分
@@ -39,7 +39,7 @@ const phYmd = iso => phToInput(iso).slice(0, 10);
 
 /* ---------- 読み込み ---------- */
 function renderPhases(root) {
-  ph = { gen: caseGen, caseId: currentCase.id, root, data: null, editing: new Set(), confirmDel: null, adding: false, loadErr: '' };
+  ph = { gen: caseGen, caseId: currentCase.id, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(), dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '' };
   phDraw();
   return phLoad();
 }
@@ -194,6 +194,25 @@ function phAdd(btn, kind) {
   });
 }
 
+// 請求の段の見出しの横に「未請求／請求済み・入金待ち／入金済み」（期限を過ぎて未入金なら「入金期限超過」）
+function phBillTagged(st, p) {
+  const t = st.querySelector('.ph-t');
+  if (t) {
+    const row = mk('div', 'ph-th');
+    t.replaceWith(row);
+    row.append(t, phBillTag(p));
+  }
+  return st;
+}
+function phBillTag(p) {
+  const status = PhaseLogic.billStatus(p);
+  const over = PhaseLogic.isOverdue(p, new Date());
+  const tag = mk('span', 'bl-tag ' + (over ? 'over' : status), over ? '入金期限超過' : BL_STATUS_LABEL[status]);
+  tag.dataset.status = over ? 'overdue' : status;
+  return tag;
+}
+const BL_STATUS_LABEL = { unbilled: '未請求', billed: '請求済み・入金待ち', paid: '入金済み' };
+
 function phStep(state, n, title, body) {
   const st = mk('div', 'ph-st ' + state);
   st.dataset.n = String(n);
@@ -249,17 +268,20 @@ function phCard(p) {
   if (isSurvey) {
     steps.append(
       phStep(stateOf(0), 1, '調査日時', phScheduleBody(p, docs, errId)),
-      phStep(stateOf(1), 2, '調査した', phDoneBody(p, errId)),
+      phStep(stateOf(1), 2, '調査した', phDoneBody(p, errId).concat([phContactEl(p, docs.mails)])),
       phStep(stateOf(2), 3, '調査結果', phResultBody(p, docs)),
       phStep(stateOf(3), 4, '報告書', phReportsBody(p, docs, errId)),
       phStep(stateOf(4), 5, '見積書（この調査の分）', phEstimatesBody(p, docs, errId)));
+    // 精算（調査費用の請求）: 見積の有無にかかわらず常に出す（見積が無ければ金額は手入力）。見出しの横に請求の状態
+    const bs = p.paid_at ? 'done' : p.done_at || p.billed_at ? 'now' : 'later';
+    steps.append(phBillTagged(phStep(bs, 6, '精算', phBillingBody(p, docs, errId)), p));
   } else {
     steps.append(
       phStep(stateOf(0), 1, '見積（この工事の分）', phEstimatesBody(p, docs, errId)),
       phStep(stateOf(1), 2, '工事日の調整', phScheduleBody(p, docs, errId).concat(phNoticesBody(p, docs, errId))),
       phStep(stateOf(2), 3, '完了', phDoneBody(p, errId)),
       phStep(stateOf(3), 4, '報告書', phReportsBody(p, docs, errId)),
-      phStep(stateOf(4), 5, '請求', [mk('div', 'ph-sub', '請求の記録は準備中です（請求先・請求日・入金の記録は次の更新で使えるようになります）')]));
+      phBillTagged(phStep(stateOf(4), 5, '請求', phBillingBody(p, docs, errId)), p));
   }
   card.appendChild(steps);
   card.appendChild(phFoot(p, docs, errId));
@@ -411,6 +433,44 @@ function phDoneBody(p, errId) {
   return [line, mk('div', 'ph-sub', isSurvey ? '調査に行ったら押してください（間違えたら取り消せます）' : '工事が終わったら押してください（間違えたら取り消せます）')];
 }
 
+/* ---- 調査した → 依頼元へ報告連絡（「調査結果のご報告」purpose survey_result の下書き。Task 5b の仕組み） ---- */
+// 未作成（調査結果を入れると下書きができる）／下書きあり → 確認して送る／送信済み M/D（宛先）
+function phContactEl(p, mails) {
+  const el = mk('div', 'ph-contact' + (p.done_at ? ' on' : ''));
+  el.dataset.phaseId = p.id;
+  const rs = phRes.get(p.id);
+  const own = (mails || []).filter(m => m.phase_id === p.id && m.purpose === 'survey_result')
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  if (rs && rs.draft && !own.some(m => m.id === rs.draft.id)) own.unshift(rs.draft);
+  const draft = own.find(m => m.status === 'draft');
+  const sent = own.find(m => m.status === 'sent');
+  el.appendChild(mk('b', 'ph-ct-t', '📨 依頼元へ報告連絡'));
+  if (draft) {
+    const who = PhaseLogic.recipientsLabel(draft.recipients);
+    el.dataset.state = draft.skipped_at ? 'skipped' : 'draft';
+    el.appendChild(mk('span', null, '調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') + (who ? '（' + who + '）' : '（宛先のメール未登録）')));
+    const b = dBtn('確認して送る', 'btn sm inline ph-ct-open', async btn => {
+      btn.disabled = true;
+      try { await phResSettle(); } finally { btn.disabled = false; }
+      openMailDraft(btn.dataset.draftId);
+    });
+    b.dataset.draftId = draft.id;
+    el.appendChild(b);
+  } else if (sent) {
+    const who = PhaseLogic.recipientsLabel(sent.recipients);
+    el.dataset.state = 'sent';
+    el.appendChild(mk('span', 'ph-ct-sent', '調査結果のご報告 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み' + (who ? '（' + who + '）' : '')));
+  } else {
+    el.dataset.state = 'none';
+    el.appendChild(mk('span', 'ph-sub', '未作成です。下の「調査結果」を入れると「調査結果のご報告」の下書きができます'));
+    el.appendChild(dBtn('調査結果を入れる', 'linkbtn ph-ct-go', () => {
+      const ta = ph && ph.root && ph.root.querySelector('.ph-result[data-phase-id="' + p.id + '"] .ph-res-cause');
+      if (ta) { ta.scrollIntoView({ block: 'center' }); ta.focus({ preventScroll: true }); }
+    }));
+  }
+  return el;
+}
+
 /* ---- 書類 ---- */
 function phTrackEl(t) {
   const tr = mk('div', 'ph-track');
@@ -485,6 +545,8 @@ function phReportsBody(p, docs, errId) {
     box.appendChild(top);
     box.appendChild(phTrackEl(t));
     box.appendChild(mk('div', 'ph-sub', (PH_REPORT_STATUS[r.status] || r.status) + ' ・ ' + phSentToText(t)));
+    const rc = phReportContactEl(r, t, errId);
+    if (rc) box.appendChild(rc);
     out.push(box);
   });
   const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => {
@@ -507,6 +569,50 @@ function phReportsBody(p, docs, errId) {
   });
   out.push(b);
   return out;
+}
+
+// 報告書の「報告連絡」: 提出済み以降なら、既存の送付メール（purpose report の下書き）を開く／作る（既存の報告書送付の流れを呼ぶだけ）。
+//   提出済み（確認待ち）→ 確認して下書きを作る（ReportsApi.confirm）／確認済み → 下書きを作る（createDraft）か開く／送付済み → 「M/D に送付（宛先）」
+function phReportContactEl(r, t, errId) {
+  if (!r || r.status === 'draft') return null;
+  const row = mk('div', 'ph-row ph-rep-contact');
+  row.dataset.reportId = r.id;
+  const mails = ph.data.drafts.filter(m => m.report_id === r.id);
+  const draft = mails.filter(m => m.status === 'draft').sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+  const shared = t.steps.find(x => x.key === 'shared');
+  if (shared && shared.done) {
+    const who = PhaseLogic.recipientsLabel(t.sentTo);
+    row.dataset.state = 'sent';
+    row.appendChild(mk('span', 'ph-ct-sent', '📨 ' + (shared.date ? PhaseLogic.fmtMD(shared.date) + ' に' : '') + '送付' + (who ? '（' + who + '）' : '')));
+    if (draft) row.appendChild(dBtn('もう一度送る（下書きを開く）', 'linkbtn ph-rep-ct', () => openMailDraft(draft.id)));
+    return row;
+  }
+  const s = ph;
+  const openNew = async (btn, make) => {
+    phMsg(errId, '');
+    await withBusy(btn, async () => {
+      try {
+        const d = await make();
+        if (phAlive(s) && d && d.id) openMailDraft(d.id);
+      } catch (e) { if (phAlive(s)) { phMsg(errId, '報告連絡の下書きを作れませんでした: ' + errText(e)); phLoad(); } }
+    });
+  };
+  if (draft) {
+    row.dataset.state = 'draft';
+    row.appendChild(dBtn('📨 報告連絡（確認して送る）', 'btn sm inline ph-rep-ct', () => openMailDraft(draft.id)));
+  } else if (r.status === 'submitted') {
+    row.dataset.state = 'submitted';
+    row.appendChild(dBtn('📨 確認して報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
+      const d = await ReportsApi.confirm(r, currentCase);
+      notifyTimeline();
+      return d;
+    })));
+    row.appendChild(mk('span', 'ph-sub', '確認済みにして、依頼元への送付メールの下書きを開きます'));
+  } else {
+    row.dataset.state = 'none';
+    row.appendChild(dBtn('📨 報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, () => ReportsApi.createDraft(r, currentCase))));
+  }
+  return row;
 }
 
 function phNoticesBody(p, docs, errId) {
@@ -550,6 +656,330 @@ function phNoticesBody(p, docs, errId) {
   out.push(b);
   return out;
 }
+
+/* ---- 請求（対応フェーズ Task 7） ---- */
+// 請求先（元請／物件オーナー／入居者／その他）・請求のしかた（単発／月ごと＋請求月）・金額（承諾された見積 → 送付済みの最新版 → 手入力）・
+// 「請求した」（billed_at）・「入金確認」（paid_at）。どれも取り消せる。請求先の変更はシート（phBillToSheet）。記録は PhasesApi がタイムラインへ
+const PH_BASIS = { override: '手入力', accepted: '承諾された見積', sent: '送付済みの見積（承諾前）' };
+
+// 請求月の選択肢（'' = 完了月）。base の前後と、今の値・完了月を必ず含む
+function phMonthSelect(p, value) {
+  const sel = document.createElement('select');
+  const doneYm = p.done_at ? PhaseLogic.jstYm(p.done_at) : '';
+  const base = value || doneYm || PhaseLogic.jstYm(new Date());
+  sel.appendChild(new Option(doneYm ? '完了した月（' + PhaseLogic.ymLabel(doneYm) + '）' : '完了した月（まだ完了していません）', ''));
+  const months = new Set();
+  for (let i = -3; i <= 6; i++) months.add(PhaseLogic.addMonth(base, i));
+  if (value) months.add(value);
+  [...months].sort().forEach(ym => sel.appendChild(new Option(PhaseLogic.ymLabel(ym), ym)));
+  sel.value = value || '';
+  return sel;
+}
+
+function phBillingBody(p, docs, errId) {
+  const out = [];
+  const title = phTitle(p);
+  const caseRow = currentCase || {};
+  const amount = PhaseLogic.billingAmount(p, docs.estimates);
+  const basis = PhaseLogic.billingBasis(p, docs.estimates);
+  const box = mk('div', 'ph-bill');
+  box.dataset.status = PhaseLogic.billStatus(p);
+
+  // 請求先
+  const who = mk('div', 'ph-row ph-bill-to');
+  who.appendChild(mk('span', 'ph-bl-k', '請求先'));
+  who.appendChild(mk('b', 'ph-bl-v', PhaseLogic.billToLabel(p, caseRow)));
+  who.appendChild(dBtn('請求先を変える', 'linkbtn ph-bill-change', () => phBillToSheet(p, errId)));
+  box.appendChild(who);
+
+  // 請求のしかた（月ごとなら請求月）
+  const mode = mk('div', 'ph-row ph-bill-mode');
+  mode.appendChild(mk('span', 'ph-bl-k', '請求のしかた'));
+  mode.appendChild(mk('span', 'ph-bl-v', PhaseLogic.BILLING_MODE_LABEL[p.billing_mode === 'monthly' ? 'monthly' : 'single']));
+  box.appendChild(mode);
+  if (p.billing_mode === 'monthly') {
+    const ml = mk('label', 'ph-bill-month');
+    ml.appendChild(mk('span', 'ph-bl-k', '請求月'));
+    const sel = phMonthSelect(p, p.billing_month ? String(p.billing_month).slice(0, 7) : '');
+    sel.className = 'ph-bill-month-sel';
+    sel.addEventListener('change', () => phRun(sel, errId, '請求月の保存', () => PhasesApi.setBillingMonth(p, sel.value || null)));
+    ml.appendChild(sel);
+    box.appendChild(ml);
+  } else if (p.done_at) {
+    box.appendChild(mk('div', 'ph-sub', '請求の一覧では完了した月（' + PhaseLogic.ymLabel(PhaseLogic.jstYm(p.done_at)) + '）に出ます'));
+  }
+
+  // 金額
+  if (ph.amountEdit.has(p.id)) {
+    box.appendChild(phAmountForm(p, amount, basis, errId, title));
+  } else {
+    const am = mk('div', 'ph-row ph-bill-amount');
+    am.appendChild(mk('span', 'ph-bl-k', '金額'));
+    am.appendChild(mk('b', 'ph-bl-yen num' + (amount == null ? ' none' : ''), amount == null ? '未定' : PhaseLogic.yen(amount)));
+    am.appendChild(mk('span', 'ph-sub', amount == null ? '（承諾・送付した見積がありません）' : '（' + PH_BASIS[basis] + '）'));
+    am.appendChild(dBtn('金額を直す', 'linkbtn ph-bill-amount-edit', () => { ph.amountEdit.add(p.id); phMsg(errId, ''); phDraw(); }));
+    box.appendChild(am);
+  }
+
+  // 請求した（入金期限を入れて記録）・入金期限・入金確認
+  const st = mk('div', 'ph-row ph-bill-state');
+  const s = ph;
+  if (!p.billed_at && ph.billForm.has(p.id)) {
+    box.appendChild(phDueForm(p, errId, PhaseLogic.paymentDueDefault(p, new Date()), '請求した（記録する）', 'ph-bill-ok', '請求の記録', async due => {
+      await phBillOne(PhasesApi.setBilled, p, true, { title, amount, billTo: PhaseLogic.billToLabel(p, caseRow) }, due);
+      if (phAlive(s)) s.billForm.delete(p.id);
+    }, () => s.billForm.delete(p.id),
+    '入金期限の初期値: ' + (p.billing_mode === 'monthly' ? '請求月の翌月末' : '請求日の30日後') + '（変えられます）'));
+  } else if (!p.billed_at) {
+    st.appendChild(dBtn('請求した', 'btn sm inline ph-billed', () => { ph.billForm.add(p.id); phMsg(errId, ''); phDraw(); }));
+    st.appendChild(mk('span', 'ph-sub', p.billing_mode === 'monthly'
+      ? '月ごとの元請は、請求の一覧（💴）で同じ月の分をまとめて「請求した」にもできます'
+      : '請求書を出したら押してください（入金期限を入れて記録します。間違えたら取り消せます）'));
+  } else {
+    st.appendChild(mk('span', 'ph-bl-on', '請求 ' + PhaseLogic.fmtMD(p.billed_at)));
+    if (!p.paid_at) {
+      st.appendChild(dBtn('取り消す', 'linkbtn ph-billed-undo', b => phRun(b, errId, '請求の取り消し',
+        () => phBillOne(PhasesApi.setBilled, p, false, { title }))));
+      st.appendChild(dBtn('入金確認', 'btn sm inline ph-paid', b => phRun(b, errId, '入金確認',
+        () => phBillOne(PhasesApi.setPaid, p, true, { title, amount }))));
+    } else {
+      st.appendChild(mk('span', 'ph-bl-on paid', '入金確認 ' + PhaseLogic.fmtMD(p.paid_at)));
+      st.appendChild(dBtn('取り消す', 'linkbtn ph-paid-undo', b => phRun(b, errId, '入金確認の取り消し',
+        () => phBillOne(PhasesApi.setPaid, p, false, { title }))));
+    }
+  }
+  box.appendChild(st);
+  // 入金期限（請求後）。期限を過ぎて未入金なら赤で「入金期限超過」
+  if (p.billed_at) {
+    if (ph.dueEdit.has(p.id)) {
+      box.appendChild(phDueForm(p, errId, p.payment_due || PhaseLogic.paymentDueDefault(p, p.billed_at), '保存', 'ph-due-save', '入金期限の保存',
+        async due => { await PhasesApi.setPaymentDue(p, due, title); if (phAlive(s)) s.dueEdit.delete(p.id); },
+        () => s.dueEdit.delete(p.id), ''));
+    } else {
+      const over = PhaseLogic.isOverdue(p, new Date());
+      const dl = mk('div', 'ph-row ph-bill-due' + (over ? ' over' : ''));
+      dl.appendChild(mk('span', 'ph-bl-k', '入金期限'));
+      dl.appendChild(mk('b', 'ph-bl-v num', p.payment_due ? PhaseLogic.fmtYmdMD(p.payment_due) : '未入力'));
+      if (over) dl.appendChild(mk('span', 'ph-over', '入金期限超過'));
+      if (!p.paid_at) dl.appendChild(dBtn('変更', 'linkbtn ph-due-edit', () => { ph.dueEdit.add(p.id); phMsg(errId, ''); phDraw(); }));
+      box.appendChild(dl);
+    }
+  }
+  box.appendChild(st);
+  out.push(box);
+  return out;
+}
+
+// 入金期限の入力（請求したとき・変えるとき）。onOk(due) で保存、onCancel で閉じる
+function phDueForm(p, errId, initial, okLabel, okCls, opLabel, onOk, onCancel, hint) {
+  const form = mk('div', 'ph-form ph-due-form');
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'ph-due-input';
+  input.value = initial || '';
+  const l = mk('label', null, '入金期限');
+  l.appendChild(input);
+  form.appendChild(l);
+  if (hint) form.appendChild(mk('div', 'ph-sub', hint));
+  const acts = mk('div', 'ph-acts');
+  acts.appendChild(dBtn('やめる', 'btn sm ghost inline ph-due-cancel', () => { onCancel(); phMsg(errId, ''); phDraw(); }));
+  acts.appendChild(dBtn(okLabel, 'btn sm inline ' + okCls, b => {
+    const v = input.value;
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { phMsg(errId, '入金期限の日付を正しく入れてください'); input.focus(); return; }
+    return phRun(b, errId, opLabel, () => onOk(v || null));
+  }));
+  form.appendChild(acts);
+  return form;
+}
+
+// 1フェーズの請求・入金の記録。別の人が先に記録していた等で変わらなかったら知らせる
+async function phBillOne(fn, p, on, info, due) {
+  const rows = await fn([Object.assign({ phase: p }, info)], on, due);
+  if (!rows.length) throw new Error('記録できませんでした（ほかの人が先に記録したか、入金確認済みの可能性があります。表示を更新しました）');
+}
+
+function phAmountForm(p, amount, basis, errId, title) {
+  const form = mk('div', 'ph-form ph-amount-form');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'numeric';
+  input.autocomplete = 'off';
+  input.className = 'ph-amount-input num';
+  input.maxLength = 20;
+  input.placeholder = '例: 116800';
+  input.value = amount != null ? String(amount) : '';
+  const l = mk('label', null, '請求額（円）');
+  l.appendChild(input);
+  form.appendChild(l);
+  form.appendChild(mk('div', 'ph-sub', '見積と違う金額で請求するときに入れます（値引き・追加など）。見積の金額は変わりません'));
+  const acts = mk('div', 'ph-acts');
+  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline ph-amount-cancel', () => { ph.amountEdit.delete(p.id); phMsg(errId, ''); phDraw(); }));
+  const s = ph;
+  if (basis === 'override') {
+    acts.appendChild(dBtn('見積の金額に戻す', 'btn sm ghost inline ph-amount-reset', b => phRun(b, errId, '金額の保存', async () => {
+      await PhasesApi.setAmount(p, null, title);
+      if (phAlive(s)) s.amountEdit.delete(p.id);
+    })));
+  }
+  acts.appendChild(dBtn('保存', 'btn sm inline ph-amount-save', b => {
+    const v = PhaseLogic.parseYen(input.value);
+    if (!v.ok || v.value == null) { phMsg(errId, '金額は 0 以上の整数（円）で入れてください'); input.focus(); return; }
+    return phRun(b, errId, '金額の保存', async () => {
+      await PhasesApi.setAmount(p, v.value, title);
+      if (phAlive(s)) s.amountEdit.delete(p.id);
+    });
+  }));
+  form.appendChild(acts);
+  return form;
+}
+
+// 「請求先を変える」シート。入力があるので外側のクリック・Esc では閉じない（× とキャンセルだけ）
+function phBillToSheet(p, errId) {
+  const s = ph;
+  const caseRow = currentCase || {};
+  const title = phTitle(p);
+  const prev = document.getElementById('ph-billto-sheet');
+  if (prev) prev.remove();
+  const bg = mk('div', 'modal-bg ph-sheet-bg');
+  bg.id = 'ph-billto-sheet';
+  const dlg = mk('div', 'modal ph-sheet');
+  dlg.setAttribute('role', 'dialog');
+  dlg.setAttribute('aria-modal', 'true');
+  dlg.setAttribute('aria-labelledby', 'ph-bt-title');
+  const close = () => { bg.remove(); const b = s.root && s.root.querySelector('[data-phase-id="' + p.id + '"] .ph-bill-change'); if (b) b.focus(); };
+  const hd = mk('div', 'modal-hd');
+  const h = mk('h3', null, '請求先を変える');
+  h.id = 'ph-bt-title';
+  const x = mk('button', 'modal-x', '×');
+  x.type = 'button';
+  x.setAttribute('aria-label', '閉じる');
+  x.addEventListener('click', close);
+  hd.append(h, x);
+  dlg.appendChild(hd);
+  dlg.appendChild(mk('div', 'rep-sub ph-bt-sub', title + ' ・ 今の請求先: ' + PhaseLogic.billToLabel(p, caseRow)));
+
+  const cur = p.bill_to_type || 'client';
+  const opts = [
+    ['client', PhaseLogic.billToLabel({ bill_to_type: 'client' }, caseRow)],
+    ['owner', PhaseLogic.billToLabel({ bill_to_type: 'owner' }, caseRow) + (caseRow.owner_name ? '' : '（名前未登録）')],
+    ['resident', PhaseLogic.billToLabel({ bill_to_type: 'resident' }, caseRow) + (caseRow.resident_name ? '' : '（名前未登録）')],
+    ['other', 'その他（名前を入れる）']
+  ];
+  const g1 = mk('div', 'ph-bt-group');
+  g1.setAttribute('role', 'radiogroup');
+  g1.setAttribute('aria-label', '請求先');
+  const radios = {};
+  opts.forEach(([key, label]) => {
+    const l = mk('label', 'ph-bt-opt');
+    const r = document.createElement('input');
+    r.type = 'radio';
+    r.name = 'ph-bt-to';
+    r.value = key;
+    r.checked = key === cur;
+    radios[key] = r;
+    l.appendChild(r);
+    l.appendChild(mk('span', null, label + (key === cur ? '（今の請求先）' : '')));
+    g1.appendChild(l);
+  });
+  dlg.appendChild(g1);
+  const otherWrap = mk('label', 'ph-bt-other');
+  otherWrap.appendChild(mk('span', null, '請求先の名前'));
+  const other = document.createElement('input');
+  other.type = 'text';
+  other.maxLength = 100;
+  other.autocomplete = 'off';
+  other.className = 'ph-bt-other-name';
+  other.placeholder = '例: 株式会社〇〇（保険会社など）';
+  other.value = p.bill_to_name || '';
+  otherWrap.appendChild(other);
+  dlg.appendChild(otherWrap);
+
+  dlg.appendChild(mk('div', 'ph-bt-t', '請求のしかた'));
+  const g2 = mk('div', 'ph-bt-group');
+  g2.setAttribute('role', 'radiogroup');
+  g2.setAttribute('aria-label', '請求のしかた');
+  const modes = {};
+  [['single', '単発（案件ごとに請求書を出す）'], ['monthly', '月ごと（同じ元請の1か月分をまとめて請求）']].forEach(([key, label]) => {
+    const l = mk('label', 'ph-bt-opt');
+    const r = document.createElement('input');
+    r.type = 'radio';
+    r.name = 'ph-bt-mode';
+    r.value = key;
+    r.checked = key === (p.billing_mode === 'monthly' ? 'monthly' : 'single');
+    modes[key] = r;
+    l.appendChild(r);
+    l.appendChild(mk('span', null, label));
+    g2.appendChild(l);
+  });
+  dlg.appendChild(g2);
+  const monthWrap = mk('label', 'ph-bt-month');
+  monthWrap.appendChild(mk('span', null, '請求月'));
+  const month = phMonthSelect(p, p.billing_month ? String(p.billing_month).slice(0, 7) : '');
+  month.className = 'ph-bt-month-sel';
+  monthWrap.appendChild(month);
+  dlg.appendChild(monthWrap);
+  const note = mk('div', 'ph-sub ph-bt-note', '');
+  dlg.appendChild(note);
+
+  const sync = () => {
+    const to = Object.keys(radios).find(k => radios[k].checked) || 'client';
+    otherWrap.hidden = to !== 'other';
+    const isClient = to === 'client';
+    modes.monthly.disabled = !isClient;
+    if (!isClient) modes.single.checked = true;
+    monthWrap.hidden = !(isClient && modes.monthly.checked);
+    note.textContent = isClient ? '元請マスタの請求のしかた: ' +
+      PhaseLogic.BILLING_MODE_LABEL[caseRow.client_billing_mode === 'monthly' ? 'monthly' : 'single']
+      : '元請以外への請求は単発（案件ごと）になります';
+  };
+  Object.values(radios).forEach(r => r.addEventListener('change', () => {
+    // 元請に戻したときは、元請マスタの請求のしかたを初期値に
+    if (r.value === 'client' && r.checked && cur !== 'client') {
+      (caseRow.client_id && caseRow.client_billing_mode === 'monthly' ? modes.monthly : modes.single).checked = true;
+    }
+    sync();
+  }));
+  Object.values(modes).forEach(r => r.addEventListener('change', sync));
+  sync();
+
+  const err = mk('div', 'err ph-bt-err');
+  err.setAttribute('role', 'alert');
+  const acts = mk('div', 'modal-act');
+  const cancel = dBtn('キャンセル', 'btn ghost ph-bt-cancel', close);
+  const save = dBtn('変更する', 'btn ph-bt-save', async b => {
+    err.textContent = '';
+    const to = Object.keys(radios).find(k => radios[k].checked) || 'client';
+    const next = { bill_to_type: to, bill_to_name: to === 'other' ? other.value.trim() : null,
+      billing_mode: modes.monthly.checked && to === 'client' ? 'monthly' : 'single', billing_month: month.value || null };
+    if (to === 'other' && !next.bill_to_name) { err.textContent = '請求先の名前を入れてください'; other.focus(); return; }
+    const same = to === cur && (to !== 'other' || next.bill_to_name === (p.bill_to_name || '')) &&
+      next.billing_mode === (p.billing_mode || 'single') &&
+      (next.billing_mode !== 'monthly' || (next.billing_month || '') === (p.billing_month ? String(p.billing_month).slice(0, 7) : ''));
+    if (same) { close(); return; }
+    cancel.disabled = true;
+    x.disabled = true;
+    let ok = false;
+    await withBusy(b, async () => {
+      try { await PhasesApi.changeBillTo(p, next, caseRow, title); ok = true; }
+      catch (e) { err.textContent = '変更できませんでした: ' + errText(e); }
+    });
+    cancel.disabled = false;
+    x.disabled = false;
+    if (!ok) return;
+    close();
+    if (!phAlive(s)) return;
+    const m = await phLoad();
+    notifyTimeline();
+    if (m) phMsg(errId, '請求先は変更しましたが、最新の表示に更新できませんでした: ' + m);
+  });
+  acts.append(cancel, save);
+  dlg.append(acts, err);
+  bg.appendChild(dlg);
+  document.body.appendChild(bg);
+  (radios[cur] || x).focus();
+}
+// 画面を離れたら請求先のシートは閉じる（入力途中でも。案件の画面と一緒に消える）
+window.addEventListener('hashchange', () => { const el = document.getElementById('ph-billto-sheet'); if (el) el.remove(); });
 
 /* ---- 削除（中身が無いときだけ。カードの中で確認） ---- */
 function phFoot(p, docs, errId) {
@@ -828,6 +1258,8 @@ function phResApply(rs, saved) {
   }
   const docs = phDocs(p);
   phResFillMail(rs, docs.mails);
+  const ct = rs.el && rs.el.closest('.ph-card') && rs.el.closest('.ph-card').querySelector('.ph-contact');
+  if (ct) ct.replaceWith(phContactEl(p, docs.mails));
   const st = rs.el && rs.el.closest('.ph-st');
   if (st) {
     const state = phStepState(p, docs, 2);

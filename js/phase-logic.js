@@ -90,6 +90,8 @@
   const fmtMDHM = v => { const p = jst(v); return p ? `${p.m}/${p.d} ${fmtHM(p)}` : ''; };              // 10/20 9:00
   const fmtMDWHM = v => { const p = jst(v); return p ? `${p.m}/${p.d}（${p.w}）${fmtHM(p)}` : ''; };      // 10/17（土）18:00
   const fmtLongDate = p => `${p.y}年${p.m}月${p.d}日（${p.w}）`;
+  // 日付だけの値（date 列 'YYYY-MM-DD'）→ 12/7。タイムゾーンで日がずれないよう文字列のまま読む
+  const fmtYmdMD = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || '')); return m ? `${Number(m[2])}/${Number(m[3])}` : ''; };
   // 2026年10月20日（火） 9:00〜 ／ 〜17:00（同じ日）／ 〜10月22日（木） 17:00（別の日）
   function fmtRange(start, end) {
     const s = jst(start);
@@ -138,6 +140,13 @@
   // 予定の日（日本時間）が今日より前か
   const isLate = (at, now) => !!at && jstYmd(at) < jstYmd(now);
 
+  // 入金待ち（入金期限があれば「入金待ち（期限 12/7）」。期限を過ぎたら late）
+  function paymentStage(p, nowAt) {
+    const due = p.payment_due ? String(p.payment_due).slice(0, 10) : '';
+    return mkStage('payment', due ? `入金待ち（期限 ${fmtYmdMD(due)}）` : '入金待ち', 'them', p.billed_at,
+      { late: !!due && due < jstYmd(nowAt), due: due || null });
+  }
+
   // フェーズの今の段階 → { key, label, ball: 'us'|'them'|null, date, late? }
   //   調査: 日時未定 → 日時決定・未実施 → 調査済み・報告書未送付 → 見積が送付済みで未承諾 → 完了
   //   工事: 見積未送付 → 承諾待ち → 工事日未定 → 未完了 → 報告書未送付 → 未請求 → 入金待ち → 済
@@ -156,11 +165,13 @@
       if (!reportSent) return mkStage('report', '報告書を送る', 'us', p.done_at);
       const pend = pendingApproval(estimates);
       if (pend) return mkStage('approval', '見積の承諾待ち', 'them', pend.date);
+      // 調査費用を請求して入金待ち（精算の段。Task 7）
+      if (p.billed_at && !p.paid_at) return paymentStage(p, nowAt);
       return mkStage('done', '完了', null, p.done_at);
     }
     if (isWork(p.kind)) {
       if (p.paid_at) return mkStage('done', '済', null, p.paid_at);
-      if (p.billed_at) return mkStage('payment', '入金待ち', 'them', p.billed_at);
+      if (p.billed_at) return paymentStage(p, nowAt);
       if (p.done_at) {
         if (!reportSent) return mkStage('report', '報告書を送る', 'us', p.done_at);
         return mkStage('bill', '請求する', 'us', p.done_at);
@@ -584,6 +595,66 @@
 
   const billStatus = p => (p.paid_at ? 'paid' : p.billed_at ? 'billed' : 'unbilled');
   const BILL_STATUS_LABEL = { unbilled: '未請求', billed: '入金待ち', paid: '入金済み' };
+  const BILLING_MODE_LABEL = { single: '単発（案件ごと）', monthly: '月ごと（まとめて）' };
+
+  // 金額の表示 ¥116,800（null・数でないものは ''）
+  function yen(n) {
+    if (n == null || n === '' || !Number.isFinite(Number(n))) return '';
+    const v = Math.round(Number(n));
+    return (v < 0 ? '-' : '') + '¥' + String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  // 金額の入力（全角数字・¥・円・カンマ・空白を許す）→ { ok, value }。空は { ok: true, value: null }
+  function parseYen(s) {
+    const t = String(s == null ? '' : s)
+      .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+      .replace(/[¥￥円,，、\s]/g, '');
+    if (t === '') return { ok: true, value: null };
+    if (!/^\d{1,13}$/.test(t)) return { ok: false, value: null };
+    const v = Number(t);
+    return v <= 1000000000000 ? { ok: true, value: v } : { ok: false, value: null };
+  }
+  // 'YYYY-MM' / 'YYYY-MM-DD' → '2026年11月'
+  function ymLabel(ym) {
+    const m = /^(\d{4})-(\d{2})/.exec(String(ym || ''));
+    return m ? `${m[1]}年${Number(m[2])}月` : '';
+  }
+  // 'YYYY-MM' に n か月足す
+  function addMonth(ym, n) {
+    const m = /^(\d{4})-(\d{2})/.exec(String(ym || ''));
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1 + (n || 0), 1));
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+  }
+  // 請求の一覧に出る月（'YYYY-MM'）: 月ごとは billing_month（未設定なら完了月）、単発は完了月。未完了で未設定は ''
+  function billingMonthOf(phase) {
+    const p = phase || {};
+    if (p.billing_mode === 'monthly' && p.billing_month) return String(p.billing_month).slice(0, 7);
+    return p.done_at ? jstYm(p.done_at) : '';
+  }
+  // 入金期限の初期値（'YYYY-MM-DD'。日本時間）: 月ごとは請求月（無ければ完了月 → 請求日の月）の翌月末、単発は請求日の30日後
+  function paymentDueDefault(phase, billedAt) {
+    const p = phase || {};
+    const at = toDate(billedAt) || new Date();
+    if (p.billing_mode === 'monthly') {
+      const ym = billingMonthOf(p) || jstYm(at);
+      const [y, m] = ym.split('-').map(Number);
+      const last = new Date(Date.UTC(y, m + 1, 0)); // 翌月の末日
+      return `${last.getUTCFullYear()}-${pad(last.getUTCMonth() + 1)}-${pad(last.getUTCDate())}`;
+    }
+    return jstYmd(at.getTime() + 30 * 86400000);
+  }
+  // 入金期限を過ぎて未入金か（期限の日の翌日から。日本時間）
+  function isOverdue(phase, now) {
+    const p = phase || {};
+    if (!p.billed_at || p.paid_at || !p.payment_due) return false;
+    return String(p.payment_due).slice(0, 10) < jstYmd(toDate(now) || new Date());
+  }
+  // 精算（請求）の段を出すか: 工事も調査も常に出す（2026-10-18 追加指示。調査は見積が無くても手入力の金額で請求できる）。
+  //   請求の一覧（groupBilling）に調査が出るのは、請求額があるか請求・入金の記録があるときだけ
+  function showsBilling(phase) {
+    const p = phase || {};
+    return KIND_KEYS.includes(p.kind);
+  }
   function groupStatus(items) {
     if (items.some(x => x.status === 'unbilled')) return 'unbilled';
     if (items.some(x => x.status === 'billed')) return 'billed';
@@ -604,15 +675,16 @@
   //   single:  単発で 完了（done_at）が日本時間でその月
   //   調査は請求額（見積・手入力）があるものだけ（調査費用の請求）。工事は金額が無くても出す（amount: null）
   //   → { month, monthly: [{ clientId, clientName, items, total, unknown, status, statusLabel }], single: [item], total }
-  //     item = { phase, caseRow, caseName, kind, title, billTo, amount, status, statusLabel, doneAt }
-  function groupBilling(rows, month) {
+  //     item = { phase, caseRow, caseName, kind, title, billTo, amount, status, statusLabel, doneAt, paymentDue, overdue }
+  //   now（省略時は今）は入金期限超過（overdue）の判定に使う
+  function groupBilling(rows, month, now) {
     const ym = String(month || '').slice(0, 7);
     const monthly = new Map();
     const single = [];
     for (const { phase: p, caseRow: c } of flatten(rows)) {
       if (!p || !KIND_KEYS.includes(p.kind)) continue;
       const amount = billingAmount(p);
-      if (p.kind === 'survey' && amount == null) continue;
+      if (p.kind === 'survey' && amount == null && !p.billed_at && !p.paid_at) continue; // 調査は請求額があるか、請求の記録があるものだけ
       const isMonthly = p.billing_mode === 'monthly';
       const inMonth = isMonthly
         ? (p.billing_month ? String(p.billing_month).slice(0, 7) === ym : !!p.done_at && jstYm(p.done_at) === ym)
@@ -620,7 +692,8 @@
       if (!inMonth) continue;
       const status = billStatus(p);
       const item = { phase: p, caseRow: c, caseName: str(c.name), kind: p.kind, title: phaseTitle(p),
-        billTo: billToLabel(p, c), amount, status, statusLabel: BILL_STATUS_LABEL[status], doneAt: p.done_at || null };
+        billTo: billToLabel(p, c), amount, status, statusLabel: BILL_STATUS_LABEL[status], doneAt: p.done_at || null,
+        paymentDue: p.payment_due ? String(p.payment_due).slice(0, 10) : null, overdue: isOverdue(p, now) };
       if (isMonthly) {
         const key = c.client_id || 'name:' + clientName(c);
         if (!monthly.has(key)) monthly.set(key, { clientId: c.client_id || null, clientName: clientName(c), items: [] });
@@ -648,7 +721,9 @@
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, cautionSentences, surveyResultMail, latestSurveyResult,
     reportInit, estimateNoteExtra, noticeInit,
-    billingBasis, billingAmount, billToLabel, groupBilling };
+    billingBasis, billingAmount, billToLabel, groupBilling,
+    BILL_STATUS_LABEL, BILLING_MODE_LABEL, billStatus, yen, parseYen, ymLabel, addMonth, billingMonthOf, showsBilling,
+    paymentDueDefault, isOverdue, fmtYmdMD };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

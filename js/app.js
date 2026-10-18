@@ -216,6 +216,7 @@ function routeFromHash() {
   else if ((m = h.match(REPORT_HASH_RE))) openReport(m[1]);             // ⑥ 報告書の入力
   else if (h === '#team') openTeam();
   else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
+  else if (h === '#billing' && typeof openBilling === 'function') openBilling(); // 請求の一覧（js/billing-ui.js）
   else openCases();
 }
 
@@ -321,6 +322,7 @@ function bindForms() {
   bindCaseList();
   bindTeam();
   if (typeof bindOutbox === 'function') bindOutbox();
+  if (typeof bindBilling === 'function') bindBilling();
   if (typeof bindClients === 'function') bindClients();
 
   $('set-save').addEventListener('click', () => withBusy($('set-save'), async () => {

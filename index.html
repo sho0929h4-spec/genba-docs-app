@@ -275,6 +275,68 @@
   .ph-rm[data-state=sent] .ph-rm-s{color:var(--green);}
   .ph-rm[data-state=skipped] .ph-rm-s{color:var(--muted);}
   .ph-rm .btn.sm{white-space:nowrap;}
+  /* 請求の一覧（#billing）・カードの請求の段 */
+  .num{font-variant-numeric:tabular-nums;}
+  .bl-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 12px;}
+  .bl-month{font-size:17px;min-width:7.5em;text-align:center;}
+  .bl-h{font-size:14px;margin:16px 0 8px;color:var(--navy);}
+  .bl-empty{font-size:13px;color:var(--muted);padding:6px 0 4px;}
+  .bl-err{color:var(--red);}
+  .bl-gh{display:flex;align-items:center;justify-content:space-between;gap:6px 8px;flex-wrap:wrap;margin-bottom:4px;}
+  .bl-gname{font-size:15px;overflow-wrap:anywhere;min-width:0;}
+  .bl-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;}
+  .bl-tag.unbilled{background:#fdecea;color:var(--red);}
+  .bl-tag.billed{background:#fdf3e4;color:var(--amber);}
+  .bl-tag.paid{background:#e7f4ea;color:var(--green);}
+  .bl-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;border-top:1px solid var(--border);padding:8px 0;min-width:0;}
+  .bl-top{display:flex;align-items:center;gap:4px 6px;flex-wrap:wrap;min-width:0;}
+  .bl-case{padding:6px 0;text-align:left;font-size:14px;overflow-wrap:anywhere;min-width:0;}
+  .bl-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
+  .bl-r .btn.sm{white-space:nowrap;}
+  .bl-yen{font-size:15px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .bl-yen.none{color:var(--muted);font-weight:400;font-size:13px;}
+  .bl-total{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;border-top:1.5px solid var(--navy);padding-top:8px;font-size:13px;font-weight:700;}
+  .bl-sum .bl-total{border-top:0;padding-top:0;margin-bottom:4px;}
+  .bl-sum .bl-yen{font-size:20px;}
+  .bl-acts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .bl-tag.over{background:var(--red);color:#fff;}
+  .ph-th{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;}
+  .ph-over{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:#fff;background:var(--red);border-radius:999px;padding:1px 8px;white-space:nowrap;}
+  .bl-due{font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .bl-due.over,.ph-bill-due.over .ph-bl-v{color:var(--red);}
+  .bl-form-row{grid-column:1/-1;}
+  .bl-single .bl-item:first-child{border-top:0;padding-top:0;}
+  .bl-form{margin-top:8px;}
+  .ph-contact{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;font-size:12px;border:1px solid var(--border);border-radius:9px;padding:6px 10px;overflow-wrap:anywhere;min-width:0;}
+  .ph-contact.on{border-color:#c9b8f0;background:#f6f2fe;}
+  .ph-contact .btn.sm{white-space:nowrap;}
+  .ph-ct-t{font-size:12px;color:#6d28d9;}
+  .ph-ct-sent{font-weight:700;color:var(--green);}
+  .ph-rep-contact .btn.sm{white-space:nowrap;}
+  .ph-bill{display:grid;gap:6px;min-width:0;}
+  .ph-bl-k{font-size:11px;font-weight:700;color:var(--muted);min-width:6.5em;}
+  .ph-bl-v{font-size:13px;overflow-wrap:anywhere;min-width:0;}
+  .ph-bl-yen{font-size:16px;}
+  .ph-bl-yen.none{color:var(--muted);font-weight:400;font-size:13px;}
+  .ph-bill-month{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;}
+  .ph-bill-month select,.ph-sheet select{min-height:44px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);max-width:100%;}
+  .ph-bill-state{padding-top:2px;}
+  .ph-bl-on{font-size:13px;font-weight:700;color:var(--amber);}
+  .ph-bl-on.paid{color:var(--green);}
+  .ph-bill[data-status=paid] .ph-bl-on{color:var(--green);}
+  .ph-sheet{max-width:440px;}
+  .ph-sheet [hidden]{display:none !important;}
+  .ph-bt-sub{margin:-6px 0 10px;}
+  .ph-bt-t{font-size:12px;font-weight:700;color:var(--muted);margin:10px 0 2px;}
+  .ph-bt-group{display:grid;gap:2px;}
+  .ph-bt-opt{display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px;cursor:pointer;min-width:0;overflow-wrap:anywhere;}
+  .ph-bt-opt input{width:20px;height:20px;flex:none;margin:0;}
+  .ph-bt-opt input:disabled + span{color:#94a3b8;}
+  .ph-bt-other,.ph-bt-month{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:var(--muted);margin:4px 0 6px 30px;min-width:0;}
+  .ph-bt-other input{width:100%;min-width:0;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
+  .ph-bt-note{margin:4px 0 8px;}
+  .ph-bt-err:empty{display:none;}
+  @media(max-width:560px){ .ph-sheet-bg{align-items:flex-end;padding:0;} .ph-sheet{border-radius:16px 16px 0 0;max-width:none;padding-bottom:calc(20px + env(safe-area-inset-bottom));} }
   /* 送るメール（#outbox） */
   .ob-h{font-size:18px;margin:0 0 4px;}
   .ob-lead{margin-bottom:12px;}
@@ -692,6 +754,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -727,11 +790,25 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
   </div>
   <div class="wrap" id="outbox-root"></div>
+</section>
+
+<!-- BILLING 請求の一覧（#billing。月ごとの元請のまとめと単発。中身は js/billing-ui.js が作る） -->
+<section class="screen" id="screen-billing">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="billing-root"></div>
 </section>
 
 <!-- TEAM (チーム状況: 管理者が「誰がどこで止まっているか」を見る。中身は js/team.js が作る) -->
@@ -740,6 +817,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -764,6 +842,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -777,6 +856,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -790,6 +870,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -803,6 +884,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -821,6 +903,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -839,6 +922,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -852,6 +936,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -869,6 +954,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -882,6 +968,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -907,6 +994,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -920,6 +1008,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -933,6 +1022,7 @@
     <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
     <div class="right">
       <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
       <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
       <button class="logout js-logout" type="button">ログアウト</button>
     </div>
@@ -1071,44 +1161,45 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=cb42a28"></script>
-<script src="js/supabase-config.js?v=cb42a28"></script>
-<script src="js/supabase.js?v=cb42a28"></script>
-<script src="js/auth.js?v=cb42a28"></script>
-<script src="js/storage.js?v=cb42a28"></script>
-<script src="js/quota.js?v=cb42a28"></script>
-<script src="js/case-logic.js?v=cb42a28"></script>
-<script src="js/phase-logic.js?v=cb42a28"></script>
-<script src="js/image.js?v=cb42a28"></script>
-<script src="js/cases-api.js?v=cb42a28"></script>
-<script src="js/clients-api.js?v=cb42a28"></script>
-<script src="js/phases-api.js?v=cb42a28"></script>
+<script src="js/crypto-util.js?v=702fc99"></script>
+<script src="js/supabase-config.js?v=702fc99"></script>
+<script src="js/supabase.js?v=702fc99"></script>
+<script src="js/auth.js?v=702fc99"></script>
+<script src="js/storage.js?v=702fc99"></script>
+<script src="js/quota.js?v=702fc99"></script>
+<script src="js/case-logic.js?v=702fc99"></script>
+<script src="js/phase-logic.js?v=702fc99"></script>
+<script src="js/image.js?v=702fc99"></script>
+<script src="js/cases-api.js?v=702fc99"></script>
+<script src="js/clients-api.js?v=702fc99"></script>
+<script src="js/phases-api.js?v=702fc99"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=cb42a28"></script>
-<script src="js/reports-api.js?v=cb42a28"></script>
-<script src="js/report-pdf.js?v=cb42a28"></script>
-<script src="js/notice-logic.js?v=cb42a28"></script>
-<script src="js/notices-api.js?v=cb42a28"></script>
-<script src="js/notice-pdf.js?v=cb42a28"></script>
-<script src="js/estimate-logic.js?v=cb42a28"></script>
-<script src="js/estimates-api.js?v=cb42a28"></script>
-<script src="js/estimate-pdf.js?v=cb42a28"></script>
-<script src="js/case-list.js?v=cb42a28"></script>
-<script src="js/clients-ui.js?v=cb42a28"></script>
-<script src="js/case-detail.js?v=cb42a28"></script>
-<script src="js/phase-ui.js?v=cb42a28"></script>
-<script src="js/team.js?v=cb42a28"></script>
-<script src="js/timeline.js?v=cb42a28"></script>
-<script src="js/report-form.js?v=cb42a28"></script>
-<script src="js/report-ui.js?v=cb42a28"></script>
-<script src="js/report-share.js?v=cb42a28"></script>
-<script src="js/report-edit.js?v=cb42a28"></script>
-<script src="js/mail-ui.js?v=cb42a28"></script>
-<script src="js/outbox-ui.js?v=cb42a28"></script>
-<script src="js/notice-ui.js?v=cb42a28"></script>
-<script src="js/notice-edit.js?v=cb42a28"></script>
-<script src="js/estimate-ui.js?v=cb42a28"></script>
-<script src="js/app.js?v=cb42a28"></script>
+<script src="js/report-logic.js?v=702fc99"></script>
+<script src="js/reports-api.js?v=702fc99"></script>
+<script src="js/report-pdf.js?v=702fc99"></script>
+<script src="js/notice-logic.js?v=702fc99"></script>
+<script src="js/notices-api.js?v=702fc99"></script>
+<script src="js/notice-pdf.js?v=702fc99"></script>
+<script src="js/estimate-logic.js?v=702fc99"></script>
+<script src="js/estimates-api.js?v=702fc99"></script>
+<script src="js/estimate-pdf.js?v=702fc99"></script>
+<script src="js/case-list.js?v=702fc99"></script>
+<script src="js/clients-ui.js?v=702fc99"></script>
+<script src="js/case-detail.js?v=702fc99"></script>
+<script src="js/phase-ui.js?v=702fc99"></script>
+<script src="js/billing-ui.js?v=702fc99"></script>
+<script src="js/team.js?v=702fc99"></script>
+<script src="js/timeline.js?v=702fc99"></script>
+<script src="js/report-form.js?v=702fc99"></script>
+<script src="js/report-ui.js?v=702fc99"></script>
+<script src="js/report-share.js?v=702fc99"></script>
+<script src="js/report-edit.js?v=702fc99"></script>
+<script src="js/mail-ui.js?v=702fc99"></script>
+<script src="js/outbox-ui.js?v=702fc99"></script>
+<script src="js/notice-ui.js?v=702fc99"></script>
+<script src="js/notice-edit.js?v=702fc99"></script>
+<script src="js/estimate-ui.js?v=702fc99"></script>
+<script src="js/app.js?v=702fc99"></script>
 </body>
 </html>

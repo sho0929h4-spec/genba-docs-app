@@ -5,7 +5,7 @@ const PhasesApi = (() => {
   const PL = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const UPDATE_COLS = ['scheduled_at', 'scheduled_end', 'done_at', 'bill_to_type', 'bill_to_name', 'billing_mode',
-    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result']; // result: 調査結果（023）
+    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due']; // result: 調査結果（023）・payment_due: 入金期限（024）
   const pick = (obj, cols) => {
     const out = {};
     for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
@@ -158,6 +158,95 @@ const PhasesApi = (() => {
         if (first) await logSystem(phase.case_id, `${title}の調査結果を記録した`);
       }
       return { phase: row, draft, first };
+    },
+
+    /* ===== 請求（対応フェーズ Task 7） ===== */
+    // items: [{ phase, caseRow, title, amount?, note? }]（phase は case_phases の行か case_summaries.phases の要素）。
+    // 「請求した」（on=true: 未請求のものだけ billed_at = 今）／取り消し（on=false: 入金確認していないものだけ billed_at = null）。
+    // DB の条件で絞るので、別の人が先に記録したものは触らない。変わった行ごとにその案件のタイムラインへ記録
+    //   → 変わった case_phases の行の配列
+    //   due: 入金期限 'YYYY-MM-DD'（on のとき。null 可）。取り消しでは入金期限も消す（024 の check: 期限は請求済みだけ）
+    async setBilled(items, on, due) {
+      const list = (items || []).filter(x => x && x.phase && x.phase.id);
+      if (!list.length) return [];
+      if (on && due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) throw new Error('入金期限の日付が正しくありません');
+      const ids = list.map(x => x.phase.id);
+      let q = sb.from('case_phases').update(on ? { billed_at: now(), payment_due: due || null } : { billed_at: null, payment_due: null }).in('id', ids);
+      q = on ? q.is('billed_at', null) : q.is('paid_at', null);
+      const rows = must(await q.select()) || [];
+      for (const r of rows) {
+        const it = list.find(x => x.phase.id === r.id);
+        const parts = [];
+        if (it.billTo) parts.push(it.billTo);
+        parts.push(it.amount != null ? PL().yen(it.amount) : '金額未定');
+        if (it.note) parts.push(it.note);
+        if (on && due) parts.push('入金期限 ' + PL().fmtYmdMD(due));
+        await logSystem(r.case_id, on ? `${it.title}を請求した（${parts.join('・')}）` : `${it.title}の請求を取り消した`);
+      }
+      return rows;
+    },
+    // 「入金確認」（on=true: 請求済みで未入金のものだけ paid_at = 今）／取り消し（on=false）
+    async setPaid(items, on) {
+      const list = (items || []).filter(x => x && x.phase && x.phase.id && (!on || x.phase.billed_at));
+      if (!list.length) return [];
+      const ids = list.map(x => x.phase.id);
+      const q = sb.from('case_phases').update({ paid_at: on ? now() : null }).in('id', ids);
+      const rows = must(await (on ? q.is('paid_at', null) : q).select()) || [];
+      for (const r of rows) {
+        const it = list.find(x => x.phase.id === r.id);
+        await logSystem(r.case_id, on
+          ? `${it.title}の入金を確認した（${it.amount != null ? PL().yen(it.amount) : '金額未定'}）`
+          : `${it.title}の入金確認を取り消した`);
+      }
+      return rows;
+    },
+    // 請求先・請求のしかた・請求月を変える。next = { bill_to_type, bill_to_name, billing_mode, billing_month }
+    //   請求先が元請以外なら単発（DB の check と同じ）。請求月は月ごとのときだけ（'YYYY-MM-01' か null = 完了月）
+    //   タイムラインに 変更日・前の請求先（請求のしかたが変わったときはそれも）を記録
+    async changeBillTo(phase, next, caseRow, title) {
+      const type = next.bill_to_type;
+      if (!PL().BILL_TO[type]) throw new Error('請求先を選んでください');
+      const name = type === 'other' ? String(next.bill_to_name || '').trim() : null;
+      if (type === 'other' && !name) throw new Error('「その他」の請求先の名前を入れてください');
+      if (name && name.length > 100) throw new Error('請求先の名前は100文字までです');
+      const mode = type === 'client' && next.billing_mode === 'monthly' ? 'monthly' : 'single';
+      const month = mode === 'monthly' && next.billing_month ? String(next.billing_month).slice(0, 7) + '-01' : null;
+      const patch = { bill_to_type: type, bill_to_name: name, billing_mode: mode, billing_month: month };
+      const row = await api.update(phase.id, patch);
+      const label = p => PL().billToLabel(p, caseRow);
+      const modeText = p => (p.billing_mode === 'monthly'
+        ? '月ごと' + (p.billing_month ? '（' + PL().ymLabel(p.billing_month) + '分）' : '（完了月）') : '単発');
+      const before = { bill_to_type: phase.bill_to_type || 'client', bill_to_name: phase.bill_to_name || null,
+        billing_mode: phase.billing_mode || 'single', billing_month: phase.billing_month || null };
+      const today = PL().fmtMD(new Date());
+      const whoChanged = label(before) !== label(row) || before.bill_to_type !== row.bill_to_type;
+      const modeChanged = modeText(before) !== modeText(row);
+      if (whoChanged) {
+        await logSystem(phase.case_id || row.case_id, `${title}の請求先を ${label(row)} に変えた（${today} 変更・前の請求先: ${label(before)}` +
+          (modeChanged ? `・請求のしかた: ${modeText(before)} → ${modeText(row)}` : '') + '）');
+      } else if (modeChanged) {
+        await logSystem(phase.case_id || row.case_id, `${title}の請求のしかたを ${modeText(row)} に変えた（${today} 変更・前: ${modeText(before)}）`);
+      }
+      return row;
+    },
+    // 入金期限を変える（請求済みのときだけ。'YYYY-MM-DD' か null）
+    async setPaymentDue(phase, ymd, title) {
+      if (ymd && !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) throw new Error('入金期限の日付が正しくありません');
+      const row = await api.update(phase.id, { payment_due: ymd || null });
+      await logSystem(phase.case_id || row.case_id, ymd ? `${title}の入金期限を ${PL().fmtYmdMD(ymd)} にした` : `${title}の入金期限を消した`);
+      return row;
+    },
+    // 月ごとの請求月（'YYYY-MM' / null = 完了月）
+    async setBillingMonth(phase, ym) {
+      return api.update(phase.id, { billing_month: ym ? String(ym).slice(0, 7) + '-01' : null });
+    },
+    // 請求額の手入力（amount_override。null で見積の金額に戻す）
+    async setAmount(phase, amount, title) {
+      const row = await api.update(phase.id, { amount_override: amount == null ? null : amount });
+      await logSystem(phase.case_id || row.case_id, amount == null
+        ? `${title}の請求額を見積の金額に戻した`
+        : `${title}の請求額を ${PL().yen(amount)} に直した`);
+      return row;
     },
 
     /* ===== リマインド・送るメール（対応フェーズ Task 6） ===== */
