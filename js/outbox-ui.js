@@ -68,7 +68,7 @@ async function obLoad(seq) {
   obRender();
 }
 
-const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', survey_result: 'ob-p-res', estimate: 'ob-p-doc', report: 'ob-p-doc' };
+const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', survey_result: 'ob-p-res', estimate: 'ob-p-doc', report: 'ob-p-doc', staff_notice: 'ob-p-rem' };
 
 function obItemEl(it) {
   const d = it.draft;
@@ -81,7 +81,7 @@ function obItemEl(it) {
   row.appendChild(top);
   row.appendChild(mk('div', 'ob-subj', d.subject || '（件名なし）'));
   const info = [];
-  if (it.phase && it.phase.scheduled_at && (d.purpose === 'schedule' || d.purpose === 'reminder')) {
+  if (it.phase && it.phase.scheduled_at && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'staff_notice')) {
     info.push((it.phase.kind === 'survey' ? '調査日時 ' : '工事日 ') + PhaseLogic.fmtRange(it.phase.scheduled_at, it.phase.scheduled_end));
   }
   const who = PhaseLogic.recipientsLabel(d.recipients);

@@ -17,7 +17,9 @@ const ML_DELAY = 1000;                       // 入力から保存までの待�
 const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
 // 調査日・工事日の連絡／リマインド／調査結果のご報告（purpose schedule / reminder / survey_result。対応フェーズ）:
 // 書類なし・PDFなし・送る相手は依頼元から選ぶ・戻り先は案件
-const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '調査結果のご報告メール' };
+const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '調査結果のご報告メール',
+  staff_notice: '担当者へのメール' }; // staff_notice: 担当者への確認依頼・前日のお知らせ（Task 6b。送る相手は作業担当者だけ）
+const mlIsStaff = s => !!(s && s.draft && s.draft.purpose === 'staff_notice');
 const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id && !!ML_NOTE_TITLE[s.draft.purpose]);
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
@@ -113,7 +115,8 @@ function mlCollect(s) {
 /* ---------- 宛先の種類（日程連絡・リマインド: 元請・物件オーナー・入居者から選ぶ） ---------- */
 const mlSplit = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
 const mlRcptKeys = s => (Array.isArray(s.f.recipients) ? s.f.recipients : []).filter(k => PhaseLogic.RECIPIENTS.some(r => r.key === k));
-const mlContacts = s => PhaseLogic.contacts(s.caseRow || {});
+// 送る相手の候補: 担当者へのメールは作業担当者だけ、それ以外は依頼元（元請・物件オーナー・入居者）
+const mlContacts = s => PhaseLogic.contacts(s.caseRow || {}).filter(c => (c.key === 'worker') === mlIsStaff(s));
 // 宛先欄のうち依頼元のメールではないもの（手で足した宛先）
 function mlManualTo(s) {
   const known = new Set(mlContacts(s).map(c => c.email.toLowerCase()).filter(Boolean));
@@ -126,11 +129,17 @@ function mlToggleRcpt(s, key, on) {
   const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k));
   const emails = mlContacts(s).filter(c => keys.includes(c.key) && c.email).map(c => c.email);
   const to = Array.from(new Set(emails.concat(mlManualTo(s)))).join(', ');
+  // 本文の宛名の行だけ作り直す（Task 6c。本文の手直しは残る）
+  const prev = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
+  const body = PhaseLogic.setAddressee(s.f.body, PhaseLogic.addresseeLines(s.caseRow, keys), prev);
   s.f.recipients = keys;
   s.f.to = to;
+  s.f.body = body;
   if (s.els.to) s.els.to.value = to;
+  if (s.els.body && s.els.body.value !== body) s.els.body.value = body;
   mlMarkDirty(s);
   mlFillRcptNote(s);
+  mlFillCopy(s);
 }
 // 選んだ人のうちメールが無い人 → 「文面をコピー」の案内
 function mlFillRcptNote(s) {
@@ -147,10 +156,20 @@ function mlRcptBox(s) {
   const disabled = s.ro || s.phase !== 'edit';
   const box = mk('div', 'ml-rcpt');
   box.id = 'ml-rcpt';
-  box.appendChild(mk('div', 'ml-rcpt-t', '送る相手（依頼元から選ぶ）'));
+  const head = mk('div', 'ml-rcpt-h');
+  head.appendChild(mk('div', 'ml-rcpt-t', mlIsStaff(s) ? '送る相手（作業担当者）' : '送る相手（依頼元から選ぶ）'));
+  // ＋ 依頼元を追加（Task 6b）: 案件の依頼元の編集をこの場で開く。保存すると一覧を読み直し、増えた相手を選ぶ（入力中の件名・本文はそのまま）
+  if (!mlIsStaff(s) && !disabled && typeof openCaseModal === 'function') {
+    const add = dBtn('＋ 依頼元を追加', 'btn sm ghost inline ml-rcpt-add', () => mlAddParty(s));
+    add.id = 'ml-rcpt-add';
+    head.appendChild(add);
+  }
+  box.appendChild(head);
   const cs = mlContacts(s).filter(c => c.name || c.email);
   if (!cs.length) {
-    box.appendChild(mk('div', 'rep-sub', '依頼元が登録されていません。案件の「依頼元を編集」から元請・物件オーナー・入居者を登録できます（下の宛先に直接入れても送れます）'));
+    box.appendChild(mk('div', 'rep-sub', mlIsStaff(s)
+      ? '作業担当者が決まっていません。案件のカードの「作業担当者」で選んでください（下の宛先に直接入れても送れます）'
+      : '依頼元が登録されていません。「＋ 依頼元を追加」から元請・物件オーナー・入居者を登録できます（下の宛先に直接入れても送れます）'));
     return box;
   }
   const keys = mlRcptKeys(s);
@@ -176,19 +195,73 @@ function mlRcptBox(s) {
   mlFillRcptNote(s);
   return box;
 }
-const mlNoteText = s => String(s.f.subject || '') + '\n\n' + String(s.f.body || '');
+// ＋ 依頼元を追加: 依頼元の編集ポップアップ（js/case-list.js openCaseModal。外側クリック・Esc では閉じない）を開き、
+// 保存したら案件を読み直して送る相手の欄だけ作り直す。新しく増えた相手（名前かメールが入った）は選んだ状態にして、宛先・宛名にも入れる
+function mlAddParty(s) {
+  if (s.ro || s.phase !== 'edit' || s.busy) return;
+  const before = new Set(mlContacts(s).filter(c => c.name || c.email).map(c => c.key));
+  const beforeManual = mlManualTo(s);
+  const prevLines = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
+  openCaseModal(s.caseRow, async () => {
+    let row = null;
+    try { row = await CasesApi.getSummary(s.draft.case_id); } catch (e) { console.warn('依頼元を読み直せませんでした', e); }
+    if (ml !== s || !row) return;
+    s.caseRow = Object.assign({}, row, { worker_name: s.caseRow.worker_name || '', worker_email: s.caseRow.worker_email || '' });
+    const now = mlContacts(s).filter(c => c.name || c.email);
+    const added = now.filter(c => !before.has(c.key)).map(c => c.key);
+    const cur = new Set(mlRcptKeys(s).concat(added));
+    const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k) && now.some(c => c.key === k));
+    const emails = now.filter(c => keys.includes(c.key) && c.email).map(c => c.email);
+    const known = new Set(now.map(c => c.email.toLowerCase()).filter(Boolean));
+    s.f.recipients = keys;
+    s.f.to = Array.from(new Set(emails.concat(beforeManual.filter(a => !known.has(a.toLowerCase()))))).join(', ');
+    s.f.body = PhaseLogic.setAddressee(s.f.body, PhaseLogic.addresseeLines(s.caseRow, keys), prevLines);
+    if (s.els.to) s.els.to.value = s.f.to;
+    if (s.els.body) s.els.body.value = s.f.body;
+    const old = document.getElementById('ml-rcpt');
+    if (old) old.replaceWith(mlRcptBox(s));
+    mlFillCopy(s);
+    mlMarkDirty(s);
+  }, { focus: 'parties' });
+}
+const mlNoteText = (s, body) => String(s.f.subject || '') + '\n\n' + String(body == null ? s.f.body || '' : body);
+// 1人分の宛名にした文面（LINE などで1人ずつ送るため。Task 6c）
+function mlOneText(s, key) {
+  const cur = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
+  const one = PhaseLogic.addresseeLines(s.caseRow, [key]);
+  return mlNoteText(s, PhaseLogic.setAddressee(s.f.body, one, cur));
+}
+// 「文面をコピー」: 選んだ相手のうちメールが無い人ごとに、その人の宛名だけの文面。いなければ今の本文そのまま
 function mlCopyTextBtn(s) {
   const wrap = mk('div', 'ml-copy');
+  wrap.id = 'ml-copy';
+  s.els.copy = wrap;
+  mlFillCopy(s);
+  return wrap;
+}
+function mlFillCopy(s) {
+  const wrap = s.els.copy;
+  if (!wrap) return;
   const msg = mk('span', 'rep-sub');
   msg.id = 'ml-copy-msg';
   msg.setAttribute('role', 'status');
-  const b = dBtn('文面をコピー', 'btn sm ghost inline', async () => {
-    const ok = await mlCopy(mlNoteText(s));
-    msg.textContent = ok ? '件名と本文をコピーしました。LINE などに貼り付けてください' : 'コピーできませんでした。本文の欄を長押しして選択してください';
-  });
-  b.id = 'ml-copy-text';
-  wrap.append(b, msg);
-  return wrap;
+  const keys = mlRcptKeys(s);
+  const noMail = mlContacts(s).filter(c => keys.includes(c.key) && !c.email);
+  const btn = (who, text, key) => {
+    const b = dBtn(who ? '文面をコピー（' + who + 'あて）' : '文面をコピー', 'btn sm ghost inline ml-copy-btn', async () => {
+      const ok = await mlCopy(text());
+      msg.textContent = ok ? (who ? who + 'あての' : '') + '件名と本文をコピーしました。LINE などに貼り付けてください'
+        : 'コピーできませんでした。本文の欄を長押しして選択してください';
+    });
+    if (key) b.dataset.key = key;
+    return b;
+  };
+  const btns = noMail.length
+    ? noMail.map(c => btn(PhaseLogic.addresseeLine(s.caseRow, c.key), () => mlOneText(s, c.key), c.key))
+    : [btn('', () => mlNoteText(s))];
+  btns[0].id = 'ml-copy-text';
+  btns.forEach(b => { b.disabled = !!s.busy; });
+  wrap.replaceChildren(...btns, msg);
 }
 
 // 入力値の反映。値が変わっていなければ何もしない（type=email は blur 時の change でも呼ばれるため、無駄な保存を避ける）
@@ -538,7 +611,7 @@ function mlSyncBusy(s) {
     ['to', 'cc', 'subject', 'body'].forEach(k => { if (s.els[k]) s.els[k].disabled = busy; });
   }
   document.querySelectorAll('#ml-wait button').forEach(b => { b.disabled = busy; });
-  if (s.phase === 'edit' && !s.ro) document.querySelectorAll('#ml-rcpt input').forEach(b => { b.disabled = busy; });
+  if (s.phase === 'edit' && !s.ro) document.querySelectorAll('#ml-rcpt input, #ml-copy button').forEach(b => { b.disabled = busy; });
 }
 
 async function mlCopy(text) {
@@ -751,6 +824,14 @@ async function mlOpen(id) {
   if (seq !== mlSeq) return;
   if (!draft) { mlMessage('メールの下書きが見つかりません', false); return; }
 
+  // 担当者へのメール: 宛名・宛先の作業担当者（フェーズの担当者・社内メンバーのメール）を caseRow に足す
+  if (draft.purpose === 'staff_notice' && caseRow) {
+    const phase = (caseRow.phases || []).find(p => p.id === draft.phase_id) || {};
+    let members = [];
+    try { members = (await CasesApi.listMembers()) || []; } catch (e) { console.warn('担当者を読み込めませんでした', e); }
+    if (seq !== mlSeq) return;
+    caseRow = PhasesApi.withWorker(caseRow, phase.worker_id, members);
+  }
   const s = {
     id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate, returnTo,
     ro: draft.status !== 'draft', phase: 'edit', mail: null,

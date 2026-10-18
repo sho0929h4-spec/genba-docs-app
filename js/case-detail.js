@@ -391,7 +391,14 @@ function renderParties() {
     v.appendChild(partyContact(email, tel));
     return v;
   };
-  box.replaceChildren(head,
+  // 号室（migration 025）: 依頼元の上。連絡メールの件名・宛名・場所に入る
+  const roomV = mk('div', 'pty-v');
+  const roomText = typeof PhaseLogic !== 'undefined' ? PhaseLogic.roomLabel(c.room) : String(c.room || '').trim();
+  roomV.appendChild(roomText ? mk('b', null, roomText) : mk('span', 'pty-none', '未登録（「依頼元を編集」から入れられます）'));
+  const roomRow = partyRow('room', '号室', roomV);
+  roomRow.id = 'case-room';
+  roomRow.classList.add('pty-room');
+  box.replaceChildren(roomRow, head,
     partyRow('client', '元請', gc),
     partyRow('owner', '物件オーナー', person(c.owner_name, c.owner_email, c.owner_tel)),
     partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)));

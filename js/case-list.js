@@ -54,6 +54,7 @@ async function openCases() {
   }
   renderCaseList();
   // 時刻を過ぎたリマインドの下書きを作り、「✉️ 送るメールが n件あります」を出す（js/outbox-ui.js）
+  if (!errMsg && typeof refreshStaffBanner === 'function') refreshStaffBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active')); // 🔔 確認してください（Task 6b）
   if (!errMsg && typeof refreshOutboxBanner === 'function') refreshOutboxBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active'));
 }
 
@@ -258,6 +259,7 @@ async function openCaseModal(row, onSaved, opts) {
   $('cm-name').value = row ? row.name || '' : '';
   $('cm-due').value = row ? row.due_date || '' : '';
   $('cm-address').value = row ? row.address || '' : '';
+  $('cm-room').value = row ? row.room || '' : '';
   CM_PARTY.forEach(([col, id]) => { $(id).value = row ? row[col] || '' : ''; });
   closeNewClient();
   const wantClient = row ? (row.client_id || (row.client_name ? CM_LEGACY : '')) : '';
@@ -343,6 +345,7 @@ async function saveCaseModal() {
     due_date: $('cm-due').value || null,
     assignee_id: $('cm-assignee').value || null,
     address: $('cm-address').value.trim() || null,
+    room: $('cm-room').value.trim() || null, // 号室（migration 025）
     ...party,
     ...(clientFieldsOf($('cm-client').value) || {})
   };

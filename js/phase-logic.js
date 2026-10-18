@@ -50,7 +50,8 @@
   const RECIPIENTS = [
     { key: 'client', label: '元請' },
     { key: 'owner', label: '物件オーナー' },
-    { key: 'resident', label: '入居者' }
+    { key: 'resident', label: '入居者' },
+    { key: 'worker', label: '担当者' } // 作業担当者（社内。担当者への確認依頼・担当者向けの前日リマインドだけ。Task 6b）
   ];
   const BILL_TO = { client: '元請', owner: '物件オーナー', resident: '入居者', other: 'その他' };
 
@@ -253,14 +254,16 @@
   }
 
   // 消して作り直す未送信のリマインド（日時が変わった・日時を消した・完了した・フェーズが無い）→ mail_drafts の行
+  //   担当者向けの前日のお知らせ（staff_notice ＋ remind_slot）も含める
   //   now を渡すと、予定の時刻を過ぎた未送信のリマインドも含める（予定が終わった後のお知らせは送らない）
   function staleReminders(phases, drafts, now) {
     const byId = new Map(listOf(phases).map(p => [p.id, p]));
     const nowMs = ms(now);
     return listOf(drafts).filter(d => {
-      if (d.purpose !== 'reminder' || d.status !== 'draft') return false;
+      const staff = d.purpose === 'staff_notice' && !!d.remind_slot; // 担当者向けの前日のお知らせ（Task 6b）も同じ規則。担当者がいなくなっても消す
+      if ((d.purpose !== 'reminder' && !staff) || d.status !== 'draft') return false;
       const p = byId.get(d.phase_id);
-      if (!p || !p.scheduled_at || p.done_at) return true;
+      if (!p || !p.scheduled_at || p.done_at || (staff && !p.worker_id)) return true;
       if (nowMs != null && nowMs >= ms(p.scheduled_at)) return true;
       return d.remind_for !== jstYmd(p.scheduled_at);
     });
@@ -311,6 +314,7 @@
       return `${head}のお知らせ${tail ? `（${tail}）` : ''}`;
     }
     if (d.purpose === 'survey_result') return '調査結果のご報告';
+    if (d.purpose === 'staff_notice') return d.remind_slot ? '担当者への前日のお知らせ' : '担当者への確認依頼';
     if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
     return '報告書の送付';
   }
@@ -320,7 +324,7 @@
     return RECIPIENTS.filter(r => set.has(r.key)).map(r => r.label).join('・');
   }
   // 「今回は送らない」にできるのは日程連絡・リマインド・調査結果のご報告だけ（書類の送付はできない）
-  const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result');
+  const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result' || d.purpose === 'staff_notice');
   // 未送信（送らないを除く）の下書きを案件ごとにまとめる。caseRows は case_summaries の行（phases 付き）
   //   → [{ caseRow, items: [{ draft, phase, label, title, canSkip }] }]（下書きの作成順。案件は一番古い下書きの順）
   function groupOutbox(caseRows, drafts) {
@@ -347,23 +351,46 @@
       { key: 'client', label: '元請', name: clientName(c), email: str(c.client_email), tel: str(c.client_tel) },
       { key: 'owner', label: '物件オーナー', name: str(c.owner_name), email: str(c.owner_email), tel: str(c.owner_tel) },
       { key: 'resident', label: '入居者', name: str(c.resident_name), email: str(c.resident_email), tel: str(c.resident_tel) }
-    ];
+    ].concat(str(c.worker_name) || str(c.worker_email)
+      ? [{ key: 'worker', label: '担当者', name: str(c.worker_name), email: str(c.worker_email), tel: '' }] : []);
   }
   // 宛先の既定（mail_drafts.recipients の値）。メールがある人だけ
   //   schedule・survey_result: 元請・物件オーナー・入居者 ／ reminder: 入居者・物件オーナー ／ それ以外（報告書・見積）: 元請
   function defaultRecipients(caseRow, purpose) {
+    // staff_notice（担当者への確認依頼・前日のお知らせ）は担当者だけ（メールが無くても選ぶ: アプリ内の通知と文面コピーで伝える）
+    if (purpose === 'staff_notice') return contacts(caseRow).some(x => x.key === 'worker') ? ['worker'] : [];
     const order = purpose === 'schedule' || purpose === 'survey_result' ? ['client', 'owner', 'resident']
       : purpose === 'reminder' ? ['resident', 'owner'] : ['client'];
     const has = new Set(contacts(caseRow).filter(x => x.email).map(x => x.key));
     return order.filter(k => has.has(k));
   }
 
-  /* ---------- 連絡メール ---------- */
-  const withSama = n => (/(様|御中)$/.test(n) ? n : n + '様');
+  /* ---------- 連絡メール（Task 6c: 宛名・書き出し・内容詳細・署名の形をそろえる） ---------- */
+  // 本文の形（調査・工事・リマインド・調査結果のご報告・担当者向けで共通）:
+  //   {宛名: 送る相手ごとに1行}            ← 送る相手が無ければこの段落ごと無い
+  //   （空行）
+  //   お世話になっております。
+  //   {会社名}でございます。               ← 会社名が無ければ省く
+  //   {本文}
+  //   （空行）
+  //   何卒よろしくお願いいたします。
+  //   （空行）
+  //   {署名: 会社名　担当 名前 / TEL / メール。無い行は省く}
+  // 「いつもお世話になっております」「ご都合の悪い点…」は使わない
+  const GREETING = 'お世話になっております。';
+  const CLOSING = '何卒よろしくお願いいたします。';
+  const PLAN_HEAD = '■ 内容詳細';
+  const withSama = n => (/(様|御中|さん)$/.test(n) ? n : n + '様');
+  // 号室の表示: 数字・英字で終わるなら「号室」を足す（302 → 302号室、A-1 → A-1号室）。それ以外（302号室・A棟 など）はそのまま
+  function roomLabel(room) {
+    const r = str(room);
+    if (!r) return '';
+    return /[0-9０-９A-Za-zＡ-Ｚａ-ｚ]$/.test(r) ? r + '号室' : r;
+  }
+  // 物件名＋号室（「グランメゾン世田谷 302号室」）。物件名に号室が含まれていてもそのまま足す
+  const placeName = (c, sep) => [str(c && c.name), roomLabel(c && c.room)].filter(Boolean).join(sep || ' ');
   function placeLines(c) {
-    const name = str(c.name);
-    const room = str(c.room);
-    const lines = [`場所: ${name}${room ? ` ${/号室$/.test(room) ? room : room + '号室'}` : ''}`];
+    const lines = [`場所: ${placeName(c, '　')}`];
     if (str(c.address)) lines.push(`住所: ${str(c.address)}`);
     return lines;
   }
@@ -378,49 +405,167 @@
     return lines;
   }
   function subjectOf(head, kind, caseRow) {
-    const name = str(caseRow && caseRow.name);
+    const name = placeName(caseRow || {});
     return `【${head}】${name}${isWork(kind) ? `（${kindLabel(kind)}）` : ''}`;
   }
-  function mailBody(kind, phase, caseRow, org, me, leadLine) {
+  // 宛名の1行。元請 =「{会社名} {担当者名}様」（担当者名が無ければ「{会社名} 御中」）／
+  // 物件オーナー・入居者 =「{物件名} {号室} {名前}様」（名前が無ければ「物件オーナー様」「入居者様」）／
+  // 作業担当者（worker。Task 6b）=「{名前}さん」（caseRow.worker_name）
+  function addresseeLine(caseRow, key) {
     const c = caseRow || {};
-    const p = phase || {};
-    const survey = kind === 'survey';
-    const orgName = str(org && org.name);
-    const lines = ['いつもお世話になっております。'];
-    if (orgName) lines.push(`${orgName}でございます。`);
-    lines.push(leadLine, '');
-    lines.push(`${survey ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
-    lines.push(...placeLines(c));
-    if (survey) lines.push('立ち会い: 入居者様のお立ち会いをお願いいたします');
-    lines.push('');
-    if (!survey) lines.push('工事中はご不便をおかけいたしますが、ご理解とご協力のほどお願い申し上げます。');
-    lines.push('ご都合の悪い点などございましたら、お手数ですがご連絡くださいますようお願いいたします。');
-    lines.push('どうぞよろしくお願いいたします。');
+    if (key === 'client') {
+      const n = clientName(c);
+      const p = str(c.client_contact);
+      if (n) return p ? `${n} ${withSama(p)}` : `${n} 御中`;
+      return p ? withSama(p) : 'ご担当者様';
+    }
+    if (key === 'owner' || key === 'resident') {
+      const n = str(key === 'owner' ? c.owner_name : c.resident_name);
+      if (!n) return key === 'owner' ? '物件オーナー様' : '入居者様';
+      return [placeName(c), withSama(n)].filter(Boolean).join(' ');
+    }
+    if (key === 'worker') {
+      const n = str(c.worker_name);
+      return n ? (/(さん|様)$/.test(n) ? n : n + 'さん') : '担当者さん';
+    }
+    return '';
+  }
+  const ADDRESSEE_ORDER = ['worker', 'client', 'owner', 'resident'];
+  // 送る相手（mail_drafts.recipients）→ 宛名の行の配列（元請・物件オーナー・入居者の順。同じ行は1回）
+  function addresseeLines(caseRow, keys) {
+    const set = new Set(listOf(keys));
+    const out = [];
+    ADDRESSEE_ORDER.filter(k => set.has(k)).forEach(k => { const l = addresseeLine(caseRow, k); if (l && !out.includes(l)) out.push(l); });
+    return out;
+  }
+  // 本文の宛名の行だけを差し替える（送る相手のチェックを変えたとき・1人分の文面をコピーするとき）。
+  //   「お世話になっております。」より前を宛名とみなして入れ替える（本文の手直しは残る）。
+  //   書き出しが消されているときは、前の宛名（prevLines）が先頭にそのまま残っていればそこだけ差し替え、無ければ本文を変えない
+  function setAddressee(body, lines, prevLines) {
+    const src = String(body == null ? '' : body);
+    const all = src.split('\n');
+    const block = listOf(lines).length ? listOf(lines).concat(['']) : [];
+    const g = all.indexOf(GREETING);
+    if (g >= 0) return block.concat(all.slice(g)).join('\n');
+    const prev = listOf(prevLines);
+    if (prev.length && prev.every((l, k) => all[k] === l)) {
+      let j = prev.length;
+      if (all[j] === '') j++;
+      return block.concat(all.slice(j)).join('\n');
+    }
+    return src;
+  }
+  function wrapMail(caseRow, recipients, org, me, bodyLines) {
+    const lines = [];
+    const ad = addresseeLines(caseRow, recipients);
+    if (ad.length) lines.push(...ad, '');
+    lines.push(GREETING);
+    if (str(org && org.name)) lines.push(`${str(org.name)}でございます。`);
+    lines.push(...bodyLines, '', CLOSING);
     const sig = signature(org, me);
     if (sig.length) lines.push('', ...sig);
     return lines.join('\n');
   }
   const kindFrom = (kind, phase) => (KIND_KEYS.includes(kind) ? kind : phase && phase.kind);
+  const rcptOf = (recipients, caseRow, purpose) => (Array.isArray(recipients) ? recipients : defaultRecipients(caseRow, purpose));
 
-  // 調査日・工事日の連絡（purpose schedule）→ { subject, body }
-  function scheduleMail({ kind, phase, caseRow, org, me } = {}) {
+  /* ---- 内容詳細（case_phases.plan。migration 025） ---- */
+  const PLAN_SPOTS = [
+    { key: 'bath', label: '浴室' }, { key: 'ceiling', label: '天井' }, { key: 'wall', label: '壁' }, { key: 'floor', label: '床' },
+    { key: 'kitchen', label: 'キッチン' }, { key: 'washroom', label: '洗面' }, { key: 'toilet', label: 'トイレ' },
+    { key: 'pipe', label: '給排水管' }, { key: 'balcony', label: 'バルコニー' }, { key: 'common', label: '共用部' }, { key: 'other', label: 'その他' }
+  ];
+  const PLAN_DURATIONS = [
+    { key: '30m', label: '30分', text: '30分ほど' }, { key: '1h', label: '1時間', text: '1時間ほど' },
+    { key: '2h', label: '2時間', text: '2時間ほど' }, { key: 'half', label: '半日', text: '半日ほど' },
+    { key: 'day', label: '1日', text: '1日' }, { key: 'other', label: 'その他', text: '' }
+  ];
+  const PLAN_ASKS = [
+    { key: 'move_items', label: '荷物の移動・片付け' }, { key: 'attend', label: 'お立ち会い' },
+    { key: 'power_water', label: '電気・水道の提供' }, { key: 'parking', label: '駐車スペース' },
+    { key: 'key', label: '鍵の手配' }, { key: 'other', label: 'その他' }
+  ];
+  const txt = v => (typeof v === 'string' ? v : v == null ? '' : String(v));
+  // DB の値 → 画面の形（足りないキーは空・知らない値は落とす・並びはボタンの順）。文字列は入力中の値のまま
+  function normalizePlan(raw) {
+    const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const pickList = (v, list) => { const set = new Set(Array.isArray(v) ? v : []); return list.map(x => x.key).filter(k => set.has(k)); };
+    return {
+      spots: pickList(r.spots, PLAN_SPOTS), spotNote: txt(r.spotNote),
+      duration: PLAN_DURATIONS.some(d => d.key === r.duration) ? r.duration : '', durationNote: txt(r.durationNote),
+      asks: pickList(r.asks, PLAN_ASKS), askNote: txt(r.askNote)
+    };
+  }
+  // 連絡メールの「■ 内容詳細」の段落（見出し＋行）。全部空なら []（段落ごと省く）
+  //   調査箇所（工事は「工事箇所」）: spots を「・」で連結（補足があれば（…））／所要時間: 30分ほど…（その他は自由記入）／
+  //   ご協力のお願い: asks を「／」で連結（その他は自由記入。空なら「その他」）
+  function planLines(raw, kind) {
+    const p = normalizePlan(raw);
+    const lab = (list, k) => (list.find(x => x.key === k) || {}).label;
+    const out = [];
+    const spots = p.spots.map(k => lab(PLAN_SPOTS, k)).join('・');
+    const note = str(p.spotNote);
+    const spotText = spots ? spots + (note ? `（${note}）` : '') : note;
+    if (spotText) out.push(`${isWork(kind) ? '工事箇所' : '調査箇所'}: ${spotText}`);
+    const d = PLAN_DURATIONS.find(x => x.key === p.duration);
+    const dText = d ? (d.key === 'other' ? str(p.durationNote) : d.text) : '';
+    if (dText) out.push(`所要時間: ${dText}`);
+    const asks = p.asks.map(k => (k === 'other' ? (str(p.askNote) || 'その他') : lab(PLAN_ASKS, k))).filter(Boolean);
+    if (asks.length) out.push(`ご協力のお願い: ${asks.join('／')}`);
+    return out.length ? [PLAN_HEAD].concat(out) : [];
+  }
+  const hasPlan = raw => planLines(raw, 'survey').length > 0;
+  // 本文の「■ 内容詳細」の段落だけを差し替える（内容詳細を変えたとき。本文の手直しは残る）。
+  //   段落が無ければ「何卒よろしくお願いいたします。」の前に入れる。置き場所が分からなければ null（呼ぶ側で本文を作り直す）
+  function setPlanSection(body, lines) {
+    const src = String(body == null ? '' : body);
+    const all = src.split('\n');
+    const plan = listOf(lines);
+    const h = all.indexOf(PLAN_HEAD);
+    if (h >= 0) {
+      let e = h + 1;
+      while (e < all.length && all[e] !== '') e++;
+      if (plan.length) return all.slice(0, h).concat(plan, all.slice(e)).join('\n');
+      const s0 = h > 0 && all[h - 1] === '' ? h - 1 : h;
+      return all.slice(0, s0).concat(all.slice(e)).join('\n');
+    }
+    if (!plan.length) return src;
+    const c = all.indexOf(CLOSING);
+    if (c < 0) return null;
+    const before = all.slice(0, c);
+    while (before.length && before[before.length - 1] === '') before.pop();
+    return before.concat([''], plan, [''], all.slice(c)).join('\n');
+  }
+
+  function scheduleBody(k, phase, caseRow, org, me, recipients, leadLine) {
+    const p = phase || {};
+    const lines = [leadLine, ''];
+    lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    lines.push(...placeLines(caseRow || {}));
+    const plan = planLines(p.plan, k);
+    if (plan.length) lines.push('', ...plan);
+    return wrapMail(caseRow, recipients, org, me, lines);
+  }
+
+  // 調査日・工事日の連絡（purpose schedule）→ { subject, body }。recipients（送る相手のキー）を省くと既定（defaultRecipients）
+  function scheduleMail({ kind, phase, caseRow, org, me, recipients } = {}) {
     const k = kindFrom(kind, phase);
     const survey = k === 'survey';
     return {
       subject: subjectOf(survey ? '調査日のご連絡' : '工事日のご連絡', k, caseRow),
-      body: mailBody(k, phase, caseRow, org, me,
+      body: scheduleBody(k, phase, caseRow, org, me, rcptOf(recipients, caseRow, 'schedule'),
         survey ? '下記の日程で調査に伺います。' : `下記の日程で${kindLabel(k)}を行います。`)
     };
   }
   // リマインド（purpose reminder。slot 'd3'|'d1'）→ { subject, body }
-  function reminderMail({ kind, phase, caseRow, org, me, slot } = {}) {
+  function reminderMail({ kind, phase, caseRow, org, me, slot, recipients } = {}) {
     const k = kindFrom(kind, phase);
     const survey = k === 'survey';
     const sl = (SLOTS.find(x => x.slot === slot) || SLOTS[0]).label;
     const what = survey ? '調査' : kindLabel(k);
     return {
       subject: subjectOf(`${survey ? '調査日' : '工事日'}のお知らせ（${sl}）`, k, caseRow),
-      body: mailBody(k, phase, caseRow, org, me,
+      body: scheduleBody(k, phase, caseRow, org, me, rcptOf(recipients, caseRow, 'reminder'),
         `${what}の日が近づいてまいりましたので、改めてご案内いたします。`)
     };
   }
@@ -473,13 +618,11 @@
     if (on.has('other')) out.push(...NL().bodySentences({ workTypes: { other: true }, otherWorkText: r.cautionOther }));
     return out.filter((t, i) => t && out.indexOf(t) === i);
   }
-  // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない
-  function surveyResultMail({ phase, caseRow, org, me } = {}) {
+  // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない。宛名・書き出し・署名は日程連絡と同じ形
+  function surveyResultMail({ phase, caseRow, org, me, recipients } = {}) {
     const p = phase || {};
     const r = normalizeResult(p.result);
-    const orgName = str(org && org.name);
-    const lines = ['いつもお世話になっております。'];
-    if (orgName) lines.push(`${orgName}でございます。`);
+    const lines = [];
     const day = jst(p.done_at || p.scheduled_at);
     lines.push(day ? `${day.m}月${day.d}日に実施した調査の結果をご報告いたします。` : '調査の結果をご報告いたします。');
     const section = (head, body) => { if (str(body)) lines.push('', `■ ${head}`, str(body)); };
@@ -497,9 +640,100 @@
       });
     }
     lines.push('', 'お見積書は別途お送りいたします。');
-    lines.push(...signature(org, me));
-    return { subject: subjectOf('調査結果のご報告', 'survey', caseRow), body: lines.join('\n') };
+    return { subject: subjectOf('調査結果のご報告', 'survey', caseRow),
+      body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines) };
   }
+  /* ---- 作業担当者への確認依頼（Task 6b） ---- */
+  // カードへのリンク（base: アプリの URL。# 以降は付け直す）
+  function phaseLink(base, caseId, phaseId) {
+    return `${String(base || '').split('#')[0]}#case/${caseId}/phase/${phaseId}`;
+  }
+  const whatOf = k => (k === 'survey' ? '調査' : kindLabel(k));
+  function staffBody(k, p, caseRow, org, me, link, lead, tail) {
+    const lines = [lead, ''];
+    lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    lines.push(...placeLines(caseRow || {}));
+    const plan = planLines(p.plan, k);
+    if (plan.length) lines.push('', ...plan);
+    lines.push('', tail);
+    if (str(link)) lines.push(str(link));
+    return wrapMail(caseRow, ['worker'], org, me, lines);
+  }
+  // 担当者への確認依頼（purpose staff_notice）→ { subject, body }。caseRow.worker_name が宛名（「鈴木さん」）
+  //   件名「【確認してください】10/20 9:00 調査 グランメゾン世田谷 302号室」（日時未定なら日時を省く）
+  function staffNoticeMail({ phase, caseRow, org, me, link } = {}) {
+    const p = phase || {};
+    const k = p.kind;
+    const when = p.scheduled_at ? fmtMDHM(p.scheduled_at) : '';
+    const place = placeName(caseRow || {});
+    const lead = `${p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜 ' : ''}${place} の${whatOf(k)}をお願いします。`;
+    return {
+      subject: `【確認してください】${[when, whatOf(k), place].filter(Boolean).join(' ')}`,
+      body: staffBody(k, p, caseRow, org, me, link, lead, '内容を確認したら、下のリンクから開いて「確認した」を押してください。')
+    };
+  }
+  // 担当者向けの前日のお知らせ（purpose staff_notice ＋ remind_slot d1）→ { subject, body }
+  function staffReminderMail({ phase, caseRow, org, me, link } = {}) {
+    const p = phase || {};
+    const k = p.kind;
+    const place = placeName(caseRow || {});
+    return {
+      subject: `【明日の予定】${[fmtMDHM(p.scheduled_at), whatOf(k), place].filter(Boolean).join(' ')}`,
+      body: staffBody(k, p, caseRow, org, me, link, `明日 ${fmtMDWHM(p.scheduled_at)}〜 ${place} の${whatOf(k)}です。`, '詳しくは下のリンクから確認してください。')
+    };
+  }
+  // 担当者向けの前日のお知らせを今作るか（アプリを開いたときに呼ぶ）→ [{ phase_id, slot: 'd1', remind_for }]
+  //   入居者向けの前日リマインドと同じ時刻（前日 18:00）・同じ条件（予定を入れた時点で過ぎていれば作らない・予定の時刻を過ぎたら作らない）。
+  //   担当者が決まっているフェーズだけ。同じ (phase_id, d1, remind_for) の staff_notice が既にあれば作らない
+  function dueStaffReminders(phases, existingDrafts, now) {
+    const nowMs = ms(now) != null ? ms(now) : Date.now();
+    const drafts = listOf(existingDrafts);
+    const out = [];
+    for (const p of listOf(phases)) {
+      if (!p.id || !p.worker_id || !p.scheduled_at || p.done_at || !KIND_KEYS.includes(p.kind)) continue;
+      if (nowMs >= ms(p.scheduled_at)) continue;
+      const d1 = reminderSlots(p.scheduled_at, scheduleSetAt(p, drafts)).find(x => x.slot === 'd1');
+      if (!d1 || ms(d1.at) > nowMs) continue;
+      const exists = drafts.some(d => d.purpose === 'staff_notice' && d.phase_id === p.id && d.remind_slot === 'd1' && d.remind_for === d1.remind_for);
+      if (!exists) out.push({ phase_id: p.id, kind: p.kind, slot: 'd1', label: d1.label, at: d1.at, remind_for: d1.remind_for });
+    }
+    return out;
+  }
+  // 担当者の状態（カードの表示）→ { key: 'none'|'unset'|'notified'|'ack', label }
+  function workerState(phase) {
+    const p = phase || {};
+    if (!p.worker_id) return { key: 'unset', label: '担当者が決まっていません' };
+    if (p.ack_at) return { key: 'ack', label: `確認済み ${fmtMDHM(p.ack_at)}${str(p.ack_by_name) ? `（${str(p.ack_by_name)}）` : ''}` };
+    if (p.notified_at) return { key: 'notified', label: `知らせた ${fmtMDHM(p.notified_at)}` };
+    return { key: 'none', label: '未通知' };
+  }
+  // 担当者の「🔔 確認してください」の一覧。caseRows は case_summaries の行（phases 付き）、meId は自分の user_id
+  //   notice: 自分が担当者で、知らせてもらって未確認（調査済み・完了は除く）
+  //   tomorrow: 自分が担当者で、明日（日本時間）の予定（未確認の notice があればそちらに含める: tomorrow: true）
+  //   → [{ type, caseRow, phase, title, label, from, fromAt, tomorrow }]（notice を先、各々予定の早い順）
+  function staffInbox(caseRows, meId, now) {
+    const nowMs = ms(now) != null ? ms(now) : Date.now();
+    const tomorrow = jstYmd(nowMs + 86400000);
+    const out = [];
+    for (const c of listOf(caseRows)) {
+      const count = {};
+      for (const p of listOf(c.phases)) {
+        count[p.kind] = (count[p.kind] || 0) + 1;
+        if (!meId || p.worker_id !== meId || p.done_at) continue;
+        const isTomorrow = !!p.scheduled_at && jstYmd(p.scheduled_at) === tomorrow;
+        const notice = !!p.notified_at && !p.ack_at;
+        if (!notice && !isTomorrow) continue;
+        const what = whatOf(p.kind);
+        const when = p.scheduled_at ? `${fmtMDWHM(p.scheduled_at)}〜` : '日時未定';
+        const label = isTomorrow ? `明日 ${when} ${what}です` : `${when} ${p.kind === 'survey' ? '調査に行ってください' : what + 'をお願いします'}`;
+        out.push({ type: notice ? 'notice' : 'tomorrow', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
+          label, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow });
+      }
+    }
+    const t = x => (x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
+    return out.sort((a, b) => (a.type === b.type ? 0 : a.type === 'notice' ? -1 : 1) || t(a) - t(b));
+  }
+
   // 工事カードで使う調査結果: この案件の調査のうち、何か入っている一番新しい（並びの最後の）もの。無ければ null
   function latestSurveyResult(phases) {
     const list = listOf(phases).filter(p => p.kind === 'survey' && hasResult(p.result));
@@ -719,6 +953,9 @@
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
     phaseTitle, stage, caseNext, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
+    GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
+    PLAN_SPOTS, PLAN_DURATIONS, PLAN_ASKS, normalizePlan, planLines, hasPlan, setPlanSection,
+    phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, cautionSentences, surveyResultMail, latestSurveyResult,
     reportInit, estimateNoteExtra, noticeInit,
     billingBasis, billingAmount, billToLabel, groupBilling,

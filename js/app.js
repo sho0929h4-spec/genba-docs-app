@@ -199,10 +199,12 @@ const REPORT_HASH_RE = new RegExp('^#report/' + UUID_RE + '$', 'i');
 const MAIL_HASH_RE = new RegExp('^#mail/' + UUID_RE + '$', 'i');
 const CASE_NOTICES_HASH_RE = new RegExp('^#case/' + UUID_RE + '/notices$', 'i');
 const REPORT_PDF_HASH_RE = new RegExp('^#report/' + UUID_RE + '/pdf$', 'i');
+const CASE_PHASE_HASH_RE = new RegExp('^#case/' + UUID_RE + '/phase/' + UUID_RE + '$', 'i');
 function routeFromHash() {
   const h = location.hash;
   let m;
   if ((m = h.match(CASE_HASH_RE))) openCase(m[1]);
+  else if ((m = h.match(CASE_PHASE_HASH_RE)) && typeof openCasePhase === 'function') openCasePhase(m[1], m[2]); // 対応フェーズのカード（担当者への確認依頼のリンク。js/phase-ui.js）
   else if ((m = h.match(CASE_REPORTS_HASH_RE))) openReports(m[1]);      // ⑤ 案件内の報告書一覧（js/report-ui.js）
   else if ((m = h.match(CASE_SHARE_HASH_RE)) && typeof openShareScreen === 'function') openShareScreen(m[1]); // ⑦ 協力業者URLの発行
   else if ((m = h.match(MAIL_HASH_RE)) && typeof openMailDraft === 'function') openMailDraft(m[1]); // ⑨ 送付メールの下書き（js/mail-ui.js）
@@ -217,6 +219,7 @@ function routeFromHash() {
   else if (h === '#team') openTeam();
   else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
   else if (h === '#billing' && typeof openBilling === 'function') openBilling(); // 請求の一覧（js/billing-ui.js）
+  else if (h === '#inbox-staff' && typeof openStaffInbox === 'function') openStaffInbox(); // 担当者の「確認してください」（js/staff-inbox.js）
   else openCases();
 }
 

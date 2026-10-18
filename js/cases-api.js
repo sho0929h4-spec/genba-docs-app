@@ -8,7 +8,8 @@ const CasesApi = (() => {
   // 020: 元請マスタの client_id と、物件オーナー・入居者の連絡先。client_name / client_email は互換のため残し、
   //      案件の保存時に選んだ元請マスタの値を入れる（画面側 js/case-list.js）
   const CASE_COLS = ['name', 'address', 'client_name', 'client_email', 'assignee_id', 'due_date', 'status',
-    'client_id', 'owner_name', 'owner_email', 'owner_tel', 'resident_name', 'resident_email', 'resident_tel'];
+    'client_id', 'owner_name', 'owner_email', 'owner_tel', 'resident_name', 'resident_email', 'resident_tel',
+    'room']; // 025: 号室
   const WORK_COLS = ['kind', 'label', 'worked_at', 'worker_id', 'settle_due', 'settled_at'];
   const ACTION_COLS = ['kind', 'ball', 'title', 'due_date', 'started_on', 'assignee_id', 'done_at'];
   const pick = (obj, cols) => {
@@ -29,7 +30,7 @@ const CasesApi = (() => {
     async listSummaries() { return must(await sb.from('case_summaries').select('*')); },
     async getSummary(id) { return must(await sb.from('case_summaries').select('*').eq('id', id).maybeSingle()); },
     async listMembers() {
-      return must(await sb.from('memberships').select('user_id, display_name').order('display_name'));
+      return must(await sb.from('memberships').select('user_id, display_name, email').order('display_name'));
     },
     async createCase(fields) {
       const q = await checkQuota(0, 1);
@@ -44,7 +45,7 @@ const CasesApi = (() => {
         const norm = v => (v == null ? '' : String(v).trim());
         const groups = [['元請', ['client_id', 'client_name', 'client_email']],
           ['物件オーナー', ['owner_name', 'owner_email', 'owner_tel']],
-          ['入居者', ['resident_name', 'resident_email', 'resident_tel']]];
+          ['入居者', ['resident_name', 'resident_email', 'resident_tel']], ['号室', ['room']]];
         const changed = groups.filter(([, cols]) => cols.some(c =>
           Object.prototype.hasOwnProperty.call(fields, c) && norm(fields[c]) !== norm(before[c]))).map(([l]) => l);
         if (changed.length) await logSystem(id, `依頼元を変更した（${changed.join('・')}）`);

@@ -5,7 +5,8 @@ const PhasesApi = (() => {
   const PL = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const UPDATE_COLS = ['scheduled_at', 'scheduled_end', 'done_at', 'bill_to_type', 'bill_to_name', 'billing_mode',
-    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due']; // result: 調査結果（023）・payment_due: 入金期限（024）
+    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due', 'plan', // result: 調査結果（023）・payment_due: 入金期限（024）・plan: 内容詳細（025）
+    'worker_id', 'notified_at', 'ack_at']; // 026: 作業担当者・知らせた・確認した（時刻と「誰が」は DB のトリガーが入れ直す）
   const pick = (obj, cols) => {
     const out = {};
     for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
@@ -29,7 +30,20 @@ const PhasesApi = (() => {
     return { recipients: keys, to: Array.from(new Set(to)).join(', ') };
   }
 
+  // 担当者の名前・メール（memberships。026）を caseRow に足す（宛名「鈴木さん」・宛先用）
+  function withWorker(caseRow, workerId, members) {
+    const w = (members || []).find(m => m.user_id === workerId) || null;
+    return Object.assign({}, caseRow || {}, { worker_name: w ? w.display_name || '' : '', worker_email: w ? w.email || '' : '' });
+  }
+  // カードへのリンク（担当者向けのメールに入れる）
+  const linkOf = (caseId, phaseId) => PL().phaseLink(location.origin + location.pathname, caseId, phaseId);
+
   const api = {
+    withWorker,
+    // 社内メンバー（担当者の候補・メール）
+    async members() {
+      return must(await sb.from('memberships').select('user_id, display_name, email').order('display_name')) || [];
+    },
     async list(caseId) {
       return must(await sb.from('case_phases').select('*').eq('case_id', caseId).order('created_at').order('id'));
     },
@@ -76,20 +90,27 @@ const PhasesApi = (() => {
         if (!row.scheduled_at) {
           for (const d of sched) must(await sb.from('mail_drafts').delete().eq('id', d.id).eq('status', 'draft'));
         } else {
-          const m = PL().scheduleMail({ phase: row, caseRow, org: ctx.org, me: me() });
+          const mail = keys => PL().scheduleMail({ phase: row, caseRow, org: ctx.org, me: me(), recipients: keys });
           if (sched.length) {
             const d = sched[0];
-            const patch = { subject: m.subject, body: m.body, skipped_at: null };
-            if (!String(d.to_email || '').trim()) {
+            // 宛名は下書きの送る相手（recipients）から。宛先も送る相手も空なら既定の相手を入れる（メールの無い相手だけを選んだ下書きは変えない）
+            let keys = Array.isArray(d.recipients) ? d.recipients : [];
+            const patch = { skipped_at: null };
+            if (!String(d.to_email || '').trim() && !keys.length) {
               const t = defaultTo(caseRow, 'schedule');
               patch.to_email = t.to || null;
               patch.recipients = t.recipients;
+              keys = t.recipients;
             }
+            const m = mail(keys);
+            patch.subject = m.subject;
+            patch.body = m.body;
             const rows = must(await sb.from('mail_drafts').update(patch).eq('id', d.id).eq('status', 'draft').select());
             draft = rows && rows[0] ? rows[0] : null;
           }
           if (!draft) {
             const t = defaultTo(caseRow, 'schedule');
+            const m = mail(t.recipients);
             draft = must(await sb.from('mail_drafts').insert({
               case_id: phase.case_id, phase_id: phase.id, purpose: 'schedule',
               to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
@@ -120,7 +141,7 @@ const PhasesApi = (() => {
     },
 
     // 調査結果（case_phases.result。023）を保存し、「調査結果のご報告」（purpose survey_result）の下書きを作る/更新する。
-    //   未送信の下書きがあれば件名・本文を更新して「今回は送らない」を外す（宛先が空なら既定を入れる）。無ければ、何か入っているときだけ作る。
+    //   未送信の下書きがあれば件名・本文を更新して「今回は送らない」を外す（宛先も送る相手も空なら既定を入れる）。無ければ、何か入っているときだけ作る。
     //   最初の保存（保存前の result が {}）のときだけタイムラインに「…の調査結果を記録した」。以後の変更は記録しない
     //   result: PhaseLogic.normalizeResult の形。戻り値 { phase, draft, first }（draft は未送信の下書き or null）
     async saveResult(phase, result, caseRow, title) {
@@ -131,20 +152,26 @@ const PhasesApi = (() => {
       try {
         const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('purpose', 'survey_result')
           .eq('status', 'draft').order('created_at', { ascending: false }));
-        const m = PL().surveyResultMail({ phase: row, caseRow, org: ctx.org, me: me() });
+        const mail = keys => PL().surveyResultMail({ phase: row, caseRow, org: ctx.org, me: me(), recipients: keys });
         if (open && open.length) {
           const d = open[0];
-          const patch = { subject: m.subject, body: m.body, skipped_at: null };
-          if (!String(d.to_email || '').trim()) {
+          let keys = Array.isArray(d.recipients) ? d.recipients : [];
+          const patch = { skipped_at: null };
+          if (!String(d.to_email || '').trim() && !keys.length) {
             const t = defaultTo(caseRow, 'survey_result');
             patch.to_email = t.to || null;
             patch.recipients = t.recipients;
+            keys = t.recipients;
           }
+          const m = mail(keys);
+          patch.subject = m.subject;
+          patch.body = m.body;
           const rows = must(await sb.from('mail_drafts').update(patch).eq('id', d.id).eq('status', 'draft').select());
           draft = rows && rows[0] ? rows[0] : null;
         }
         if (!draft && PL().hasResult(r)) {
           const t = defaultTo(caseRow, 'survey_result');
+          const m = mail(t.recipients);
           draft = must(await sb.from('mail_drafts').insert({
             case_id: phase.case_id, phase_id: phase.id, purpose: 'survey_result',
             to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
@@ -158,6 +185,82 @@ const PhasesApi = (() => {
         if (first) await logSystem(phase.case_id, `${title}の調査結果を記録した`);
       }
       return { phase: row, draft, first };
+    },
+
+    // 内容詳細（case_phases.plan。025）を保存し、未送信の日程連絡・リマインドの「■ 内容詳細」の段落を差し替える
+    // （本文の手直しは残す。段落の置き場所が分からない本文は送る相手の宛名で作り直す）。
+    //   戻り値 { phase, drafts }（drafts は書き換えた mail_drafts の行）
+    async savePlan(phase, plan, caseRow) {
+      const v = PL().normalizePlan(plan);
+      const row = await api.update(phase.id, { plan: v });
+      const changed = [];
+      try {
+        const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('status', 'draft')
+          .in('purpose', ['schedule', 'reminder'])) || [];
+        const lines = PL().planLines(v, row.kind);
+        for (const d of open) {
+          let body = PL().setPlanSection(d.body, lines);
+          if (body == null) {
+            const args = { phase: row, caseRow, org: ctx.org, me: me(), recipients: d.recipients || [], slot: d.remind_slot };
+            body = (d.purpose === 'schedule' ? PL().scheduleMail(args) : PL().reminderMail(args)).body;
+          }
+          if (body === d.body) continue;
+          const rows = must(await sb.from('mail_drafts').update({ body }).eq('id', d.id).eq('status', 'draft').select());
+          if (rows && rows[0]) changed.push(rows[0]);
+        }
+      } catch (e) {
+        const err = new Error('内容詳細は保存しましたが、連絡メールの下書きを直せませんでした: ' + (e && e.message ? e.message : e));
+        err.phase = row;
+        throw err;
+      }
+      return { phase: row, drafts: changed };
+    },
+
+    /* ===== 作業担当者への確認依頼（対応フェーズ Task 6b） ===== */
+    // 担当者を変える（知らせた・確認したは DB が消す）。未送信の確認依頼・前日のお知らせの下書きは消す（新しい担当者で作り直す）
+    async setWorker(phase, workerId, title, members) {
+      const row = await api.update(phase.id, { worker_id: workerId || null });
+      try {
+        must(await sb.from('mail_drafts').delete().eq('phase_id', phase.id).eq('purpose', 'staff_notice').eq('status', 'draft'));
+      } catch (e) { console.warn('担当者への下書きを消せませんでした', e); }
+      const w = (members || []).find(m => m.user_id === row.worker_id);
+      await logSystem(phase.case_id, `${title}の作業担当者を${w ? ` ${w.display_name || '（名前なし）'} に` : 'なしに'}した`);
+      return row;
+    },
+    // 担当者に知らせる（もう一度知らせると確認済みは消える）。担当者への確認依頼（purpose staff_notice）の下書きを作る/更新する
+    //   → { phase, draft }
+    async notifyWorker(phase, caseRow, title, members) {
+      const row = await api.update(phase.id, { notified_at: now() });
+      const cr = withWorker(caseRow, row.worker_id, members);
+      let draft = null;
+      try {
+        const m = PL().staffNoticeMail({ phase: row, caseRow: cr, org: ctx.org, me: me(), link: linkOf(row.case_id, row.id) });
+        const patch = { to_email: cr.worker_email || null, recipients: ['worker'], subject: m.subject, body: m.body, skipped_at: null };
+        const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', row.id).eq('purpose', 'staff_notice')
+          .eq('status', 'draft').is('remind_slot', null).order('created_at', { ascending: false })) || [];
+        if (open.length) {
+          const rows = must(await sb.from('mail_drafts').update(patch).eq('id', open[0].id).eq('status', 'draft').select());
+          draft = rows && rows[0] ? rows[0] : null;
+        }
+        if (!draft) {
+          draft = must(await sb.from('mail_drafts').insert(Object.assign({ case_id: row.case_id, phase_id: row.id, purpose: 'staff_notice' }, patch))
+            .select().single());
+        }
+      } catch (e) {
+        await logSystem(phase.case_id, `${title}の確認を${cr.worker_name ? ` ${cr.worker_name}さん` : '担当者'}に依頼した`);
+        const err = new Error('担当者に知らせましたが、メールの下書きを作れませんでした: ' + (e && e.message ? e.message : e));
+        err.phase = row;
+        throw err;
+      }
+      await logSystem(phase.case_id, `${title}の確認を${cr.worker_name ? ` ${cr.worker_name}さん` : '担当者'}に依頼した`);
+      return { phase: row, draft };
+    },
+    // 担当者本人が「確認した」（DB が本人以外・知らせる前を拒否する）
+    async ack(phase, title) {
+      const row = await api.update(phase.id, { ack_at: now() });
+      const who = ctx && ctx.membership ? ctx.membership.display_name || '担当者' : '担当者';
+      await logSystem(phase.case_id, `${who}が${title}を確認した`);
+      return row;
     },
 
     /* ===== 請求（対応フェーズ Task 7） ===== */
@@ -255,7 +358,7 @@ const PhasesApi = (() => {
       const [open, rem] = await Promise.all([
         sb.from('mail_drafts').select('*').eq('status', 'draft').order('created_at'),
         phaseIds && phaseIds.length
-          ? Promise.all(chunks(phaseIds, 80).map(ids => sb.from('mail_drafts').select('*').eq('purpose', 'reminder').in('phase_id', ids)))
+          ? Promise.all(chunks(phaseIds, 80).map(ids => sb.from('mail_drafts').select('*').in('purpose', ['reminder', 'staff_notice']).in('phase_id', ids)))
           : Promise.resolve([])
       ]);
       const byId = new Map();
@@ -275,7 +378,8 @@ const PhasesApi = (() => {
       const caseOf = new Map();
       for (const e of entries || []) for (const p of (e.phases || [])) { phases.push(p); caseOf.set(p.id, e.caseRow); }
       const known = new Set(phases.map(p => p.id));
-      let list = (drafts || []).filter(d => d.purpose === 'reminder' && known.has(d.phase_id));
+      // 担当者向けの前日のお知らせ（staff_notice ＋ remind_slot。026）も同じく古いものを消す
+      let list = (drafts || []).filter(d => (d.purpose === 'reminder' || (d.purpose === 'staff_notice' && d.remind_slot)) && known.has(d.phase_id));
       for (const d of PL().staleReminders(phases, list, at)) {
         try {
           must(await sb.from('mail_drafts').delete().eq('id', d.id).eq('status', 'draft'));
@@ -287,8 +391,8 @@ const PhasesApi = (() => {
       for (const r of due) {
         const p = phases.find(x => x.id === r.phase_id);
         const caseRow = caseOf.get(r.phase_id) || {};
-        const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: me(), slot: r.slot });
         const t = defaultTo(caseRow, 'reminder');
+        const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: me(), slot: r.slot, recipients: t.recipients });
         const { data, error } = await sb.from('mail_drafts').insert({
           case_id: caseRow.id || p.case_id, phase_id: r.phase_id, purpose: 'reminder', remind_slot: r.slot, remind_for: r.remind_for,
           to_email: t.to || null, recipients: t.recipients, subject: m.subject, body: m.body
@@ -299,6 +403,28 @@ const PhasesApi = (() => {
           continue;
         }
         out.created.push(data);
+      }
+      // 担当者向けの前日のお知らせ（宛先は担当者のメール。メールが無くても作る: アプリ内の 🔔 と文面コピーで伝える）
+      const staffDue = PL().dueStaffReminders(phases, list.concat((drafts || []).filter(d => d.purpose === 'schedule')), at);
+      if (staffDue.length) {
+        let members = [];
+        try { members = await api.members(); } catch (e) { out.errors.push('担当者を読み込めませんでした: ' + (e && e.message ? e.message : e)); }
+        for (const r of staffDue) {
+          const p = phases.find(x => x.id === r.phase_id);
+          const caseRow = withWorker(caseOf.get(r.phase_id) || {}, p.worker_id, members);
+          const caseId = caseRow.id || p.case_id;
+          const m = PL().staffReminderMail({ phase: p, caseRow, org: ctx.org, me: me(), link: linkOf(caseId, p.id) });
+          const { data, error } = await sb.from('mail_drafts').insert({
+            case_id: caseId, phase_id: r.phase_id, purpose: 'staff_notice', remind_slot: 'd1', remind_for: r.remind_for,
+            to_email: caseRow.worker_email || null, recipients: ['worker'], subject: m.subject, body: m.body
+          }).select().single();
+          if (error) {
+            if (error.code === '23505') continue;
+            out.errors.push('担当者への前日のお知らせを作れませんでした: ' + error.message);
+            continue;
+          }
+          out.created.push(data);
+        }
       }
       return out;
     },
