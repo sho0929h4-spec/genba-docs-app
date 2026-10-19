@@ -204,7 +204,7 @@ function routeFromHash() {
   const h = location.hash;
   let m;
   if ((m = h.match(CASE_HASH_RE))) openCase(m[1]);
-  else if ((m = h.match(CASE_PHASE_HASH_RE)) && typeof openCasePhase === 'function') openCasePhase(m[1], m[2]); // 対応フェーズのカード（担当者への確認依頼のリンク。js/phase-ui.js）
+  else if ((m = h.match(CASE_PHASE_HASH_RE)) && typeof openCasePhase === 'function') openCasePhase(m[1], m[2]); // フェーズ詳細ページ（案件ページの「詳しく見る」・担当者への確認依頼のリンク。js/phase-detail.js）
   else if ((m = h.match(CASE_REPORTS_HASH_RE))) openReports(m[1]);      // ⑤ 案件内の報告書一覧（js/report-ui.js）
   else if ((m = h.match(CASE_SHARE_HASH_RE)) && typeof openShareScreen === 'function') openShareScreen(m[1]); // ⑦ 協力業者URLの発行
   else if ((m = h.match(MAIL_HASH_RE)) && typeof openMailDraft === 'function') openMailDraft(m[1]); // ⑨ 送付メールの下書き（js/mail-ui.js）

@@ -1,6 +1,6 @@
 // js/staff-inbox.js — 作業担当者の「🔔 確認してください」（対応フェーズ Task 6b）… refreshStaffBanner(rows, isAlive) / openStaffInbox()
 // 案件一覧の上に「🔔 確認してください n件」（自分が作業担当者で、知らせてもらって未確認のもの ＋ 自分の明日の予定）→ #inbox-staff の一覧
-// （カードを開く = #case/{id}/phase/{phaseId} でそのカードまでスクロールして強調／確認した = PhasesApi.ack）。
+// （詳しく見る = フェーズ詳細ページ #case/{id}/phase/{phaseId}／確認した = PhasesApi.ack）。現場担当への指示（Task 9）があれば要約を出す。
 // 一覧の中身は PhaseLogic.staffInbox（日本時間で「明日」を判定）。
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
@@ -56,9 +56,10 @@ function siItemEl(it) {
   } else if (it.caseRow.address) {
     row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
   }
+  if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
   const busy = si.busy.has(p.id);
-  const open = dBtn('カードを開く', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
+  const open = dBtn('詳しく見る', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
   open.disabled = busy;
   acts.appendChild(open);
   if (it.type === 'notice') {

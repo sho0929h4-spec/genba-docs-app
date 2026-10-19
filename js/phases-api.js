@@ -5,7 +5,7 @@ const PhasesApi = (() => {
   const PL = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const UPDATE_COLS = ['scheduled_at', 'scheduled_end', 'done_at', 'bill_to_type', 'bill_to_name', 'billing_mode',
-    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due', 'plan', // result: 調査結果（023）・payment_due: 入金期限（024）・plan: 内容詳細（025）
+    'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due', 'plan', // result: 調査結果（023）・payment_due: 入金期限（024）・plan: 現場担当への指示（025・028 で用途変更）
     'worker_id', 'notified_at', 'ack_at']; // 026: 作業担当者・知らせた・確認した（時刻と「誰が」は DB のトリガーが入れ直す）
   const pick = (obj, cols) => {
     const out = {};
@@ -197,30 +197,31 @@ const PhasesApi = (() => {
       return { phase: row, draft, first };
     },
 
-    // 内容詳細（case_phases.plan。025）を保存し、未送信の日程連絡・リマインドの「■ 内容詳細」の段落を差し替える
-    // （本文の手直しは残す。段落の置き場所が分からない本文は送る相手の宛名で作り直す）。
-    //   戻り値 { phase, drafts }（drafts は書き換えた mail_drafts の行）
-    async savePlan(phase, plan, caseRow) {
-      const v = PL().normalizePlan(plan);
+    // 現場担当への指示（case_phases.plan。028。Task 9）を保存し、未送信の担当者へのメール（staff_notice: 確認依頼・前日のお知らせ）の
+    // 指示の段落（■ 怪しい箇所 ■ 優先して調べる ■ 指示 ■ 当日の注意）だけ差し替える（本文の手直しは残す。置き場所が分からない本文は作り直す）。
+    // お客様向けのメール（日程連絡・リマインド・調査結果のご報告）には入れないので触らない。
+    //   members: 社内メンバー（作り直すときの宛名・署名）。戻り値 { phase, drafts }（drafts は書き換えた mail_drafts の行）
+    async saveBrief(phase, brief, caseRow, members) {
+      const v = PL().normalizeBrief(brief);
       const row = await api.update(phase.id, { plan: v });
       const changed = [];
       try {
         const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('status', 'draft')
-          .in('purpose', ['schedule', 'reminder'])) || [];
-        const lines = PL().planLines(v, row.kind);
+          .eq('purpose', 'staff_notice')) || [];
+        const lines = PL().briefLines(v);
         for (const d of open) {
-          let body = PL().setPlanSection(d.body, lines);
+          let body = PL().setBriefSection(d.body, lines);
           if (body == null) {
-            const args = { phase: row, caseRow, org: ctx.org, me: d.purpose === 'reminder' ? autoSigner(caseRow, row) : me(),
-              recipients: d.recipients || [], slot: d.remind_slot };
-            body = (d.purpose === 'schedule' ? PL().scheduleMail(args) : PL().reminderMail(args)).body;
+            const cr = withWorker(caseRow, row.worker_id, members);
+            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(row.case_id, row.id) };
+            body = (d.remind_slot ? PL().staffReminderMail(args) : PL().staffNoticeMail(args)).body;
           }
           if (body === d.body) continue;
           const rows = must(await sb.from('mail_drafts').update({ body }).eq('id', d.id).eq('status', 'draft').select());
           if (rows && rows[0]) changed.push(rows[0]);
         }
       } catch (e) {
-        const err = new Error('内容詳細は保存しましたが、連絡メールの下書きを直せませんでした: ' + (e && e.message ? e.message : e));
+        const err = new Error('指示は保存しましたが、担当者へのメールの下書きを直せませんでした: ' + (e && e.message ? e.message : e));
         err.phase = row;
         throw err;
       }

@@ -1,12 +1,19 @@
-// js/phase-ui.js — 案件詳細の「対応フェーズ」欄（調査・原因元工事・復旧工事のカード）… renderPhases(rootEl)
-// case-detail.js の buildDetail から呼ばれる。段階・文面・日本時間の計算は js/phase-logic.js（PhaseLogic）、
+// js/phase-ui.js — 対応フェーズ（調査・原因元工事・復旧工事）の画面
+//   renderPhases(rootEl)              … 案件ページの「対応フェーズ」欄（case-detail.js の buildDetail から）。Task 10: 表
+//                                       （行 = フェーズ、列 = 日時・対応状況・報告書・見積・請求・入金日・確認。各セルを押すとその場で編集。
+//                                       セルのデータは PhaseLogic.phaseRow / workerCell）と、上部の「今の状態」1行（#case-now。PhaseLogic.caseNow）
+//   renderPhaseDetail(container, phase) … フェーズ詳細ページ #case/{caseId}/phase/{phaseId} の中身（js/phase-detail.js から）。
+//                                       今までカードに縦に並んでいた中身（日時・連絡メール・リマインド・作業担当者・現場担当への指示・調査済み/完了・
+//                                       調査結果・報告書/見積・工事掲示・請求/精算・削除）を全部ここに出す
+// 段階・文面・日本時間の計算は js/phase-logic.js（PhaseLogic）、
 // DB は js/phases-api.js（PhasesApi）と既存の ReportsApi / EstimatesApi / NoticesApi。
 // ユーザー入力は createElement + textContent / value で描画する（innerHTML は使わない）。alert/confirm は使わない（カード内で確認）
 // mk() は case-list.js、dBtn / errText / notifyTimeline / currentCase / caseGen / caseDetailId は case-detail.js、withBusy / $ は app.js
 //
-// カード（ワイヤーフレーム docs/mocks/mock-phases.html の 3・6）:
-//   調査: 調査日時 → 調査した → 調査結果（Task 5b）→ 報告書 → 見積書
-//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 完了 → 報告書 → 請求（Task 7。調査は調査費用の見積があるときだけ請求の段）
+// 詳細ページの段（ワイヤーフレーム docs/mocks/mock-phases.html の 3・6）:
+//   調査: 調査日時 → 作業担当者 → 現場担当への指示 → 調査した → 調査結果（Task 5b）→ 報告書 → 見積書 → 精算
+//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 作業担当者 → 現場担当への指示 → 完了 → 報告書 → 請求（Task 7）
+//   現場担当への指示（case_phases.plan。Task 9）の段の中身は js/phase-detail.js（phBriefBody）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
 const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分
@@ -17,7 +24,7 @@ const PH_STEP_INDEX = {
 const PH_REMIND_STATE = { planned: '予定', due: '時刻を過ぎました（まもなく下書きができます）', draft: '下書きあり', sent: '送信済み', skipped: '送らない' };
 const PH_REPORT_STATUS = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '送付済み' };
 
-let ph = null;     // { gen, caseId, root, data: {phases, estimates, reports, notices, drafts}, editing: Set, confirmDel, adding, loadErr }
+let ph = null;     // { gen, caseId, phaseId（詳細ページ。案件ページは null）, root, data: {phases, estimates, reports, notices, drafts}, editing: Set, confirmDel, adding, loadErr }
 let phSeq = 0;     // 読み込みのたびに増やす（古い応答を捨てる）
 
 /* ---------- 日本時間の入力欄 ---------- */
@@ -38,8 +45,19 @@ const phHm = iso => phToInput(iso).slice(11, 16);
 const phYmd = iso => phToInput(iso).slice(0, 10);
 
 /* ---------- 読み込み ---------- */
+function phState(root, phaseId) {
+  return { gen: caseGen, caseId: currentCase.id, phaseId: phaseId || null, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(),
+    dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null };
+}
+// 案件ページ（対応フェーズの表）
 function renderPhases(root) {
-  ph = { gen: caseGen, caseId: currentCase.id, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(), dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '' };
+  ph = phState(root, null);
+  phDraw();
+  return phLoad();
+}
+// フェーズ詳細ページの中身（phase: case_phases の行か { id }。currentCase はその案件）
+function renderPhaseDetail(container, phase) {
+  ph = phState(container, String(phase && phase.id || '').toLowerCase());
   phDraw();
   return phLoad();
 }
@@ -92,12 +110,14 @@ async function phLoad() {
 // 操作の共通: 失敗はカード（無ければ欄）に表示。成功・失敗とも読み込み直す
 async function phRun(btn, errId, label, fn) {
   const s = ph;
-  if (!phAlive(s)) return;
+  if (!phAlive(s) || s.running.has(errId)) return; // 保存中の二度押しを防ぐ（描き直しで新しいボタンになっても）
   phMsg(errId, '');
   let msg = '';
+  s.running.add(errId);
   await withBusy(btn, async () => {
     try { await fn(); }
     catch (e) { msg = label + 'に失敗しました: ' + errText(e); }
+    finally { s.running.delete(errId); }
     if (!phAlive(s)) return;
     const m = await phLoad();
     if (m && !msg) msg = label + 'は完了しましたが、最新の表示に更新できませんでした: ' + m;
@@ -139,13 +159,17 @@ const phTitle = p => PhaseLogic.phaseTitle(p, phSeqOf(p));
 function phDraw() {
   const s = ph;
   if (!s || !s.root) return;
-  // 調査結果・内容詳細の入力欄は描き直しても同じ要素を使う（入力中の値・カーソル位置を失わない）。
+  // 調査結果・現場担当への指示の入力欄は描き直しても同じ要素を使う（入力中の値・カーソル位置を失わない）。
   // カードを作る時点で要素が付け替わってフォーカスが外れるので、先に覚えて最後に戻す
   const ae = document.activeElement;
-  const keep = ae && s.root.contains(ae) && ae.closest && ae.closest('.ph-result, .ph-plan')
+  const keep = ae && s.root.contains(ae) && ae.closest && ae.closest('.ph-result, .ph-brief')
     ? { el: ae, a: ae.selectionStart, b: ae.selectionEnd } : null;
-  const head = mk('div', 'taio-head');
+  if (s.phaseId) { phDrawDetail(s, keep); return; }
+  // 編集欄の入力中の値は描き直しても残す（保存に失敗して読み込み直したとき等）
+  const kept = [...s.root.querySelectorAll('.ph-panel input')].map(i => ({ id: i.closest('[data-phase-id]').dataset.phaseId, cls: i.className, v: i.value }));
+  const head = mk('div', 'taio-head ph-head');
   head.appendChild(mk('b', null, '対応フェーズ'));
+  head.appendChild(mk('span', 'ph-hint', 'フェーズ名を押すと詳細、各欄を押すとその場で変えられます'));
   const adds = mk('div', 'ph-adds');
   PhaseLogic.KINDS.forEach(k => {
     const b = dBtn('＋ ' + k.label, 'ph-add k-' + k.key, btn => phAdd(btn, k.key));
@@ -153,27 +177,37 @@ function phDraw() {
     if (!s.data || s.adding) b.disabled = true;
     adds.appendChild(b);
   });
-  const nodes = [head, adds];
-  const err = mk('div', 'err');
+  const nodes = [head];
+  const err = mk('div', 'err ph-box-err');
   err.id = 'case-phases-err';
+  phSyncNow(s);
   if (!s.data) {
     if (s.loadErr) {
       nodes.push(mk('div', 'err', '対応フェーズを読み込めませんでした: ' + s.loadErr));
       nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => phLoad()));
     } else nodes.push(mk('div', 'nx-empty', '読み込み中…'));
-    s.root.replaceChildren(...nodes, err);
+    s.root.replaceChildren(...nodes, adds, err);
     return;
   }
+  if (s.cell && !s.data.phases.some(p => p.id === s.cell.id)) s.cell = null;
+  // 日時・請求した の入力欄は保存・キャンセルで閉じたら編集欄も閉じる
+  if (s.cell && ((s.cell.col === 'when' && !s.editing.has(s.cell.id)) || (s.cell.col === 'bill' && !s.billForm.has(s.cell.id)
+    && !(s.data.phases.find(p => p.id === s.cell.id) || {}).billed_at))) s.cell = null;
   if (s.data.phases.length === 0) {
     nodes.push(mk('div', 'ph-empty', 'まだありません。調査に行くときは「＋ 調査」、工事をするときは「＋ 原因元工事」「＋ 復旧工事」を押してください（同じ種類を何回でも追加できます）'));
   } else {
-    const list = mk('div', 'ph-list');
-    s.data.phases.forEach(p => list.appendChild(phCard(p)));
-    nodes.push(list);
+    nodes.push(phTable());
   }
+  nodes.push(adds);
   if (s.loadErr) nodes.push(mk('div', 'err', '最新の表示に更新できませんでした: ' + s.loadErr));
   s.root.replaceChildren(...nodes, err);
-  if (phFocusId) phApplyFocus();
+  kept.forEach(k => {
+    const i = s.root.querySelector('[data-phase-id="' + k.id + '"] .ph-panel input[class="' + k.cls + '"]');
+    if (i) i.value = k.v;
+  });
+  phKeepFocus(keep);
+}
+function phKeepFocus(keep) {
   if (keep && keep.el.isConnected && document.activeElement !== keep.el) {
     try {
       keep.el.focus({ preventScroll: true });
@@ -192,6 +226,316 @@ function phAdd(btn, kind) {
     const card = s.root.querySelector('[data-phase-id="' + s.newId + '"]');
     s.newId = null;
     if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (card) { card.classList.add('ph-new'); setTimeout(() => card.classList.remove('ph-new'), 3000); }
+  });
+}
+
+// 詳細ページ: そのフェーズのカード1枚（中身は全部）。読み込み前・見つからないときは案内
+function phDrawDetail(s, keep) {
+  const err = mk('div', 'err');
+  err.id = 'case-phases-err';
+  if (!s.data) {
+    const nodes = [];
+    if (s.loadErr) {
+      nodes.push(mk('div', 'err', 'フェーズを読み込めませんでした: ' + s.loadErr));
+      nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => phLoad()));
+    } else nodes.push(mk('div', 'nx-empty', '読み込み中…'));
+    s.root.replaceChildren(...nodes, err);
+    return;
+  }
+  const p = s.data.phases.find(x => x.id === s.phaseId);
+  if (!p) {
+    s.root.replaceChildren(mk('div', 'empty ph-gone', 'このフェーズは見つかりません（削除された可能性があります）'), err);
+    return;
+  }
+  const nodes = [phCard(p)];
+  if (s.loadErr) nodes.push(mk('div', 'err', '最新の表示に更新できませんでした: ' + s.loadErr));
+  s.root.replaceChildren(...nodes, err);
+  if (typeof pdSyncHead === 'function') pdSyncHead(p, phTitle(p)); // 詳細ページの見出し（js/phase-detail.js）
+  phKeepFocus(keep);
+}
+
+/* ---------- 案件ページの表（Task 10） ---------- */
+// 行 = フェーズ（調査／原因元工事／復旧工事。同じ種類が複数なら「調査 2回目」）、列 = 日時・対応状況・報告書・見積・請求・入金日・確認。
+// PC（900px 以上）は1行1フェーズの表、スマホは1フェーズ = 2行の小さなカード（1行目 名前・日時・対応状況、2行目 チップ）。
+// DOM は1つで、CSS の grid / flex だけで形を変える（同じ id を2つ作らない）。各セルはボタンで、押すとその行の下に
+// 小さな編集欄（ph-panel）が開く。入力のある編集欄（日時・請求した・入金期限）は × とキャンセルでだけ閉じる（外側・Esc では閉じない）。
+const PH_COLS = [
+  { key: 'when', label: '日時' }, { key: 'status', label: '対応状況' }, { key: 'report', label: '報告書' },
+  { key: 'estimate', label: '見積' }, { key: 'bill', label: '請求' }, { key: 'pay', label: '入金日' }, { key: 'confirm', label: '確認' }
+];
+const PH_COL_LABEL = Object.fromEntries(PH_COLS.map(c => [c.key, c.label]));
+const PH_CHIP_LABEL = { report: '報告書', estimate: '見積', bill: '請求', pay: '入金', confirm: '' }; // スマホのチップの頭
+
+// 入力のある編集欄が開いているか（開いている間は、ほかのセルを押しても切り替えない）
+function phFormOpen(s) {
+  const c = s && s.cell;
+  if (!c) return false;
+  return (c.col === 'when' && s.editing.has(c.id)) || (c.col === 'bill' && s.billForm.has(c.id)) || (c.col === 'pay' && s.dueEdit.has(c.id));
+}
+function phCloseCell(s) {
+  const c = s.cell;
+  if (c) { s.editing.delete(c.id); s.billForm.delete(c.id); s.dueEdit.delete(c.id); phMsg('ph-err-' + c.id, ''); }
+  s.cell = null;
+}
+// セルを押した: 編集欄を開く（同じセルなら閉じる）。入力中の欄があれば切り替えずに知らせる
+function phOpenCell(p, col) {
+  const s = ph;
+  if (!phAlive(s)) return;
+  const cur = s.cell;
+  if (cur && cur.id === p.id && cur.col === col) {
+    if (phFormOpen(s)) { phFocusPanel(s); return; }
+    phCloseCell(s); phDraw(); return;
+  }
+  if (phFormOpen(s)) {
+    phMsg('ph-err-' + cur.id, '入力中の欄があります。「保存」か「キャンセル」で閉じてから、ほかの欄を押してください');
+    phFocusPanel(s);
+    return;
+  }
+  phCloseCell(s);
+  s.cell = { id: p.id, col };
+  if (col === 'when') s.editing.add(p.id);
+  if (col === 'bill' && !p.billed_at) s.billForm.add(p.id);
+  phDraw();
+  phFocusPanel(s);
+}
+function phFocusPanel(s) {
+  const el = s.root && s.root.querySelector('.ph-panel');
+  if (!el) return;
+  if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  const f = el.querySelector('input, select, button:not(.ph-panel-x)');
+  if (f) f.focus({ preventScroll: true });
+}
+
+// 「今の状態」1行（案件ページの上部 #case-now）
+function phSyncNow(s) {
+  const el = document.getElementById('case-now');
+  if (!el) return;
+  if (!s.data) { el.hidden = true; return; }
+  const phases = s.data.phases.map(p => { const d = phDocs(p); return Object.assign({}, p, { estimates: d.estimates, reports: d.reports }); });
+  const now = PhaseLogic.caseNow(phases, new Date());
+  el.hidden = false;
+  el.dataset.us = String(now.us);
+  el.dataset.them = String(now.them);
+  const us = mk('span', 'cn-us' + (now.us ? ' on' : ''), PhaseLogic.MARK.us + ' 自社の番 ' + now.us + '件');
+  const them = mk('span', 'cn-them' + (now.them ? ' on' : ''), PhaseLogic.MARK.them + ' 相手待ち ' + now.them + '件');
+  const tail = now.text.slice(now.text.indexOf('次: '));
+  const next = mk('span', 'cn-next' + (now.next && now.next.late ? ' late' : ''), tail);
+  el.replaceChildren(us, mk('span', 'cn-sep', '・'), them, mk('span', 'cn-sep', '・'), next);
+  el.setAttribute('aria-label', '今の状態: ' + now.text);
+}
+
+function phTable() {
+  const s = ph;
+  const tbl = mk('div', 'ph-tbl');
+  const head = mk('div', 'ph-tr ph-thead');
+  head.setAttribute('aria-hidden', 'true');
+  head.appendChild(mk('span', 'ph-th', 'フェーズ'));
+  PH_COLS.forEach(c => head.appendChild(mk('span', 'ph-th', c.label)));
+  tbl.appendChild(head);
+  const count = {};
+  s.data.phases.forEach(p => { count[p.kind] = (count[p.kind] || 0) + 1; });
+  s.data.phases.forEach(p => tbl.appendChild(phTableRow(p, count[p.kind] > 1)));
+  return tbl;
+}
+
+function phTableRow(p, multi) {
+  const s = ph;
+  const docs = phDocs(p);
+  const seq = phSeqOf(p);
+  const row = PhaseLogic.phaseRow(p, seq, { estimates: docs.estimates, reports: docs.reports, mails: docs.mails }, new Date());
+  const st = row.stage;
+  const errId = 'ph-err-' + p.id;
+  const busy = s.running.has(errId);
+  const tr = mk('div', 'ph-tr ph-row-p');
+  tr.dataset.phaseId = p.id;
+  tr.dataset.kind = p.kind;
+  tr.dataset.stage = st.key;
+  const open = s.cell && s.cell.id === p.id ? s.cell.col : '';
+  if (open) tr.classList.add('open');
+
+  // フェーズ名 → 詳細ページ
+  const name = mk('button', 'ph-c ph-c-name');
+  name.type = 'button';
+  name.append(mk('span', 'ph-kind k-' + p.kind, PhaseLogic.kindLabel(p.kind)));
+  if (multi) name.appendChild(mk('span', 'ph-n', seq + '回目'));
+  name.appendChild(mk('span', 'ph-go', '›'));
+  name.setAttribute('aria-label', row.title + 'の詳細を開く');
+  name.title = row.title + 'の詳細（日時・調査結果・現場担当への指示・書類・請求の全部）';
+  name.addEventListener('click', () => { location.hash = '#case/' + s.caseId + '/phase/' + p.id; });
+  tr.appendChild(name);
+
+  // mobileText: スマホのチップで短く出す文（PC の表は text）
+  const cell = (col, text, cls, aria, onClick, mobileText) => {
+    const b = mk('button', 'ph-c ph-cell' + (cls ? ' ' + cls : ''));
+    b.type = 'button';
+    b.dataset.col = col;
+    if (PH_CHIP_LABEL[col]) b.appendChild(mk('span', 'ph-cl', PH_CHIP_LABEL[col]));
+    const v = mk('span', 'ph-cv', '');
+    if (mobileText && mobileText !== text) v.append(mk('span', 'ph-pc', text), mk('span', 'ph-sm', mobileText));
+    else v.textContent = text;
+    b.appendChild(v);
+    b.setAttribute('aria-label', row.title + 'の' + PH_COL_LABEL[col] + ': ' + text + (aria ? '（' + aria + '）' : ''));
+    if (open === col) { b.classList.add('on'); b.setAttribute('aria-expanded', 'true'); }
+    if (busy) b.disabled = true;
+    b.addEventListener('click', () => onClick(b));
+    tr.appendChild(b);
+    return b;
+  };
+  const isSurvey = p.kind === 'survey';
+  // 日時
+  cell('when', row.when.text, row.when.at ? 'num' : 'none', row.when.at ? '変更する' : (isSurvey ? '調査日時を決める' : '工事日を決める'), () => phOpenCell(p, 'when'));
+  // 対応状況
+  const stCls = 'ph-stage ' + (st.ball === 'us' ? 'us' : st.ball === 'them' ? 'them' : 'done') + (st.late ? ' late' : '');
+  const sb = cell('status', row.short, 'ph-c-status', p.done_at ? '取り消す' : (isSurvey ? '調査済みにする' : '完了にする'), () => phOpenCell(p, 'status'));
+  sb.querySelector('.ph-cv').className = 'ph-cv ' + stCls;
+  sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
+  // スマホの改行（2行目にチップ）
+  tr.appendChild(mk('span', 'ph-br'));
+  // 報告書（無ければ作る／あれば一覧へ）
+  const rep = row.report;
+  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : '',
+    rep.state === 'none' ? '報告書を作る' : '報告書の一覧へ',
+    b => rep.state === 'none' ? phMakeReport(b, p, errId) : (location.hash = '#case/' + s.caseId + '/reports'), rep.state === 'none' ? '未' : '');
+  // 見積（無ければ作る／あれば一覧へ）。金額は PC だけ2段目に
+  const est = row.estimate;
+  const eb = cell('estimate', est.state === 'none' ? '＋ 作る' : est.text, est.state === 'none' ? 'none add' : est.state === 'accepted' ? 'ok' : est.state === 'sent' ? 'wait' : '',
+    est.state === 'none' ? '見積書を作る' : '見積書の一覧へ',
+    b => est.state === 'none' ? phMakeEstimate(b, p, errId) : (location.hash = '#case/' + s.caseId + '/estimates'), est.state === 'none' ? '未' : '');
+  if (est.amount != null) eb.appendChild(mk('span', 'ph-yen num', PhaseLogic.yen(est.amount)));
+  // 請求
+  cell('bill', row.bill.text, row.bill.state === 'unbilled' ? '' : 'ok', p.billed_at ? '請求の記録' : '請求した', () => phOpenCell(p, 'bill'),
+    p.billed_at ? PhaseLogic.fmtMD(p.billed_at) : '');
+  // 入金日（請求前は押せない）
+  const pay = row.payment;
+  const pb = cell('pay', pay.text, pay.state === 'overdue' ? 'red' : pay.state === 'paid' ? 'ok' : pay.state === 'none' ? 'none' : 'wait',
+    pay.state === 'paid' ? '入金の記録' : pay.state === 'none' ? '請求した後に入れられます' : '入金確認', () => phOpenCell(p, 'pay'),
+    pay.state === 'paid' ? '✓ ' + PhaseLogic.fmtMD(p.paid_at) : '');
+  if (pay.state === 'none') pb.disabled = true;
+  if (pay.state === 'overdue') pb.title = '入金期限を過ぎています';
+  // 確認（作業担当者）
+  const wc = PhaseLogic.workerCell(p, phMembers());
+  cell('confirm', wc.text, wc.key === 'ack' ? 'ok' : wc.key === 'notified' ? 'wait' : 'none', '担当者に知らせる', () => phOpenCell(p, 'confirm'), wc.short);
+  if (row.brief) tr.querySelector('[data-col=confirm]').classList.add('brief');
+
+  if (open) tr.appendChild(phPanel(p, open, docs, errId, row));
+  const err = mk('div', 'err ph-row-err');
+  err.id = errId;
+  err.setAttribute('role', 'alert');
+  tr.appendChild(err);
+  return tr;
+}
+
+// セルの下に開く編集欄
+function phPanel(p, col, docs, errId, row) {
+  const s = ph;
+  const box = mk('div', 'ph-panel');
+  box.dataset.col = col;
+  const hd = mk('div', 'ph-panel-hd');
+  hd.appendChild(mk('b', null, row.title + ' ・ ' + PH_COL_LABEL[col]));
+  const x = dBtn('×', 'ph-panel-x', () => { phCloseCell(s); phDraw(); });
+  x.setAttribute('aria-label', '閉じる');
+  hd.appendChild(x);
+  box.appendChild(hd);
+  const body = mk('div', 'ph-panel-b');
+  const caseRow = currentCase || {};
+  const title = phTitle(p);
+  if (col === 'when') {
+    body.appendChild(phScheduleForm(p, errId));
+  } else if (col === 'status') {
+    const st = row.stage;
+    body.appendChild(mk('div', 'ph-sub', '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label)));
+    phDoneBody(p, errId).forEach(el => body.appendChild(el));
+  } else if (col === 'bill') {
+    const amount = PhaseLogic.billingAmount(p, docs.estimates);
+    if (!p.billed_at && s.billForm.has(p.id)) {
+      body.appendChild(mk('div', 'ph-sub', '金額: ' + (amount == null ? '未定（詳細ページの請求の段で直せます）' : PhaseLogic.yen(amount)) + ' ・ 請求先: ' + PhaseLogic.billToLabel(p, caseRow)));
+      body.appendChild(phDueForm(p, errId, PhaseLogic.paymentDueDefault(p, new Date()), '請求した（記録する）', 'ph-bill-ok', '請求の記録', async due => {
+        await phBillOne(PhasesApi.setBilled, p, true, { title, amount, billTo: PhaseLogic.billToLabel(p, caseRow) }, due);
+        if (phAlive(s)) { s.billForm.delete(p.id); s.cell = null; }
+      }, () => { s.billForm.delete(p.id); s.cell = null; },
+      '入金期限の初期値: ' + (p.billing_mode === 'monthly' ? '請求月の翌月末' : '請求日の30日後') + '（変えられます）'));
+    } else if (p.billed_at) {
+      const line = mk('div', 'ph-row ph-bill-state');
+      line.appendChild(mk('span', 'ph-bl-on', '請求 ' + PhaseLogic.fmtMD(p.billed_at)));
+      if (!p.paid_at) line.appendChild(dBtn('請求を取り消す', 'btn sm ghost inline ph-billed-undo', b => phRun(b, errId, '請求の取り消し',
+        () => phBillOne(PhasesApi.setBilled, p, false, { title }))));
+      else line.appendChild(mk('span', 'ph-sub', '入金確認済みです（取り消すときは入金日の欄から）'));
+      body.appendChild(line);
+    }
+  } else if (col === 'pay') {
+    const amount = PhaseLogic.billingAmount(p, docs.estimates);
+    if (s.dueEdit.has(p.id)) {
+      body.appendChild(phDueForm(p, errId, p.payment_due || PhaseLogic.paymentDueDefault(p, p.billed_at), '保存', 'ph-due-save', '入金期限の保存',
+        async due => { await PhasesApi.setPaymentDue(p, due, title); if (phAlive(s)) s.dueEdit.delete(p.id); },
+        () => s.dueEdit.delete(p.id), ''));
+    } else if (p.paid_at) {
+      const line = mk('div', 'ph-row');
+      line.appendChild(mk('span', 'ph-bl-on paid', '入金確認 ' + PhaseLogic.fmtMD(p.paid_at)));
+      line.appendChild(dBtn('入金確認を取り消す', 'btn sm ghost inline ph-paid-undo', b => phRun(b, errId, '入金確認の取り消し',
+        () => phBillOne(PhasesApi.setPaid, p, false, { title }))));
+      body.appendChild(line);
+    } else if (p.billed_at) {
+      const over = PhaseLogic.isOverdue(p, new Date());
+      const dl = mk('div', 'ph-row ph-bill-due' + (over ? ' over' : ''));
+      dl.appendChild(mk('span', 'ph-bl-k', '入金期限'));
+      dl.appendChild(mk('b', 'ph-bl-v num', p.payment_due ? PhaseLogic.fmtYmdMD(p.payment_due) : '未入力'));
+      if (over) dl.appendChild(mk('span', 'ph-over', '入金期限超過'));
+      dl.appendChild(dBtn('期限を変える', 'linkbtn ph-due-edit', () => { s.dueEdit.add(p.id); phMsg(errId, ''); phDraw(); phFocusPanel(s); }));
+      body.appendChild(dl);
+      const acts = mk('div', 'ph-acts');
+      acts.appendChild(dBtn('入金確認', 'btn sm inline ph-paid', b => phRun(b, errId, '入金確認',
+        async () => { await phBillOne(PhasesApi.setPaid, p, true, { title, amount }); if (phAlive(s)) s.cell = null; })));
+      body.appendChild(acts);
+    }
+  } else if (col === 'confirm') {
+    phWorkerBody(p, docs, errId).forEach(el => body.appendChild(el));
+  }
+  box.appendChild(body);
+  return box;
+}
+
+// 報告書・見積書をこのフェーズで作る（詳細ページの「＋ 報告書を作る」「＋ 見積書を作る」と同じ）
+function phMakeReport(btn, p, errId) {
+  const s = ph;
+  if (!phAlive(s) || s.running.has(errId)) return;
+  phMsg(errId, '');
+  s.running.add(errId);
+  return withBusy(btn, async () => {
+    try {
+      const meId = ctx && ctx.user ? ctx.user.id : null;
+      const f = { work_type: PH_WORK_TYPE[p.kind], worker_id: meId, phase_id: p.id, phaseTitle: phTitle(p) };
+      // 調査で作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
+      if (p.kind === 'survey') {
+        await phResSettle();
+        f.init = PhaseLogic.reportInit(phResultOf(p));
+      }
+      if (!phAlive(s)) return;
+      const row = await ReportsApi.create(s.caseId, f);
+      if (phAlive(s)) location.hash = '#report/' + row.id;
+    } catch (e) { if (phAlive(s)) phMsg(errId, '報告書を作れませんでした: ' + errText(e)); }
+    finally { s.running.delete(errId); }
+  });
+}
+function phMakeEstimate(btn, p, errId) {
+  const s = ph;
+  if (!phAlive(s) || s.running.has(errId)) return;
+  phMsg(errId, '');
+  s.running.add(errId);
+  return withBusy(btn, async () => {
+    try {
+      // 工事で作る見積は、この案件の調査結果の注意事項を備考の初期値に（作成時だけ）
+      const opts = { phase_id: p.id, phaseTitle: phTitle(p) };
+      if (p.kind !== 'survey') {
+        await phResSettle();
+        const r = PhaseLogic.latestSurveyResult(phLivePhases());
+        if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
+      }
+      if (!phAlive(s)) return;
+      const row = await EstimatesApi.create(s.caseId, currentCase, opts);
+      if (phAlive(s)) location.hash = '#estimate/' + row.id;
+    } catch (e) { if (phAlive(s)) phMsg(errId, '見積書を作れませんでした: ' + errText(e)); }
+    finally { s.running.delete(errId); }
   });
 }
 
@@ -271,6 +615,7 @@ function phCard(p) {
   if (isSurvey) {
     add(stateOf(0), '調査日時', phScheduleBody(p, docs, errId));
     add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
+    phBriefStep(p, add);
     add(stateOf(1), '調査した', phDoneBody(p, errId).concat([phContactEl(p, docs.mails)]));
     add(stateOf(2), '調査結果', phResultBody(p, docs));
     add(stateOf(3), '報告書', phReportsBody(p, docs, errId));
@@ -282,6 +627,7 @@ function phCard(p) {
     add(stateOf(0), '見積（この工事の分）', phEstimatesBody(p, docs, errId));
     add(stateOf(1), '工事日の調整', phScheduleBody(p, docs, errId).concat(phNoticesBody(p, docs, errId)));
     add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
+    phBriefStep(p, add);
     add(stateOf(2), '完了', phDoneBody(p, errId));
     add(stateOf(3), '報告書', phReportsBody(p, docs, errId));
     steps.appendChild(phBillTagged(phStep(stateOf(4), ++n, '請求', phBillingBody(p, docs, errId)), p));
@@ -292,6 +638,13 @@ function phCard(p) {
   err.id = errId;
   card.appendChild(err);
   return card;
+}
+
+// 現場担当への指示の段（中身は js/phase-detail.js。指示があれば済）
+function phBriefStep(p, add) {
+  if (typeof phBriefBody !== 'function') return;
+  const el = phBriefBody(p);
+  add(typeof pdBriefHas === 'function' && pdBriefHas(p) ? 'done' : 'later', '現場担当への指示', [el]);
 }
 
 /* ---- 日時と連絡メール・リマインド ---- */
@@ -316,8 +669,7 @@ function phScheduleBody(p, docs, errId) {
     line.appendChild(eb);
     out.push(line);
   }
-  const planEl = phPlanBody(p);
-  if (!p.scheduled_at) { out.push(planEl); return out; }
+  if (!p.scheduled_at) return out;
 
   // 日程連絡のメール（purpose schedule）
   const sched = docs.mails.filter(m => m.purpose === 'schedule')
@@ -330,7 +682,7 @@ function phScheduleBody(p, docs, errId) {
     const who = (draft.recipients || []).map(k => (PhaseLogic.RECIPIENTS.find(r => r.key === k) || {}).label).filter(Boolean);
     ml.appendChild(mk('span', null, '✉️ ' + what + ': ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
       (who.length ? '（' + who.join('・') + '）' : '（宛先のメール未登録）')));
-    const b = dBtn('確認して送る', 'btn sm inline ph-mail-open', btn => phOpenAfterPlan(btn, draft.id));
+    const b = dBtn('確認して送る', 'btn sm inline ph-mail-open', () => openMailDraft(draft.id));
     b.dataset.draftId = draft.id;
     ml.appendChild(b);
   } else if (sent) {
@@ -338,7 +690,7 @@ function phScheduleBody(p, docs, errId) {
   } else {
     ml.appendChild(mk('span', 'ph-sub', '✉️ ' + what + ': 下書きがありません（日時を保存し直すと作られます）'));
   }
-  out.push(ml, planEl);
+  out.push(ml);
 
   // リマインド（3日前・前日の 18:00 に、入居者・物件オーナー宛ての下書きを作る。作るのはアプリを開いたとき）
   const open = !p.done_at && Date.parse(p.scheduled_at) > Date.now();
@@ -358,7 +710,7 @@ function phScheduleBody(p, docs, errId) {
           (x.state === 'sent' && x.draft && x.draft.sent_at ? ' ' + PhaseLogic.fmtMD(x.draft.sent_at) : '')));
         if (x.state === 'draft' || x.state === 'skipped') {
           const b = dBtn(x.state === 'draft' ? '確認して送る' : '開く', (x.state === 'draft' ? 'btn sm inline' : 'linkbtn') + ' ph-rm-open',
-            btn => phOpenAfterPlan(btn, x.draft.id));
+            () => openMailDraft(x.draft.id));
           b.dataset.draftId = x.draft.id;
           row.appendChild(b);
         }
@@ -368,13 +720,6 @@ function phScheduleBody(p, docs, errId) {
     out.push(rm);
   }
   return out;
-}
-
-// 内容詳細の保存待ちを終わらせてから連絡メールを開く（本文に最新の内容詳細が入るように）
-async function phOpenAfterPlan(btn, id) {
-  btn.disabled = true;
-  try { await phPlanSettle(); } finally { btn.disabled = false; }
-  openMailDraft(id);
 }
 
 function phScheduleForm(p, errId) {
@@ -423,7 +768,6 @@ function phSaveSchedule(btn, p, startIso, endIso, errId) {
   const s = ph;
   return phRun(btn, errId, '日時の保存', async () => {
     try {
-      await phPlanSettle(); // 内容詳細の保存待ちを先に（連絡メールの本文に入るため）
       await PhasesApi.saveSchedule(p, startIso, endIso, currentCase, s.data.drafts, phTitle(p));
     } finally {
       if (phAlive(s)) s.editing.delete(p.id);
@@ -519,24 +863,7 @@ function phEstimatesBody(p, docs, errId) {
     box.appendChild(mk('div', 'ph-sub', yen + ' ・ ' + phSentToText(t)));
     out.push(box);
   });
-  const b = dBtn('＋ 見積書を作る', 'ph-mkdoc ph-mk-estimate', btn => {
-    const s = ph;
-    phMsg(errId, '');
-    return withBusy(btn, async () => {
-      try {
-        // 工事カードから作る見積は、この案件の調査結果の注意事項を備考の初期値に（作成時だけ）
-        const opts = { phase_id: p.id, phaseTitle: phTitle(p) };
-        if (p.kind !== 'survey') {
-          await phResSettle();
-          const r = PhaseLogic.latestSurveyResult(phLivePhases());
-          if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
-        }
-        if (!phAlive(s)) return;
-        const row = await EstimatesApi.create(s.caseId, currentCase, opts);
-        if (phAlive(s)) location.hash = '#estimate/' + row.id;
-      } catch (e) { if (phAlive(s)) phMsg(errId, '見積書を作れませんでした: ' + errText(e)); }
-    });
-  });
+  const b = dBtn('＋ 見積書を作る', 'ph-mkdoc ph-mk-estimate', btn => phMakeEstimate(btn, p, errId));
   out.push(b);
   return out;
 }
@@ -561,24 +888,7 @@ function phReportsBody(p, docs, errId) {
     if (rc) box.appendChild(rc);
     out.push(box);
   });
-  const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => {
-    const s = ph;
-    phMsg(errId, '');
-    return withBusy(btn, async () => {
-      try {
-        const meId = ctx && ctx.user ? ctx.user.id : null;
-        const f = { work_type: PH_WORK_TYPE[p.kind], worker_id: meId, phase_id: p.id, phaseTitle: phTitle(p) };
-        // 調査カードから作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
-        if (p.kind === 'survey') {
-          await phResSettle();
-          f.init = PhaseLogic.reportInit(phResultOf(p));
-        }
-        if (!phAlive(s)) return;
-        const row = await ReportsApi.create(s.caseId, f);
-        if (phAlive(s)) location.hash = '#report/' + row.id;
-      } catch (e) { if (phAlive(s)) phMsg(errId, '報告書を作れませんでした: ' + errText(e)); }
-    });
-  });
+  const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => phMakeReport(btn, p, errId));
   out.push(b);
   return out;
 }
@@ -999,7 +1309,7 @@ function phFoot(p, docs, errId) {
   const has = docs.estimates.length || docs.reports.length || docs.notices.length || sentMail;
   if (ph.confirmDel === p.id && !has) {
     const box = mk('div', 'ph-confirm');
-    box.appendChild(mk('div', null, '「' + phTitle(p) + '」のカードを削除しますか？（元に戻せません。未送信の連絡メールの下書きも消えます）'));
+    box.appendChild(mk('div', null, '「' + phTitle(p) + '」を削除しますか？（元に戻せません。未送信の連絡メールの下書きも消えます）'));
     const acts = mk('div', 'ph-acts');
     acts.appendChild(dBtn('やめる', 'btn sm ghost inline ph-del-cancel', () => { ph.confirmDel = null; phDraw(); }));
     acts.appendChild(dBtn('削除する', 'btn sm inline ph-del-ok', b => {
@@ -1007,13 +1317,16 @@ function phFoot(p, docs, errId) {
       return phRun(b, errId, '削除', async () => {
         await PhasesApi.remove(p, phTitle(p));
         if (phAlive(s)) s.confirmDel = null;
+      }).then(() => {
+        // 詳細ページで消したら案件ページへ戻る（消えたフェーズのページに残らない）
+        if (phAlive(s) && s.phaseId === p.id && !s.data.phases.some(x => x.id === p.id)) location.hash = '#case/' + s.caseId;
       });
     }));
     box.appendChild(acts);
     foot.appendChild(box);
     return foot;
   }
-  const del = dBtn('このカードを削除', 'linkbtn danger ph-del', () => { ph.confirmDel = p.id; phMsg(errId, ''); phDraw(); });
+  const del = dBtn('このフェーズを削除', 'linkbtn danger ph-del', () => { ph.confirmDel = p.id; phMsg(errId, ''); phDraw(); });
   if (has) {
     del.disabled = true;
     foot.append(del, mk('span', 'ph-sub', '見積書・報告書・工事掲示・送ったメールがあるため削除できません'));
@@ -1195,6 +1508,7 @@ function phResFillMail(rs, mails) {
 
 function phResChanged(rs) {
   rs.dirty = true;
+  if (typeof currentCase !== 'undefined' && currentCase && currentCase.id === rs.caseId) rs.caseRow = currentCase; // 画面を離れた直後の保存用
   phResSetState(rs, 'pending');
   clearTimeout(rs.timer);
   rs.timer = setTimeout(() => phResFlush(rs), PH_RES_DELAY);
@@ -1227,7 +1541,7 @@ async function phResDoSave(rs) {
   try {
     const r = await PhasesApi.saveResult({ id: rs.id, case_id: rs.caseId, kind: rs.kind, result: rs.server,
       scheduled_at: phResPhase(rs, 'scheduled_at'), done_at: phResPhase(rs, 'done_at') },
-    val, caseRow || { id: rs.caseId }, rs.title || '調査');
+    val, caseRow || rs.caseRow || { id: rs.caseId }, rs.title || '調査');
     saved = r.phase;
     rs.draft = r.draft || null;
     if (r.first) notifyTimeline();
@@ -1283,189 +1597,11 @@ function phResApply(rs, saved) {
 
 function phResFlushAll() {
   phRes.forEach(rs => { if (rs.dirty || rs.timer) phResFlush(rs); });
-  phPlan.forEach(ps => { if (ps.dirty || ps.timer) phPlanFlush(ps); });
+  if (typeof pdBriefFlushAll === 'function') pdBriefFlushAll(); // 現場担当への指示（js/phase-detail.js）
 }
 window.addEventListener('hashchange', phResFlushAll);
 window.addEventListener('beforeunload', phResFlushAll);
 document.addEventListener('visibilitychange', () => { if (document.hidden) phResFlushAll(); });
-
-/* ---------- 内容詳細（対応フェーズ Task 6c。case_phases.plan） ---------- */
-// 調査日時（工事は工事日の調整）の枠内: 調査箇所（複数）・所要時間（1つ。もう一度押すと外れる）・ご協力のお願い（複数）の選択式ボタンと補足の欄。
-// 入力から1.5秒で自動保存（PhasesApi.savePlan）し、未送信の日程連絡・リマインドの下書きの「■ 内容詳細」を書き換える。
-// 調査結果（phRes）と同じく、フェーズごとのセッションで同じ要素を使い回す（描き直しても入力中の値・カーソルを失わない）
-const PH_PLAN_MAX = 200; // 補足の欄の文字数
-const phPlan = new Map(); // phaseId → セッション
-const phPlanJson = v => JSON.stringify(PhaseLogic.normalizePlan(v));
-
-function phPlanSession(p) {
-  let ps = phPlan.get(p.id);
-  const server = phPlanJson(p.plan);
-  if (ps && ps.caseId !== p.case_id) ps = null;
-  if (!ps) {
-    ps = { id: p.id, caseId: p.case_id, kind: p.kind, v: PhaseLogic.normalizePlan(p.plan), serverJson: server,
-      dirty: false, saving: false, timer: null, chain: Promise.resolve(), state: '', err: '', lastSaved: null, el: null, els: {} };
-    phPlan.set(p.id, ps);
-  } else if (!ps.dirty && !ps.saving && !ps.timer && ps.serverJson !== server) {
-    Object.assign(ps, { v: PhaseLogic.normalizePlan(p.plan), serverJson: server, el: null, els: {} });
-  }
-  return ps;
-}
-
-function phPlanBody(p) {
-  const ps = phPlanSession(p);
-  if (!ps.el) phPlanBuild(ps);
-  phPlanSetState(ps, ps.state);
-  return ps.el;
-}
-
-// 選択式ボタンの並び。multi: 複数選べる（配列）／単一（文字列。もう一度押すと外す）
-function phPlanGroup(ps, title, key, list, multi) {
-  const box = document.createDocumentFragment();
-  box.appendChild(mk('div', 'ph-cau-t', title));
-  const wrap = mk('div', 'ph-caus ph-plan-g');
-  wrap.dataset.group = key;
-  wrap.setAttribute('role', 'group');
-  wrap.setAttribute('aria-label', title);
-  const btns = [];
-  const on = k => (multi ? ps.v[key].includes(k) : ps.v[key] === k);
-  const sync = () => btns.forEach(b => b.setAttribute('aria-pressed', on(b.dataset.key) ? 'true' : 'false'));
-  list.forEach(c => {
-    const b = mk('button', 'ph-cau', c.label);
-    b.type = 'button';
-    b.dataset.key = c.key;
-    b.addEventListener('click', () => {
-      if (multi) {
-        const set = new Set(ps.v[key]);
-        if (set.has(c.key)) set.delete(c.key); else set.add(c.key);
-        ps.v[key] = list.map(x => x.key).filter(k => set.has(k));
-      } else ps.v[key] = ps.v[key] === c.key ? '' : c.key;
-      sync();
-      phPlanSyncExtras(ps);
-      phPlanChanged(ps);
-    });
-    btns.push(b);
-    wrap.appendChild(b);
-  });
-  sync();
-  box.appendChild(wrap);
-  return box;
-}
-function phPlanText(ps, key, label, placeholder) {
-  const i = document.createElement('input');
-  i.type = 'text';
-  i.className = 'ph-plan-' + key;
-  i.maxLength = PH_PLAN_MAX;
-  i.placeholder = placeholder;
-  i.autocomplete = 'off';
-  i.value = ps.v[key];
-  i.addEventListener('input', () => { ps.v[key] = i.value; phPlanChanged(ps); });
-  const l = mk('label', 'ph-rl', label);
-  l.appendChild(i);
-  ps.els[key] = l;
-  return l;
-}
-
-function phPlanBuild(ps) {
-  const box = mk('div', 'ph-plan');
-  box.dataset.phaseId = ps.id;
-  ps.els = {};
-  const work = ps.kind !== 'survey';
-  box.appendChild(mk('div', 'ph-plan-t', '内容詳細（押して選ぶ。連絡メールに自動で入ります）'));
-  box.appendChild(phPlanGroup(ps, work ? '工事箇所' : '調査箇所', 'spots', PhaseLogic.PLAN_SPOTS, true));
-  box.appendChild(phPlanText(ps, 'spotNote', '補足（任意）', work ? '例: 302 の天井' : '例: 上階 402 の浴室下'));
-  box.appendChild(phPlanGroup(ps, '所要時間', 'duration', PhaseLogic.PLAN_DURATIONS, false));
-  box.appendChild(phPlanText(ps, 'durationNote', '所要時間（自由記入）', '例: 2〜3時間'));
-  box.appendChild(phPlanGroup(ps, 'ご協力のお願い', 'asks', PhaseLogic.PLAN_ASKS, true));
-  box.appendChild(phPlanText(ps, 'askNote', 'その他のお願い（自由記入）', '例: 管理人室への声かけ'));
-  const sv = mk('div', 'ph-res-save');
-  const save = mk('span', 'rep-save ph-plan-save');
-  save.setAttribute('role', 'status');
-  const retry = dBtn('再試行', 'btn sm ghost inline ph-plan-retry', () => phPlanFlush(ps));
-  retry.hidden = true;
-  sv.append(save, retry);
-  box.appendChild(sv);
-  Object.assign(ps.els, { save, retry });
-  ps.el = box;
-  phPlanSyncExtras(ps);
-}
-// 所要時間の自由記入は「その他」のとき、その他のお願いは「その他」がオンのときだけ（オフにしても値は残す。文面には使わない）
-function phPlanSyncExtras(ps) {
-  if (ps.els.durationNote) ps.els.durationNote.hidden = ps.v.duration !== 'other';
-  if (ps.els.askNote) ps.els.askNote.hidden = !ps.v.asks.includes('other');
-}
-
-function phPlanSetState(ps, state) {
-  ps.state = state;
-  const el = ps.els.save;
-  if (!el) return;
-  ps.els.retry.hidden = state !== 'error';
-  el.className = 'rep-save ph-plan-save' + (state === 'saved' ? '' : state === 'error' ? ' err' : ' busy');
-  el.dataset.state = state;
-  if (state === 'pending') el.textContent = '保存待ち…';
-  else if (state === 'saving') el.textContent = '保存中…';
-  else if (state === 'saved') el.textContent = '自動保存 ' + PhaseLogic.fmtMDHM(ps.lastSaved || new Date()).split(' ')[1] + (ps.mailNote || '');
-  else if (state === 'error') el.textContent = '保存できませんでした: ' + (ps.err || '');
-  else el.textContent = '';
-}
-
-function phPlanChanged(ps) {
-  ps.dirty = true;
-  phPlanSetState(ps, 'pending');
-  clearTimeout(ps.timer);
-  ps.timer = setTimeout(() => phPlanFlush(ps), PH_RES_DELAY);
-}
-function phPlanFlush(ps) {
-  clearTimeout(ps.timer);
-  ps.timer = null;
-  ps.chain = ps.chain.then(() => phPlanDoSave(ps)).catch(e => {
-    ps.dirty = true;
-    ps.err = errText(e);
-    phPlanSetState(ps, 'error');
-  });
-  return ps.chain;
-}
-// 表示中の案件の内容詳細の保存を全部終わらせる（連絡メールを開く前。本文を最新にするため）
-function phPlanSettle() {
-  const list = [...phPlan.values()].filter(ps => ph && ps.caseId === ph.caseId);
-  return Promise.all(list.map(ps => (ps.dirty || ps.timer ? phPlanFlush(ps) : ps.chain)));
-}
-
-async function phPlanDoSave(ps) {
-  if (!ps.dirty) return;
-  const val = JSON.parse(JSON.stringify(ps.v));
-  ps.dirty = false;
-  ps.saving = true;
-  phPlanSetState(ps, 'saving');
-  const caseRow = typeof currentCase !== 'undefined' && currentCase && currentCase.id === ps.caseId ? currentCase : { id: ps.caseId };
-  let saved = null, drafts = [], msg = '';
-  try {
-    const r = await PhasesApi.savePlan({ id: ps.id, case_id: ps.caseId, kind: ps.kind }, val, caseRow);
-    saved = r.phase;
-    drafts = r.drafts || [];
-  } catch (e) {
-    saved = (e && e.phase) || null;
-    msg = errText(e);
-  }
-  ps.saving = false;
-  if (saved) {
-    ps.serverJson = phPlanJson(saved.plan);
-    ps.lastSaved = new Date();
-    ps.mailNote = drafts.length ? '（連絡メールの下書きにも反映しました）' : '';
-    const s = ph;
-    if (s && s.data && s.caseId === ps.caseId) {
-      const p = s.data.phases.find(x => x.id === ps.id);
-      if (p) { p.plan = saved.plan; if (saved.updated_at) p.updated_at = saved.updated_at; }
-      drafts.forEach(d => { const i = s.data.drafts.findIndex(x => x.id === d.id); if (i >= 0) s.data.drafts[i] = d; });
-    }
-  }
-  if (msg) {
-    ps.dirty = true;
-    ps.err = msg;
-    phPlanSetState(ps, 'error');
-    return;
-  }
-  phPlanSetState(ps, ps.dirty ? 'pending' : 'saved');
-}
 
 /* ---------- 作業担当者への確認依頼（対応フェーズ Task 6b） ---------- */
 // カードの「作業担当者」: 担当者（社内メンバーから選ぶ。初期値は案件の担当者）・状態（未通知／知らせた／確認済み）・
@@ -1518,7 +1654,11 @@ function phWorkerBody(p, docs, errId) {
     const acts = mk('div', 'ph-acts');
     const again = !!p.notified_at;
     acts.appendChild(dBtn(again ? 'もう一度知らせる' : '担当者に知らせる', (again ? 'btn sm ghost inline' : 'btn sm inline') + ' ph-wk-notify',
-      b => phRun(b, errId, '担当者に知らせる操作', () => PhasesApi.notifyWorker(p, currentCase, phTitle(p), members))));
+      b => phRun(b, errId, '担当者に知らせる操作', async () => {
+        if (typeof pdBriefSettle === 'function') await pdBriefSettle(); // 指示の保存待ちを先に（確認依頼の本文に入るため）
+        const cur = (ph && ph.data && ph.data.phases.find(x => x.id === p.id)) || p;
+        return PhasesApi.notifyWorker(cur, currentCase, phTitle(p), members);
+      })));
     if (p.worker_id === phMyId() && p.notified_at && !p.ack_at) {
       acts.appendChild(dBtn('確認した', 'btn sm inline ph-wk-ack', b => phRun(b, errId, '確認した操作', () => PhasesApi.ack(p, phTitle(p)))));
     }
@@ -1532,13 +1672,22 @@ function phWorkerBody(p, docs, errId) {
       const ml = mk('div', 'ph-mail ph-wk-mail');
       if (draft) {
         ml.appendChild(mk('span', null, '✉️ 担当者への確認依頼: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') + (draft.to_email ? '' : '（担当者のメール未登録）')));
-        const b = dBtn('確認して送る', 'btn sm inline ph-wk-open', () => openMailDraft(draft.id));
+        const b = dBtn('確認して送る', 'btn sm inline ph-wk-open', async btn => {
+          btn.disabled = true;
+          try { if (typeof pdBriefSettle === 'function') await pdBriefSettle(); } finally { btn.disabled = false; }
+          openMailDraft(draft.id);
+        });
         b.dataset.draftId = draft.id;
         ml.appendChild(b);
       } else ml.appendChild(mk('span', null, '✉️ 担当者への確認依頼 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'));
       box.appendChild(ml);
     }
   }
+  // 現場担当への指示（Task 9）の要約。担当者への確認依頼のメール・🔔 の一覧にも入る
+  const bs = mk('div', 'ph-wk-brief');
+  bs.dataset.phaseId = p.id;
+  phFillWorkerBrief(bs, p);
+  box.appendChild(bs);
   box.appendChild(mk('div', 'ph-sub', p.worker_id
     ? '「担当者に知らせる」を押すと、担当者のアプリに「🔔 確認してください」が出て、メールの下書きもできます。担当者が「確認した」を押すとここに戻ってきます'
     : '作業する人を選んでください（社内メンバー）'));
@@ -1546,21 +1695,11 @@ function phWorkerBody(p, docs, errId) {
   return out;
 }
 
-// #case/{caseId}/phase/{phaseId}: 案件を開いて、そのフェーズのカードまでスクロールして強調する
-let phFocusId = null;
-function openCasePhase(caseId, phaseId) {
-  phFocusId = String(phaseId).toLowerCase();
-  if (caseDetailId === caseId && $('screen-case').classList.contains('active') && ph && ph.data) { phApplyFocus(); return; }
-  showScreen('case');
-  renderHeaders();
-  return loadCase(caseId);
-}
-function phApplyFocus() {
-  if (!phFocusId || !ph || !ph.data || !ph.root) return;
-  const card = ph.root.querySelector('.ph-card[data-phase-id="' + phFocusId + '"]');
-  phFocusId = null;
-  if (!card) return;
-  card.classList.add('ph-focus');
-  card.scrollIntoView({ block: 'start' });
-  setTimeout(() => card.classList.remove('ph-focus'), 6000);
+// 作業担当者の段の「指示あり: …」（plan は入力中ならその値: js/phase-detail.js pdBriefValue）
+function phFillWorkerBrief(el, p) {
+  const v = typeof pdBriefValue === 'function' ? pdBriefValue(p) : p.plan;
+  const sum = PhaseLogic.briefSummary(v);
+  el.dataset.state = sum ? 'on' : 'off';
+  el.replaceChildren(sum ? mk('span', null, '📝 指示あり: ' + sum)
+    : mk('span', 'ph-sub', '📝 現場担当への指示はまだありません（下の「現場担当への指示」に書くと、確認依頼のメールにも入ります）'));
 }

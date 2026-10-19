@@ -24,8 +24,12 @@ const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
 // s.returnTo: 「送るメール」（#outbox）から開いたときはそこへ戻る（openMailDraftFrom）
-const mlListHash = s => s.returnTo || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
-const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール' : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
+// 日程連絡・リマインド・調査結果・担当者へのメール（フェーズのメール）は、そのフェーズの詳細ページ（Task 9）へ戻る
+const mlPhaseHash = s => (mlIsNote(s) && s.draft.phase_id ? '#case/' + s.draft.case_id + '/phase/' + s.draft.phase_id : null);
+const mlListHash = s => s.returnTo || mlPhaseHash(s) || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
+const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール'
+  : mlPhaseHash(s) ? '← ' + (mlPhase(s) ? PhaseLogic.phaseTitle(mlPhase(s)) : 'フェーズ') + 'に戻る'
+    : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 let ml = null;      // 表示中の画面の状態
 let mlSeq = 0;      // openMailDraft のたびに増やす
@@ -122,6 +126,22 @@ function mlManualTo(s) {
   const known = new Set(mlContacts(s).map(c => c.email.toLowerCase()).filter(Boolean));
   return mlSplit(s.f.to).filter(a => !known.has(a.toLowerCase()));
 }
+// 日程連絡（調査）の本文の形（Task 9）: 送る相手に入居者が含まれると入居者あての定型文（js/mail-templates.js）、それ以外は短い形
+const mlFormOf = (s, keys) => {
+  const p = s.draft && s.draft.purpose === 'schedule' ? mlPhase(s) : null;
+  return p ? PhaseLogic.scheduleForm(p.kind, keys) : null;
+};
+const mlMe = () => (ctx && ctx.membership ? { display_name: ctx.membership.display_name || '' } : null);
+// 送る相手を prevKeys → keys にしたときの本文。形が変わる（入居者を足した・外した）なら本文を作り直す（定型文と短い形は中身が違うため。
+// 手直しは消える）。同じ形なら宛名の行だけ差し替える（Task 6c。手直しは残る）。prevLines: 前の宛名の行（省略時は prevKeys から）
+function mlBodyFor(s, body, prevKeys, keys, prevLines) {
+  const f0 = mlFormOf(s, prevKeys);
+  const f1 = mlFormOf(s, keys);
+  if (f0 && f1 && f0 !== f1) {
+    return PhaseLogic.scheduleMail({ phase: mlPhase(s), caseRow: s.caseRow, org: ctx && ctx.org, me: mlMe(), recipients: keys }).body;
+  }
+  return PhaseLogic.setAddressee(body, PhaseLogic.addresseeLines(s.caseRow, keys), prevLines || PhaseLogic.addresseeLines(s.caseRow, prevKeys));
+}
 function mlToggleRcpt(s, key, on) {
   if (s.ro || s.phase !== 'edit' || s.busy) return;
   const cur = new Set(mlRcptKeys(s));
@@ -129,9 +149,7 @@ function mlToggleRcpt(s, key, on) {
   const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k));
   const emails = mlContacts(s).filter(c => keys.includes(c.key) && c.email).map(c => c.email);
   const to = Array.from(new Set(emails.concat(mlManualTo(s)))).join(', ');
-  // 本文の宛名の行だけ作り直す（Task 6c。本文の手直しは残る）
-  const prev = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
-  const body = PhaseLogic.setAddressee(s.f.body, PhaseLogic.addresseeLines(s.caseRow, keys), prev);
+  const body = mlBodyFor(s, s.f.body, mlRcptKeys(s), keys);
   s.f.recipients = keys;
   s.f.to = to;
   s.f.body = body;
@@ -147,10 +165,11 @@ function mlFillRcptNote(s) {
   if (!el) return;
   const keys = mlRcptKeys(s);
   const noMail = mlContacts(s).filter(c => keys.includes(c.key) && !c.email);
-  el.textContent = noMail.length
-    ? 'メールが無い人（' + noMail.map(c => c.label + (c.name ? ' ' + c.name : '')).join('・') + '）には、下の「文面をコピー」で LINE などに貼り付けて送ってください'
-    : '';
-  el.hidden = !noMail.length;
+  const lines = [];
+  if (noMail.length) lines.push('メールが無い人（' + noMail.map(c => c.label + (c.name ? ' ' + c.name : '')).join('・') + '）には、下の「文面をコピー」で LINE などに貼り付けて送ってください');
+  if (mlFormOf(s, keys) === 'resident') lines.push('入居者様が含まれるので、本文は入居者様あての定型文です（入居者様を外すと短い文面に戻ります）');
+  el.textContent = lines.join('\n');
+  el.hidden = !lines.length;
 }
 function mlRcptBox(s) {
   const disabled = s.ro || s.phase !== 'edit';
@@ -168,7 +187,7 @@ function mlRcptBox(s) {
   const cs = mlContacts(s).filter(c => c.name || c.email);
   if (!cs.length) {
     box.appendChild(mk('div', 'rep-sub', mlIsStaff(s)
-      ? '作業担当者が決まっていません。案件のカードの「作業担当者」で選んでください（下の宛先に直接入れても送れます）'
+      ? '作業担当者が決まっていません。フェーズ詳細ページの「作業担当者」で選んでください（下の宛先に直接入れても送れます）'
       : '依頼元が登録されていません。「＋ 依頼元を追加」から元請・物件オーナー・入居者を登録できます（下の宛先に直接入れても送れます）'));
     return box;
   }
@@ -201,7 +220,8 @@ function mlAddParty(s) {
   if (s.ro || s.phase !== 'edit' || s.busy) return;
   const before = new Set(mlContacts(s).filter(c => c.name || c.email).map(c => c.key));
   const beforeManual = mlManualTo(s);
-  const prevLines = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
+  const beforeKeys = mlRcptKeys(s);
+  const prevLines = PhaseLogic.addresseeLines(s.caseRow, beforeKeys);
   openCaseModal(s.caseRow, async () => {
     let row = null;
     try { row = await CasesApi.getSummary(s.draft.case_id); } catch (e) { console.warn('依頼元を読み直せませんでした', e); }
@@ -215,7 +235,7 @@ function mlAddParty(s) {
     const known = new Set(now.map(c => c.email.toLowerCase()).filter(Boolean));
     s.f.recipients = keys;
     s.f.to = Array.from(new Set(emails.concat(beforeManual.filter(a => !known.has(a.toLowerCase()))))).join(', ');
-    s.f.body = PhaseLogic.setAddressee(s.f.body, PhaseLogic.addresseeLines(s.caseRow, keys), prevLines);
+    s.f.body = mlBodyFor(s, s.f.body, beforeKeys, keys, prevLines);
     if (s.els.to) s.els.to.value = s.f.to;
     if (s.els.body) s.els.body.value = s.f.body;
     const old = document.getElementById('ml-rcpt');
@@ -226,10 +246,9 @@ function mlAddParty(s) {
 }
 const mlNoteText = (s, body) => String(s.f.subject || '') + '\n\n' + String(body == null ? s.f.body || '' : body);
 // 1人分の宛名にした文面（LINE などで1人ずつ送るため。Task 6c）
+//   日程連絡（調査）は相手の形で: 入居者様あては定型文、元請・物件オーナーあては短い形（今の本文と形が違えば作り直した文面）
 function mlOneText(s, key) {
-  const cur = PhaseLogic.addresseeLines(s.caseRow, mlRcptKeys(s));
-  const one = PhaseLogic.addresseeLines(s.caseRow, [key]);
-  return mlNoteText(s, PhaseLogic.setAddressee(s.f.body, one, cur));
+  return mlNoteText(s, mlBodyFor(s, s.f.body, mlRcptKeys(s), [key]));
 }
 // 「文面をコピー」: 選んだ相手のうちメールが無い人ごとに、その人の宛名だけの文面。いなければ今の本文そのまま
 function mlCopyTextBtn(s) {
@@ -762,8 +781,8 @@ async function mlMarkSent(s) {
     mlLsDel(mlDraftKey(s.id));
     if (ml !== s) return;
     s.ro = true; // 以降の保存・送信は受け付けない
-    // 送るメール（#outbox）から開いたときはそこへ。見積は見積書一覧へ（版の状態が見える）。報告書・日程の連絡は案件へ
-    location.hash = s.returnTo || (mlIsEst(s) ? mlListHash(s) : '#case/' + s.draft.case_id);
+    // 送るメール（#outbox）から開いたときはそこへ。見積は見積書一覧へ（版の状態が見える）。日程の連絡などフェーズのメールはフェーズ詳細ページへ、報告書は案件へ
+    location.hash = s.returnTo || (mlIsEst(s) ? mlListHash(s) : mlPhaseHash(s) || '#case/' + s.draft.case_id);
   } finally {
     s.busy = false;
     if (ml === s) mlSyncBusy(s);

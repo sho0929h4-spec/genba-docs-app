@@ -242,7 +242,10 @@ function buildDetail() {
     mailBanner.append(cnt, mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, tools, toolsNote, mailBanner, mailList, tl].filter(Boolean));
+    // 書類のボタンと「送信待ちの下書き」は1行に（PC。スマホは折り返す）
+  const toolsRow = mk('div', 'case-tools-row');
+  toolsRow.append(...[tools, mailBanner].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, toolsRow, toolsNote, mailList, tl].filter(Boolean));
 
   renderHead();
   renderParties();
@@ -318,6 +321,17 @@ function renderHead() {
     addr.appendChild(mk('span', 'muted', '📍 住所未設定（編集から追加）'));
   }
   card.appendChild(addr);
+
+  // 今の状態 1行（🔴 自社の番 n件・🟡 相手待ち n件・次: …）。中身は対応フェーズの読み込み後に js/phase-ui.js（phSyncNow）が入れる。
+  // ヘッダを描き直しても同じ要素を使う（中身を失わない）
+  let nowLine = $('case-now');
+  if (!nowLine) {
+    nowLine = mk('div', 'case-now');
+    nowLine.id = 'case-now';
+    nowLine.hidden = true;
+    nowLine.setAttribute('role', 'status');
+  }
+  card.appendChild(nowLine);
 
   const err = mk('div', 'err'); err.id = 'case-head-err';
   card.appendChild(err);

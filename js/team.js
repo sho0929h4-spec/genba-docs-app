@@ -44,7 +44,7 @@ async function openTeam() {
 }
 
 function teamOpenBtn(it) {
-  const b = mk('button', 'poke', 'カードを開く');
+  const b = mk('button', 'poke', '詳しく見る');
   b.type = 'button';
   b.addEventListener('click', () => { location.hash = '#case/' + it.caseId + '/phase/' + it.phaseId; });
   return b;
