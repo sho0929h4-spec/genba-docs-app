@@ -56,6 +56,35 @@ const CasesApi = (() => {
       return row;
     },
 
+    /* ===== 案件の削除（ゴミ箱）と「1つ前に戻す」（対応フェーズ Task 13 / migration 031） ===== */
+    // 削除は deleted_at / deleted_by を入れるだけ（本当に消す DELETE は DB で禁止）。入れられるのは管理者だけ（DB の policy）。
+    // 削除した案件は case_summaries に出ない（一覧・チーム状況・請求・送るメール・🔔・リマインド作成から消える）
+    async trashCase(id) {
+      const rows = must(await sb.from('cases').update({ deleted_at: new Date().toISOString(), deleted_by: ctx.user.id })
+        .eq('id', id).is('deleted_at', null).select('id'));
+      if (!rows || rows.length === 0) throw new Error('削除できませんでした（削除できるのは管理者だけです。すでに削除されている可能性もあります）');
+      await logSystem(id, '案件を削除した');
+    },
+    async restoreCase(id) {
+      const rows = must(await sb.from('cases').update({ deleted_at: null, deleted_by: null }).eq('id', id).select('id'));
+      if (!rows || rows.length === 0) throw new Error('元に戻せませんでした（戻せるのは管理者だけです）');
+      await logSystem(id, '削除した案件を元に戻した');
+    },
+    // 削除した案件（新しい順）。設定の「削除した案件」（管理者だけに表示）
+    async listTrashed() {
+      return must(await sb.from('cases').select('id, name, address, deleted_at, deleted_by')
+        .not('deleted_at', 'is', null).order('deleted_at', { ascending: false })) || [];
+    },
+    // まだ取り消していない編集（新しい順・直近 50 件）
+    async listEdits(caseId) {
+      return must(await sb.from('case_edits').select('*').eq('case_id', caseId).is('undone_at', null)
+        .order('edited_at', { ascending: false }).limit(50)) || [];
+    },
+    // → { ok: true, table_name, row_id, changed_cols, before, after } か { ok: false, reason }（EditLogic.reasonText）
+    async undoEdit(editId, label) {
+      return must(await sb.rpc('undo_case_edit', { p_edit_id: editId, p_label: label || null }));
+    },
+
     // 旧い次やること（case_actions）・対応履歴と精算（case_works）は対応フェーズ（case_phases）に置き換えた（2026-10-18）。
     // 表は DB に残す（読み取りのみ）が、画面からは読み書きしない
 

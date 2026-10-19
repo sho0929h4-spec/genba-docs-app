@@ -10,6 +10,8 @@ let caseModalSeq = 0;         // モーダルを開くたびに増やす。古�
 let caseListSeq = 0;          // 一覧取得のリクエスト番号。古い応答を捨てる
 let caseLoading = false;
 let caseLoadFailed = false;
+let caseListFlash = '';       // 次に一覧を開いたとき1回だけ出す案内（案件を削除した後。js/case-trash.js）
+function setCaseListFlash(text) { caseListFlash = text || ''; }
 
 // チップ。🔴 自分の番 / 🟡 相手待ち / 💴 入金待ち は対応フェーズの段階から（CaseLogic → PhaseLogic.caseFlags）
 const CHIP_LABELS = {
@@ -34,7 +36,8 @@ async function openCases() {
   renderHeaders();
   showScreen('cases');
   history.replaceState(null, '', location.pathname + location.search);
-  setMsg('case-list-msg', '');
+  setMsg('case-list-msg', caseListFlash, !!caseListFlash);
+  caseListFlash = '';
   const seq = ++caseListSeq;
   caseLoading = true;
   caseLoadFailed = false;

@@ -189,6 +189,7 @@ function openSettings() {
   typeof renderSettings === 'function' && renderSettings();
   showScreen('settings');
   if (typeof openClientsCard === 'function') openClientsCard(); // 元請マスタ（js/clients-ui.js。社内の誰でも編集できる）
+  if (typeof CaseTrash !== 'undefined') CaseTrash.renderCard(); // 削除した案件（管理者だけ。js/case-trash.js）
 }
 
 const UUID_RE = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';

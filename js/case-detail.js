@@ -47,9 +47,12 @@ function dSelect(options, value) {
 }
 
 // 自動記録(system)が増える操作の後に呼ぶ。timeline.js が refreshTimeline を定義していれば再読み込みさせる
+// 「↩ 1つ前に戻す」（js/case-undo.js）も、直近の編集を読み直す
 function notifyTimeline() {
   try { if (typeof refreshTimeline === 'function') refreshTimeline(); }
   catch (e) { console.warn('タイムラインの更新に失敗', e); }
+  try { if (typeof CaseUndo !== 'undefined') CaseUndo.refresh(); }
+  catch (e) { console.warn('「1つ前に戻す」の更新に失敗', e); }
 }
 
 // ---- 開く / 読み込み ----
@@ -245,7 +248,9 @@ function buildDetail() {
     // 書類のボタンと「送信待ちの下書き」は1行に（PC。スマホは折り返す）
   const toolsRow = mk('div', 'case-tools-row');
   toolsRow.append(...[tools, mailBanner].filter(Boolean));
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, toolsRow, toolsNote, mailList, tl].filter(Boolean));
+  // 一番下に小さく「この案件を削除」（管理者だけ。js/case-trash.js）
+  const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.section(currentCase) : null;
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, toolsRow, toolsNote, mailList, tl, trash].filter(Boolean));
 
   renderHead();
   renderParties();
@@ -331,7 +336,17 @@ function renderHead() {
     nowLine.hidden = true;
     nowLine.setAttribute('role', 'status');
   }
-  card.appendChild(nowLine);
+  // 「今の状態」の行の右に「↩ 1つ前に戻す」（js/case-undo.js）。確かめる欄はその下
+  const nowRow = mk('div', 'case-now-row');
+  nowRow.appendChild(nowLine);
+  let undoPanel = null;
+  if (typeof CaseUndo !== 'undefined') {
+    const u = CaseUndo.mount();
+    nowRow.appendChild(u.btn);
+    undoPanel = u.panel;
+  }
+  card.appendChild(nowRow);
+  if (undoPanel) card.appendChild(undoPanel);
 
   const err = mk('div', 'err'); err.id = 'case-head-err';
   card.appendChild(err);

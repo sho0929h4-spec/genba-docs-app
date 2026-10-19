@@ -92,9 +92,33 @@ const PhasesApi = (() => {
     async saveSchedule(phase, startIso, endIso, caseRow, drafts, title) {
       const before = phase.scheduled_at || null;
       const row = await api.update(phase.id, { scheduled_at: startIso || null, scheduled_end: startIso ? (endIso || null) : null });
-      const mine = (drafts || []).filter(d => d.phase_id === phase.id && d.status === 'draft');
       let draft = null;
       try {
+        draft = await api.syncScheduleDrafts(before, row, caseRow, drafts);
+      } catch (e) {
+        const err = new Error('日時は保存しましたが、連絡メールの下書きを作れませんでした: ' + (e && e.message ? e.message : e));
+        err.phase = row;
+        throw err;
+      } finally {
+        const after = row.scheduled_at || null;
+        const what = phase.kind === 'survey' ? '調査日時' : '工事日';
+        const t = v => (v ? Date.parse(v) : null);
+        if (t(before) !== t(after)) {
+          await logSystem(phase.case_id, () => after
+            ? `${title}の${what}を ${PL().fmtMDHM(after)} に${before ? '変えた' : '決めた'}`
+            : `${title}の${what}を未定に戻した`);
+        }
+      }
+      return { phase: row, draft };
+    },
+    // 日時を保存した後（saveSchedule）・日時の変更を「1つ前に戻す」で戻した後（Task 13）の連絡メールの下書き:
+    //   日時があれば未送信の日程連絡を作る/更新する、消えていれば未送信の日程連絡を消す。日時が変わっていれば未送信のリマインドを消す
+    //   （作り直しはアプリを開いたとき＝ syncReminders）。before: 変える前の scheduled_at、row: 今のフェーズの行 → 未送信の日程連絡 or null
+    async syncScheduleDrafts(before, row, caseRow, drafts) {
+      const phase = row;
+      const mine = (drafts || []).filter(d => d.phase_id === phase.id && d.status === 'draft');
+      let draft = null;
+      {
         const sched = mine.filter(d => d.purpose === 'schedule')
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
         if (!row.scheduled_at) {
@@ -133,21 +157,8 @@ const PhasesApi = (() => {
         const moved = Date.parse(before || '') !== Date.parse(row.scheduled_at || '') && (before || row.scheduled_at);
         const stale = moved ? reminders : PL().staleReminders([row], reminders);
         for (const d of stale) must(await sb.from('mail_drafts').delete().eq('id', d.id).eq('status', 'draft'));
-      } catch (e) {
-        const err = new Error('日時は保存しましたが、連絡メールの下書きを作れませんでした: ' + (e && e.message ? e.message : e));
-        err.phase = row;
-        throw err;
-      } finally {
-        const after = row.scheduled_at || null;
-        const what = phase.kind === 'survey' ? '調査日時' : '工事日';
-        const t = v => (v ? Date.parse(v) : null);
-        if (t(before) !== t(after)) {
-          await logSystem(phase.case_id, () => after
-            ? `${title}の${what}を ${PL().fmtMDHM(after)} に${before ? '変えた' : '決めた'}`
-            : `${title}の${what}を未定に戻した`);
-        }
       }
-      return { phase: row, draft };
+      return draft;
     },
 
     // 調査結果（case_phases.result。023）を保存し、「調査結果のご報告」（purpose survey_result）の下書きを作る/更新する。
