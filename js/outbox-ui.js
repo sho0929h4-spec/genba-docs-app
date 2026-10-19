@@ -84,7 +84,7 @@ function obItemEl(it) {
   if (it.phase && it.phase.scheduled_at && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'staff_notice')) {
     info.push((it.phase.kind === 'survey' ? '調査日時 ' : '工事日 ') + PhaseLogic.fmtRange(it.phase.scheduled_at, it.phase.scheduled_end));
   }
-  const who = PhaseLogic.recipientsLabel(d.recipients);
+  const who = PhaseLogic.recipientsLabel(d.recipients, it.caseRow);
   info.push('宛先: ' + (who || d.to_email || '未選択'));
   row.appendChild(mk('div', 'rep-sub', info.join(' ・ ')));
   const acts = mk('div', 'ob-acts');

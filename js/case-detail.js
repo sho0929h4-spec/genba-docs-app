@@ -372,7 +372,16 @@ function renderParties() {
   const head = mk('div', 'taio-head');
   head.style.marginBottom = '0';
   head.appendChild(mk('b', null, '依頼元'));
-  head.appendChild(dBtn('依頼元を編集', 'linkbtn', () => {
+  // 関係する部屋（加害部屋・被害部屋。migration 030 / Task 12。js/case-rooms.js）の保存・削除の後
+  const roomsChanged = async () => {
+    const m = await refreshPart('head');
+    notifyTimeline(); // 部屋の追加・変更・削除の自動記録を出す
+    if (m) setMsg('case-head-err', '保存しましたが、最新の表示に更新できませんでした: ' + m);
+  };
+  const headActs = mk('span', 'pty-head-acts');
+  if (typeof CaseRooms !== 'undefined') headActs.appendChild(CaseRooms.addButton(c, roomsChanged));
+  head.appendChild(headActs);
+  headActs.appendChild(dBtn('依頼元を編集', 'linkbtn', () => {
     openCaseModal(currentCase, async () => {
       const m = await refreshPart('head');
       notifyTimeline(); // 依頼元を変えたときの自動記録を出す
@@ -409,11 +418,18 @@ function renderParties() {
   const roomV = mk('div', 'pty-v');
   const roomText = typeof PhaseLogic !== 'undefined' ? PhaseLogic.roomLabel(c.room) : String(c.room || '').trim();
   roomV.appendChild(roomText ? mk('b', null, roomText) : mk('span', 'pty-none', '未登録（「依頼元を編集」から入れられます）'));
+  // 依頼元の部屋は「この案件の部屋（被害部屋）」という扱い（Task 12。加害部屋などは下の「関係する部屋」）
+  if (roomText) roomV.appendChild(mk('span', 'rm-own-note', ' この案件の部屋（被害部屋）'));
   const roomRow = partyRow('room', '号室', roomV);
   roomRow.id = 'case-room';
   roomRow.classList.add('pty-room');
-  box.replaceChildren(roomRow, head,
+  // 関係する部屋の一覧（部屋が無ければ出さない）
+  let rooms = null;
+  if (typeof CaseRooms !== 'undefined') {
+    try { rooms = CaseRooms.section(c, roomsChanged); } catch (e) { console.warn('関係する部屋の表示に失敗', e); }
+  }
+  box.replaceChildren(...[roomRow, head,
     partyRow('client', '元請', gc),
     partyRow('owner', '物件オーナー', person(c.owner_name, c.owner_email, c.owner_tel)),
-    partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)));
+    partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)), rooms].filter(Boolean));
 }

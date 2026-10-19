@@ -54,6 +54,13 @@
     { key: 'worker', label: '担当者' } // 作業担当者（社内。担当者への確認依頼・担当者向けの前日リマインドだけ。Task 6b）
   ];
   const BILL_TO = { client: '元請', owner: '物件オーナー', resident: '入居者', other: 'その他' };
+  // 関係する部屋（case_rooms.role。migration 030 / Task 12）。依頼元の部屋（cases.room）は「この案件の部屋（被害部屋）」
+  const ROOM_ROLES = [
+    { key: 'cause', label: '加害部屋' },
+    { key: 'damage', label: '被害部屋' },
+    { key: 'other', label: 'その他' }
+  ];
+  const ROOM_PREFIX = 'room:'; // 送る相手（mail_drafts.recipients）の関係する部屋の居住者 = 'room:{case_rooms.id}'
 
   /* ---------- 日本時間 ---------- */
   const JST_MS = 9 * 3600 * 1000;
@@ -386,10 +393,20 @@
     if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
     return '報告書の送付';
   }
-  // 宛先の種類（recipients）→ 「元請・入居者」（元請・物件オーナー・入居者の順）
-  function recipientsLabel(keys) {
+  // 宛先の種類（recipients）→ 「元請・入居者・加害部屋 402」（元請・物件オーナー・入居者・関係する部屋の順）。
+  //   関係する部屋は caseRow（case_summaries の行。rooms）があれば「加害部屋 402」、無い・消された部屋は「関係する部屋」（1回）
+  function recipientsLabel(keys, caseRow) {
     const set = new Set(listOf(keys));
-    return RECIPIENTS.filter(r => set.has(r.key)).map(r => r.label).join('・');
+    const out = RECIPIENTS.filter(r => r.key !== 'worker' && set.has(r.key)).map(r => r.label);
+    const rs = roomsOf(caseRow);
+    let unknown = false;
+    listOf(keys).filter(isRoomKey).forEach(k => {
+      const r = rs.find(x => roomKey(x.id) === k);
+      if (r) { const t = roomTitle(r); if (!out.includes(t)) out.push(t); } else unknown = true;
+    });
+    if (unknown) out.push('関係する部屋');
+    if (set.has('worker')) out.push('担当者');
+    return out.join('・');
   }
   // 「今回は送らない」にできるのは日程連絡・リマインド・調査結果のご報告だけ（書類の送付はできない）
   const canSkip = d => !!d && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result' || d.purpose === 'staff_notice');
@@ -405,32 +422,67 @@
       if (!c) continue;
       const p = listOf(c.phases).find(x => x.id === d.phase_id) || null;
       if (!groups.has(c.id)) groups.set(c.id, { caseRow: c, items: [] });
-      groups.get(c.id).items.push({ draft: d, phase: p, label: mailLabel(d, p), title: p ? phaseTitle(p) : '', canSkip: canSkip(d) });
+      groups.get(c.id).items.push({ draft: d, phase: p, label: mailLabel(d, p), title: p ? phaseTitle(p) : '', canSkip: canSkip(d), caseRow: c });
     }
     return [...groups.values()];
   }
 
+  /* ---------- 関係する部屋（Task 12） ---------- */
+  const roomKey = id => ROOM_PREFIX + id;
+  const isRoomKey = k => typeof k === 'string' && k.startsWith(ROOM_PREFIX) && k.length > ROOM_PREFIX.length;
+  const roomRoleLabel = role => (ROOM_ROLES.find(x => x.key === role) || ROOM_ROLES[2]).label;
+  // case_summaries.rooms（並びは DB の sort → 作成順のまま）。id と号室のあるものだけ
+  const roomsOf = caseRow => listOf(caseRow && caseRow.rooms).filter(r => r && r.id && str(r.room));
+  // 「加害部屋 402」（号室は入力のまま）
+  const roomTitle = r => [roomRoleLabel(r && r.role), str(r && r.room)].filter(Boolean).join(' ');
+  // 送る相手のキーの並び（保存する recipients の順）: 元請・物件オーナー・入居者・関係する部屋（並び順）・担当者
+  const recipientOrder = caseRow => ['client', 'owner', 'resident'].concat(roomsOf(caseRow).map(r => roomKey(r.id)), ['worker']);
+  // 工事掲示の号室の初期値の候補（Task 12）: この案件の部屋（cases.room）→ 関係する部屋。同じ号室は1回
+  //   → [{ value: '402', label: '加害部屋 402', key: 'case' | 'room:{id}' }]
+  function roomChoices(caseRow) {
+    const c = caseRow || {};
+    const out = [];
+    if (str(c.room)) out.push({ value: str(c.room), label: 'この案件の部屋（被害部屋） ' + str(c.room), key: 'case' });
+    roomsOf(c).forEach(r => {
+      if (out.some(x => x.value === str(r.room))) return;
+      out.push({ value: str(r.room), label: roomTitle(r), key: roomKey(r.id) });
+    });
+    return out;
+  }
+
   /* ---------- 関係者・宛先 ---------- */
   const clientName = c => str(c && (c.client_master_name || c.client_name));
-  // 案件の関係者 → [{ key, label, name, email, tel }]（元請・物件オーナー・入居者の順。名前もメールも無い人も含む）
+  // 案件の関係者 → [{ key, label, name, email, tel }]（元請・物件オーナー・入居者・関係する部屋の居住者の順。名前もメールも無い人も含む）
+  //   関係する部屋の居住者（Task 12）: key 'room:{id}'・label「加害部屋 402」・room: 部屋の行
   function contacts(caseRow) {
     const c = caseRow || {};
     return [
       { key: 'client', label: '元請', name: clientName(c), email: str(c.client_email), tel: str(c.client_tel) },
       { key: 'owner', label: '物件オーナー', name: str(c.owner_name), email: str(c.owner_email), tel: str(c.owner_tel) },
       { key: 'resident', label: '入居者', name: str(c.resident_name), email: str(c.resident_email), tel: str(c.resident_tel) }
-    ].concat(str(c.worker_name) || str(c.worker_email)
+    ].concat(roomsOf(c).map(r => ({ key: roomKey(r.id), label: roomTitle(r), name: str(r.resident_name),
+      email: str(r.email), tel: str(r.tel), room: r })))
+      .concat(str(c.worker_name) || str(c.worker_email)
       ? [{ key: 'worker', label: '担当者', name: str(c.worker_name), email: str(c.worker_email), tel: '' }] : []);
+  }
+  // 送る相手の一覧での表示「加害部屋 402 山本様」（関係する部屋）／「入居者 佐藤」（依頼元。今までどおり）
+  function contactTitle(c) {
+    if (!c) return '';
+    if (c.room) return c.name ? `${c.label} ${withSama(c.name)}` : c.label;
+    return c.label + (c.name ? ' ' + c.name : '');
   }
   // 宛先の既定（mail_drafts.recipients の値）。メールがある人だけ
   //   schedule・survey_result: 元請・物件オーナー・入居者 ／ reminder: 入居者・物件オーナー ／ それ以外（報告書・見積）: 元請
-  function defaultRecipients(caseRow, purpose) {
+  //   関係する部屋の居住者は既定では選ばない（その場で選ぶ）。extraKeys（例: リマインドに日程連絡で選んだ部屋）を渡すと、
+  //   今もある部屋でメールがあるものだけ後ろに足す
+  function defaultRecipients(caseRow, purpose, extraKeys) {
     // staff_notice（担当者への確認依頼・前日のお知らせ）は担当者だけ（メールが無くても選ぶ: アプリ内の通知と文面コピーで伝える）
     if (purpose === 'staff_notice') return contacts(caseRow).some(x => x.key === 'worker') ? ['worker'] : [];
     const order = purpose === 'schedule' || purpose === 'survey_result' ? ['client', 'owner', 'resident']
       : purpose === 'reminder' ? ['resident', 'owner'] : ['client'];
     const has = new Set(contacts(caseRow).filter(x => x.email).map(x => x.key));
-    return order.filter(k => has.has(k));
+    const extra = new Set(listOf(extraKeys).filter(isRoomKey));
+    return order.filter(k => has.has(k)).concat(recipientOrder(caseRow).filter(k => extra.has(k) && has.has(k)));
   }
 
   /* ---------- 連絡メール（Task 6c: 宛名・書き出し・内容詳細・署名の形をそろえる） ---------- */
@@ -495,14 +547,22 @@
       const n = str(c.worker_name);
       return n ? (/(さん|様)$/.test(n) ? n : n + 'さん') : '担当者さん';
     }
+    // 関係する部屋の居住者（Task 12）=「{物件名} {その部屋の号室} {名前}様」（名前が無ければ「… 入居者様」）。消された部屋は ''
+    if (isRoomKey(key)) {
+      const r = roomsOf(c).find(x => roomKey(x.id) === key);
+      if (!r) return '';
+      const place = placeName({ name: c.name, room: r.room });
+      return [place, str(r.resident_name) ? withSama(str(r.resident_name)) : '入居者様'].filter(Boolean).join(' ');
+    }
     return '';
   }
-  const ADDRESSEE_ORDER = ['worker', 'client', 'owner', 'resident'];
-  // 送る相手（mail_drafts.recipients）→ 宛名の行の配列（元請・物件オーナー・入居者の順。同じ行は1回）
+  // 宛名の並び: 担当者・元請・物件オーナー・入居者・関係する部屋（並び順）
+  const addresseeOrder = caseRow => ['worker', 'client', 'owner', 'resident'].concat(roomsOf(caseRow).map(r => roomKey(r.id)));
+  // 送る相手（mail_drafts.recipients）→ 宛名の行の配列（元請・物件オーナー・入居者・関係する部屋の順。同じ行は1回）
   function addresseeLines(caseRow, keys) {
     const set = new Set(listOf(keys));
     const out = [];
-    ADDRESSEE_ORDER.filter(k => set.has(k)).forEach(k => { const l = addresseeLine(caseRow, k); if (l && !out.includes(l)) out.push(l); });
+    addresseeOrder(caseRow).filter(k => set.has(k)).forEach(k => { const l = addresseeLine(caseRow, k); if (l && !out.includes(l)) out.push(l); });
     return out;
   }
   // 本文の宛名の行だけを差し替える（送る相手のチェックを変えたとき・1人分の文面をコピーするとき）。
@@ -626,9 +686,11 @@
   // 入居者あての定型文（js/mail-templates.js）。kind に定型文が無ければ null
   const MT = () => (inNode ? require('./mail-templates.js') : root.MailTemplates);
   function residentTemplate(k) { const m = MT(); return m ? m.residentSchedule(k) : null; }
-  // 日程連絡の本文の形: 'resident'（送る相手に入居者が含まれ、定型文がある種類 = 今は調査だけ）／'short'（今の短い形）
+  // 日程連絡の本文の形: 'resident'（送る相手に入居者扱いの人 = この案件の入居者か関係する部屋の居住者が含まれ、
+  //   定型文がある種類 = 今は調査だけ）／'short'（今の短い形）
+  const hasResident = recipients => listOf(recipients).some(k => k === 'resident' || isRoomKey(k));
   function scheduleForm(kind, recipients) {
-    return listOf(recipients).includes('resident') && residentTemplate(kind) ? 'resident' : 'short';
+    return hasResident(recipients) && residentTemplate(kind) ? 'resident' : 'short';
   }
   // 名乗りの行: 「{会社名}の{担当者名}と申します。」（片方だけなら「{会社名}でございます。」「{担当者名}と申します。」）
   function introLine(org, me) {
@@ -1143,6 +1205,7 @@
   }
 
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
+    ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
     phaseTitle, stage, caseNext, nextText, caseFlags, teamStages, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,

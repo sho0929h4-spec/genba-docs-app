@@ -118,8 +118,11 @@ function mlCollect(s) {
 
 /* ---------- 宛先の種類（日程連絡・リマインド: 元請・物件オーナー・入居者から選ぶ） ---------- */
 const mlSplit = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
-const mlRcptKeys = s => (Array.isArray(s.f.recipients) ? s.f.recipients : []).filter(k => PhaseLogic.RECIPIENTS.some(r => r.key === k));
-// 送る相手の候補: 担当者へのメールは作業担当者だけ、それ以外は依頼元（元請・物件オーナー・入居者）
+// 送る相手のキー（今ある相手だけ。関係する部屋 room:{id} は消された部屋を外す。Task 12）
+const mlRcptKeys = s => { const ok = PhaseLogic.recipientOrder(s.caseRow); return (Array.isArray(s.f.recipients) ? s.f.recipients : []).filter(k => ok.includes(k)); };
+// 送る相手の並び（元請・物件オーナー・入居者・関係する部屋・担当者）
+const mlOrder = (s, set) => PhaseLogic.recipientOrder(s.caseRow).filter(k => set.has(k));
+// 送る相手の候補: 担当者へのメールは作業担当者だけ、それ以外は依頼元（元請・物件オーナー・入居者）と関係する部屋の居住者
 const mlContacts = s => PhaseLogic.contacts(s.caseRow || {}).filter(c => (c.key === 'worker') === mlIsStaff(s));
 // 宛先欄のうち依頼元のメールではないもの（手で足した宛先）
 function mlManualTo(s) {
@@ -146,7 +149,7 @@ function mlToggleRcpt(s, key, on) {
   if (s.ro || s.phase !== 'edit' || s.busy) return;
   const cur = new Set(mlRcptKeys(s));
   if (on) cur.add(key); else cur.delete(key);
-  const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k));
+  const keys = mlOrder(s, cur);
   const emails = mlContacts(s).filter(c => keys.includes(c.key) && c.email).map(c => c.email);
   const to = Array.from(new Set(emails.concat(mlManualTo(s)))).join(', ');
   const body = mlBodyFor(s, s.f.body, mlRcptKeys(s), keys);
@@ -166,8 +169,8 @@ function mlFillRcptNote(s) {
   const keys = mlRcptKeys(s);
   const noMail = mlContacts(s).filter(c => keys.includes(c.key) && !c.email);
   const lines = [];
-  if (noMail.length) lines.push('メールが無い人（' + noMail.map(c => c.label + (c.name ? ' ' + c.name : '')).join('・') + '）には、下の「文面をコピー」で LINE などに貼り付けて送ってください');
-  if (mlFormOf(s, keys) === 'resident') lines.push('入居者様が含まれるので、本文は入居者様あての定型文です（入居者様を外すと短い文面に戻ります）');
+  if (noMail.length) lines.push('メールが無い人（' + noMail.map(c => PhaseLogic.contactTitle(c)).join('・') + '）には、下の「文面をコピー」で LINE などに貼り付けて送ってください');
+  if (mlFormOf(s, keys) === 'resident') lines.push('入居者様（関係する部屋の居住者を含む）が含まれるので、本文は入居者様あての定型文です（入居者様を外すと短い文面に戻ります）');
   el.textContent = lines.join('\n');
   el.hidden = !lines.length;
 }
@@ -184,7 +187,7 @@ function mlRcptBox(s) {
     head.appendChild(add);
   }
   box.appendChild(head);
-  const cs = mlContacts(s).filter(c => c.name || c.email);
+  const cs = mlContacts(s).filter(c => c.name || c.email || c.room); // 関係する部屋は名前・メールが無くても出す（文面をコピーで送れる）
   if (!cs.length) {
     box.appendChild(mk('div', 'rep-sub', mlIsStaff(s)
       ? '作業担当者が決まっていません。フェーズ詳細ページの「作業担当者」で選んでください（下の宛先に直接入れても送れます）'
@@ -202,7 +205,7 @@ function mlRcptBox(s) {
     cb.disabled = disabled;
     cb.addEventListener('change', () => mlToggleRcpt(s, c.key, cb.checked));
     const txt = mk('span', 'ml-rc-x');
-    txt.appendChild(mk('b', null, c.label + (c.name ? ' ' + c.name : '')));
+    txt.appendChild(mk('b', null, PhaseLogic.contactTitle(c)));
     txt.appendChild(mk('span', 'rep-sub' + (c.email ? '' : ' ml-rc-nomail'), c.email || 'メール未登録（文面をコピーして送る）'));
     row.append(cb, txt);
     box.appendChild(row);
@@ -218,7 +221,7 @@ function mlRcptBox(s) {
 // 保存したら案件を読み直して送る相手の欄だけ作り直す。新しく増えた相手（名前かメールが入った）は選んだ状態にして、宛先・宛名にも入れる
 function mlAddParty(s) {
   if (s.ro || s.phase !== 'edit' || s.busy) return;
-  const before = new Set(mlContacts(s).filter(c => c.name || c.email).map(c => c.key));
+  const before = new Set(mlContacts(s).filter(c => c.name || c.email || c.room).map(c => c.key));
   const beforeManual = mlManualTo(s);
   const beforeKeys = mlRcptKeys(s);
   const prevLines = PhaseLogic.addresseeLines(s.caseRow, beforeKeys);
@@ -227,10 +230,10 @@ function mlAddParty(s) {
     try { row = await CasesApi.getSummary(s.draft.case_id); } catch (e) { console.warn('依頼元を読み直せませんでした', e); }
     if (ml !== s || !row) return;
     s.caseRow = Object.assign({}, row, { worker_name: s.caseRow.worker_name || '', worker_email: s.caseRow.worker_email || '' });
-    const now = mlContacts(s).filter(c => c.name || c.email);
-    const added = now.filter(c => !before.has(c.key)).map(c => c.key);
+    const now = mlContacts(s).filter(c => c.name || c.email || c.room);
+    const added = now.filter(c => !before.has(c.key) && !c.room).map(c => c.key); // 関係する部屋は自動では選ばない
     const cur = new Set(mlRcptKeys(s).concat(added));
-    const keys = PhaseLogic.RECIPIENTS.map(r => r.key).filter(k => cur.has(k) && now.some(c => c.key === k));
+    const keys = mlOrder(s, cur).filter(k => now.some(c => c.key === k));
     const emails = now.filter(c => keys.includes(c.key) && c.email).map(c => c.email);
     const known = new Set(now.map(c => c.email.toLowerCase()).filter(Boolean));
     s.f.recipients = keys;
@@ -464,7 +467,7 @@ function mlBuildSent(s) {
     ['送付日時', mlStamp(d.sent_at) || '（不明）'],
     ['宛先', d.to_email || '（未入力）']
   ];
-  if (mlIsNote(s) && PhaseLogic.recipientsLabel(d.recipients)) rows.push(['送った相手', PhaseLogic.recipientsLabel(d.recipients)]);
+  if (mlIsNote(s) && PhaseLogic.recipientsLabel(d.recipients, s.caseRow)) rows.push(['送った相手', PhaseLogic.recipientsLabel(d.recipients, s.caseRow)]);
   if (d.cc) rows.push(['CC', d.cc]);
   const dl = mk('dl', 'rep-auto');
   rows.forEach(([k, v]) => { dl.append(mk('dt', null, k), mk('dd', null, v)); });
@@ -557,7 +560,7 @@ function mlBuildWaiting(s) {
     card.appendChild(warn);
   }
   if (!m.noMail) card.appendChild(mk('div', 'rep-sub', '宛先: ' + (s.f.to || '') + (s.f.cc ? ' ／ CC: ' + s.f.cc : '')));
-  if (mlIsNote(s) && PhaseLogic.recipientsLabel(mlRcptKeys(s))) card.appendChild(mk('div', 'rep-sub', '送る相手: ' + PhaseLogic.recipientsLabel(mlRcptKeys(s))));
+  if (mlIsNote(s) && PhaseLogic.recipientsLabel(mlRcptKeys(s), s.caseRow)) card.appendChild(mk('div', 'rep-sub', '送る相手: ' + PhaseLogic.recipientsLabel(mlRcptKeys(s), s.caseRow)));
 
   card.appendChild(mk('div', 'rep-group-ttl', m.noMail ? 'コピーする' : 'メールアプリが開かないとき'));
   const copied = mk('div', 'rep-sub');
@@ -794,7 +797,7 @@ const mlPhase = s => ((s.caseRow && s.caseRow.phases) || []).find(p => p.id === 
 // 送信済みの記録: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。手で足した宛先はアドレスで
 function mlSentText(s) {
   const phase = mlPhase(s);
-  const who = [PhaseLogic.recipientsLabel(mlRcptKeys(s)), mlManualTo(s).join(', ')].filter(Boolean).join('、');
+  const who = [PhaseLogic.recipientsLabel(mlRcptKeys(s), s.caseRow), mlManualTo(s).join(', ')].filter(Boolean).join('、');
   return (phase ? PhaseLogic.phaseTitle(phase) + ': ' : '') + PhaseLogic.mailLabel(s.draft, phase) + 'を送った（' + (who || '宛先なし') + '）';
 }
 

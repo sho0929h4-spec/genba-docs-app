@@ -32,9 +32,9 @@ const PhasesApi = (() => {
       || nameOf(p.worker_id) || String(p.worker_name || '').trim();
     return name ? { display_name: name } : me();
   }
-  // 宛先の既定（関係者のうちメールがある人）→ { recipients, to }
-  function defaultTo(caseRow, purpose) {
-    const keys = PL().defaultRecipients(caseRow, purpose);
+  // 宛先の既定（関係者のうちメールがある人）→ { recipients, to }。extraKeys: 足す関係する部屋（リマインド = 日程連絡で選んだ部屋。Task 12）
+  function defaultTo(caseRow, purpose, extraKeys) {
+    const keys = PL().defaultRecipients(caseRow, purpose, extraKeys);
     const cs = PL().contacts(caseRow);
     const to = keys.map(k => (cs.find(x => x.key === k) || {}).email).filter(Boolean);
     return { recipients: keys, to: Array.from(new Set(to)).join(', ') };
@@ -410,7 +410,10 @@ const PhasesApi = (() => {
       for (const r of due) {
         const p = phases.find(x => x.id === r.phase_id);
         const caseRow = caseOf.get(r.phase_id) || {};
-        const t = defaultTo(caseRow, 'reminder');
+        // 日程連絡で関係する部屋の居住者を選んでいたら、リマインドにも入れる（今もある部屋でメールがあるものだけ）
+        const sched = (drafts || []).filter(d => d.phase_id === r.phase_id && d.purpose === 'schedule')
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+        const t = defaultTo(caseRow, 'reminder', sched ? sched.recipients : null);
         const m = PL().reminderMail({ phase: p, caseRow, org: ctx.org, me: autoSigner(caseRow, p, members), slot: r.slot, recipients: t.recipients });
         const { data, error } = await sb.from('mail_drafts').insert({
           case_id: caseRow.id || p.case_id, phase_id: r.phase_id, purpose: 'reminder', remind_slot: r.slot, remind_for: r.remind_for,

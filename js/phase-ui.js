@@ -679,7 +679,7 @@ function phScheduleBody(p, docs, errId) {
   const what = isSurvey ? '調査日のご連絡' : '工事日のご連絡';
   const ml = mk('div', 'ph-mail');
   if (draft) {
-    const who = (draft.recipients || []).map(k => (PhaseLogic.RECIPIENTS.find(r => r.key === k) || {}).label).filter(Boolean);
+    const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase).split('・').filter(Boolean);
     ml.appendChild(mk('span', null, '✉️ ' + what + ': ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
       (who.length ? '（' + who.join('・') + '）' : '（宛先のメール未登録）')));
     const b = dBtn('確認して送る', 'btn sm inline ph-mail-open', () => openMailDraft(draft.id));
@@ -802,7 +802,7 @@ function phContactEl(p, mails) {
   const sent = own.find(m => m.status === 'sent');
   el.appendChild(mk('b', 'ph-ct-t', '📨 依頼元へ報告連絡'));
   if (draft) {
-    const who = PhaseLogic.recipientsLabel(draft.recipients);
+    const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase);
     el.dataset.state = draft.skipped_at ? 'skipped' : 'draft';
     el.appendChild(mk('span', null, '調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') + (who ? '（' + who + '）' : '（宛先のメール未登録）')));
     const b = dBtn('確認して送る', 'btn sm inline ph-ct-open', async btn => {
@@ -813,7 +813,7 @@ function phContactEl(p, mails) {
     b.dataset.draftId = draft.id;
     el.appendChild(b);
   } else if (sent) {
-    const who = PhaseLogic.recipientsLabel(sent.recipients);
+    const who = PhaseLogic.recipientsLabel(sent.recipients, currentCase);
     el.dataset.state = 'sent';
     el.appendChild(mk('span', 'ph-ct-sent', '調査結果のご報告 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み' + (who ? '（' + who + '）' : '')));
   } else {
@@ -951,12 +951,16 @@ function phNoticesBody(p, docs, errId) {
     box.appendChild(mk('div', 'ph-sub', n.work_date_tbd ? '工事日 未定' : n.work_date ? '工事日 ' + n.work_date.replace(/^\d{4}-0?(\d+)-0?(\d+)$/, '$1/$2') : '工事日 未入力'));
     out.push(box);
   });
+  // 号室の初期値（この案件の部屋／関係する部屋。候補が無ければ出さない。Task 12。js/notice-ui.js ntlRoomPicker）
+  const pick = typeof ntlRoomPicker === 'function' ? ntlRoomPicker(currentCase, 'ph-notice-room-' + p.id) : null;
+  if (pick) { pick.el.classList.add('ph-notice-room'); out.push(pick.el); }
   const b = dBtn('📢 工事掲示を作る', 'ph-mkdoc ph-mk-notice', btn => {
     const s = ph;
     phMsg(errId, '');
     return withBusy(btn, async () => {
       try {
         const data = {};
+        if (pick && pick.value()) data.roomNo = pick.value();
         if (p.scheduled_at) {
           data.workDate = phYmd(p.scheduled_at);
           data.timeStart = phHm(p.scheduled_at);
@@ -1487,7 +1491,7 @@ function phResFillMail(rs, mails) {
   const sent = own.find(m => m.status === 'sent');
   const nodes = [];
   if (draft) {
-    const who = PhaseLogic.recipientsLabel(draft.recipients);
+    const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase);
     nodes.push(mk('span', null, '✉️ 調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
       (who ? '（' + who + '）' : '（宛先のメール未登録）')));
     const b = dBtn('確認して送る', 'btn sm inline ph-res-open', async btn => {

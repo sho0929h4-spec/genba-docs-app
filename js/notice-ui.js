@@ -85,7 +85,10 @@ function ntlBuild() {
   head.appendChild(cnt);
 
   const acts = mk('div', 'rep-acts rep-top-acts');
-  const create = dBtn('＋ 掲示を作成', 'btn inline', () => ntlCreate());
+  // 号室の初期値（この案件の部屋／関係する部屋から選ぶ。候補が無ければ出さない。Task 12）
+  const pick = ntlRoomPicker(ntlSummary, 'ntl-room');
+  if (pick) acts.appendChild(pick.el);
+  const create = dBtn('＋ 掲示を作成', 'btn inline', () => ntlCreate(pick ? pick.value() : ''));
   create.id = 'ntl-create';
   acts.appendChild(create);
 
@@ -179,8 +182,26 @@ async function ntlRun(label, fn) {
   if (parts.length) setMsg('ntl-err', parts.join('\n'));
 }
 
-function ntlCreate() {
-  return ntlRun('作成', () => NoticesApi.create(ntlCaseId, ntlSummary));
+function ntlCreate(roomNo) {
+  return ntlRun('作成', () => NoticesApi.create(ntlCaseId, ntlSummary, roomNo ? { data: { roomNo } } : {}));
+}
+
+// 工事掲示の号室の初期値を選ぶ欄（Task 12）。候補 = この案件の部屋（cases.room）＋関係する部屋（PhaseLogic.roomChoices）。
+//   候補が無ければ null。既定はこの案件の部屋（無ければ「空欄（あとで入れる）」）
+//   → { el, value() }（value は号室の文字列。'' = 空欄）。フェーズ詳細ページの「📢 工事掲示を作る」（js/phase-ui.js）でも使う
+function ntlRoomPicker(caseRow, id) {
+  if (typeof PhaseLogic === 'undefined') return null;
+  const choices = PhaseLogic.roomChoices(caseRow);
+  if (!choices.length) return null;
+  const wrap = mk('label', 'ntl-room');
+  wrap.appendChild(mk('span', 'ntl-room-l', '号室の初期値'));
+  const sel = document.createElement('select');
+  sel.id = id;
+  choices.forEach(c => { const o = new Option(c.label, c.value); o.dataset.key = c.key; sel.appendChild(o); });
+  sel.appendChild(new Option('空欄（あとで入れる）', ''));
+  sel.value = choices[0].key === 'case' ? choices[0].value : '';
+  wrap.appendChild(sel);
+  return { el: wrap, value: () => sel.value };
 }
 
 function ntlDuplicate(n) {

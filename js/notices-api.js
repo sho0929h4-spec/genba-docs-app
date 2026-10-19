@@ -72,7 +72,8 @@ const NoticesApi = (() => {
       data.contact = contactSnapshot();
       if (opts && opts.data) {
         // drainRooms / otherWorkText / workTypes: 工事カードから作るときの調査結果の注意事項（作成時の初期値だけ）
-        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'drainRooms', 'otherWorkText']) {
+        // roomNo: 号室の初期値（この案件の部屋／関係する部屋から選んだもの。Task 12）
+        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'drainRooms', 'otherWorkText', 'roomNo']) {
           if (typeof opts.data[k] === 'string') data[k] = opts.data[k];
         }
         const wt = opts.data.workTypes;
