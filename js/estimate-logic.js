@@ -293,6 +293,92 @@
     return { left: hankoCol(Array.from(p.left), 35), right: hankoCol(Array.from(p.right), 71) };
   }
 
+  // ── よく使う明細（定型・migration 029 estimate_presets）──────────────────────────
+  // preset = { id, kind, label, line: {description, detail?, quantity, unit, amount, unitPrice?, postTax?:false}, sort, created_at }
+  const PRESET_KINDS = ['common', 'survey', 'cause', 'repair'];
+  const PRESET_KIND_LABEL = { common: '共通', survey: '調査', cause: '原因元工事', repair: '復旧工事' };
+  const PRESET_LABEL_MAX = 40;
+  const chars = v => Array.from(String(v == null ? '' : v));
+  const finite = v => (v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)));
+  // 定型 → 明細行（新しい id）。unitPrice があれば 金額 = 単価×数量。税対象外・諸経費の自動行にはしない
+  function presetToLine(preset) {
+    const src = preset && preset.line && typeof preset.line === 'object' ? preset.line : (preset || {});
+    const q = finite(src.quantity) && Number(src.quantity) >= 0 ? Number(src.quantity) : 1;
+    const amount = finite(src.unitPrice) ? Math.round(Number(src.unitPrice) * q) : Math.round(num(src.amount));
+    return newLine({
+      description: String(src.description == null ? '' : src.description),
+      detail: String(src.detail == null ? '' : src.detail),
+      quantity: q,
+      unit: src.unit == null || src.unit === '' ? '式' : String(src.unit),
+      amount: amount || 0
+    });
+  }
+  // 明細行 → 定型の line（DB の形）。登録できない行（諸経費の自動行・税対象外・摘要が空）は null
+  function lineToPreset(line) {
+    const l = line || {};
+    if (l.isAutoShokehi || l.postTax || l.isAdjust) return null;
+    const description = String(l.description == null ? '' : l.description).trim();
+    if (!description) return null;
+    const out = { description, quantity: num(l.quantity), unit: String(l.unit == null ? '' : l.unit), amount: Math.round(num(l.amount)) || 0, postTax: false };
+    const detail = String(l.detail == null ? '' : l.detail).trim();
+    if (detail) out.detail = detail;
+    return out;
+  }
+  // 名前の初期値 = 摘要（40字まで）
+  function presetDefaultLabel(line) {
+    return chars(String((line && line.description) || '').trim()).slice(0, PRESET_LABEL_MAX).join('');
+  }
+  // DB の check（029）と同じ判定。{ ok, errors }
+  function validatePreset(p) {
+    const errors = [];
+    const x = p || {};
+    if (!PRESET_KINDS.includes(x.kind)) errors.push('種類を選んでください');
+    const label = String(x.label == null ? '' : x.label);
+    if (!label.trim()) errors.push('名前を入力してください');
+    else if (chars(label).length > PRESET_LABEL_MAX) errors.push('名前は' + PRESET_LABEL_MAX + '字までです');
+    const l = x.line || {};
+    const d = String(l.description == null ? '' : l.description).trim();
+    if (!d) errors.push('摘要を入力してください');
+    else if (chars(d).length > 200) errors.push('摘要は200字までです');
+    if (l.detail != null && chars(l.detail).length > 500) errors.push('詳細は500字までです');
+    if (chars(l.unit).length > 10) errors.push('単位は10字までです');
+    if (typeof l.quantity !== 'number' || !Number.isFinite(l.quantity) || l.quantity < 0 || l.quantity > 1000000) errors.push('数量が正しくありません');
+    if (typeof l.amount !== 'number' || !Number.isInteger(l.amount) || Math.abs(l.amount) > 1e12) errors.push('金額は整数の円で入力してください');
+    if (l.postTax) errors.push('税対象外の行は登録できません');
+    return { ok: errors.length === 0, errors };
+  }
+  // 見積のフェーズの種類に合う定型（その種類 → 共通の順。種類の中は sort → 作成順）
+  function presetKindsFor(phaseKind) {
+    return ['survey', 'cause', 'repair'].includes(phaseKind) ? [phaseKind, 'common'] : ['common'];
+  }
+  const presetOrder = (a, b) => (num(a.sort) - num(b.sort)) || String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id || '').localeCompare(String(b.id || ''));
+  function presetsFor(presets, phaseKind) {
+    const kinds = presetKindsFor(phaseKind);
+    return (presets || []).filter(p => p && kinds.includes(p.kind))
+      .sort((a, b) => (kinds.indexOf(a.kind) - kinds.indexOf(b.kind)) || presetOrder(a, b));
+  }
+  // 編集シートの一覧: 種類ごと（共通 → 調査 → 原因元工事 → 復旧工事）。空の種類も返す
+  function groupPresets(presets) {
+    return PRESET_KINDS.map(kind => ({
+      kind, label: PRESET_KIND_LABEL[kind],
+      items: (presets || []).filter(p => p && p.kind === kind).sort(presetOrder)
+    }));
+  }
+  function nextPresetSort(presets, kind) {
+    const ss = (presets || []).filter(p => p && p.kind === kind).map(p => num(p.sort));
+    return ss.length ? Math.max(...ss) + 1 : 0;
+  }
+  // ↑↓: 同じ種類の中で dir（-1 / 1）へ1つ動かす。返り値は sort を変える行だけ [{ id, sort }]（並び = 0,1,2… に振り直す）
+  function movePreset(presets, id, dir) {
+    const me = (presets || []).find(p => p && p.id === id);
+    if (!me) return [];
+    const list = (presets || []).filter(p => p && p.kind === me.kind).sort(presetOrder);
+    const i = list.findIndex(p => p.id === id), j = i + dir;
+    if (j < 0 || j >= list.length) return [];
+    [list[i], list[j]] = [list[j], list[i]];
+    return list.map((p, k) => ({ id: p.id, sort: k, old: num(p.sort) })).filter(x => x.sort !== x.old).map(x => ({ id: x.id, sort: x.sort }));
+  }
+
   // ── 検証 ───────────────────────────────────────────────────────────────────
   function validate(est) {
     const errors = [];
@@ -323,7 +409,9 @@
     defaultNotes, buildNotes,
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
-    hankoParts, hankoCols, validate
+    hankoParts, hankoCols, validate,
+    PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
+    presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.EstimateLogic = api;

@@ -769,6 +769,49 @@
   .eu-quick{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;}
   .eu-quick .btn{min-height:40px;}
   .eu-quick .eu-pct input{width:72px;flex:none;padding:8px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
+  /* よく使う明細（定型・Task 11） */
+  .eu-pr{margin-top:4px;}
+  .eu-pr-ttl{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;}
+  .eu-pr-kinds{font-weight:400;}
+  .eu-pr-btn{display:inline-flex;align-items:center;gap:6px;max-width:100%;text-align:left;overflow-wrap:anywhere;}
+  .eu-pr-btn .eu-pr-amt{font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .eu-pr-btn.common{border-style:dashed;}
+  .eu-pr-acts{margin-top:6px;}
+  .eu-pr-msg:empty{display:none;}
+  .eu-pr-msg{margin-top:4px;}
+  .eu-more-menu{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px;padding-top:2px;}
+  body.eu-pr-open{overflow:hidden;}
+  .eu-pr-sheet.eu-pr-wide{max-width:680px;}
+  .eu-pr-sub{margin:-6px 0 10px;}
+  .eu-pr-pv{font-size:14px;font-weight:700;background:#f4f7fb;border-radius:10px;padding:9px 12px;margin-bottom:6px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
+  .eu-pr-pv-d{margin:-2px 0 8px;overflow-wrap:anywhere;}
+  .eu-pr-ff{margin-bottom:10px;min-width:0;}
+  .eu-pr-ff label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:3px;}
+  .eu-pr-ff input,.eu-pr-ff select{width:100%;min-width:0;padding:9px 10px;min-height:44px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .eu-pr-ff input.eu-num{text-align:right;font-variant-numeric:tabular-nums;}
+  .eu-pr-err:empty{display:none;}
+  .eu-pr-list{display:grid;gap:12px;margin-bottom:6px;}
+  .eu-pr-grp-h{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:6px;}
+  .eu-pr-none{margin:0 0 4px;}
+  .eu-pr-item{border:1px solid var(--border);border-radius:12px;padding:10px 12px 8px;margin-bottom:8px;background:#fff;min-width:0;}
+  .eu-pr-item.dirty{border-color:var(--amber);background:#fffdf6;}
+  .eu-pr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 8px;}
+  .eu-pr-grid .g-label,.eu-pr-grid .g-desc,.eu-pr-grid .g-detail,.eu-pr-grid .g-amt{grid-column:1/-1;}
+  .eu-pr-grid .eu-pr-ff{margin-bottom:6px;}
+  .eu-pr-ops{display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;}
+  .eu-pr-ops button.save{color:var(--green);}
+  .eu-pr-confirm{display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;background:#fff4f4;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:13px;}
+  .eu-pr-confirm>span{flex:1 1 200px;min-width:0;overflow-wrap:anywhere;}
+  .eu-pr-foot:empty{display:none;}
+  .eu-pr-foot{margin:4px 0 6px;}
+  @media(min-width:640px){
+    .eu-pr-grid{grid-template-columns:repeat(6,minmax(0,1fr));}
+    .eu-pr-grid .g-label{grid-column:span 4;}
+    .eu-pr-grid .g-kind{grid-column:span 2;}
+    .eu-pr-grid .g-desc,.eu-pr-grid .g-detail{grid-column:span 3;}
+    .eu-pr-grid .g-qty,.eu-pr-grid .g-unit{grid-column:span 1;}
+    .eu-pr-grid .g-amt{grid-column:span 4;}
+  }
   .eu-notes-first{font-size:13px;background:#f4f7fb;border-radius:10px;padding:9px 12px;margin-bottom:8px;overflow-wrap:anywhere;}
   .eu-note-row{display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:8px;align-items:center;margin-bottom:6px;}
   .eu-note-row input[type=text],.eu-note-row input[type=number]{width:100%;min-width:0;padding:8px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
@@ -803,9 +846,9 @@
   .eu-ro .eu-ln .c-qty .eu-pct{gap:2px;}
   .eu-ro .eu-lines-h{display:none;}
   @media(min-width:760px){
-    .eu-lines-h{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 172px;gap:8px;font-size:11px;font-weight:700;color:var(--muted);padding:0 4px 6px;border-bottom:1px solid var(--border);}
+    .eu-lines-h{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 214px;gap:8px;font-size:11px;font-weight:700;color:var(--muted);padding:0 4px 6px;border-bottom:1px solid var(--border);}
     .eu-lines-h .r{text-align:right;}
-    .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 172px;grid-template-areas:"no desc qty unit price amt ops" ". detail . . . . .";gap:4px 8px;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:8px 4px;margin:0;align-items:center;}
+    .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 214px;grid-template-areas:"no desc qty unit price amt ops" ". detail . . . . .";gap:4px 8px;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:8px 4px;margin:0;align-items:center;}
     .eu-ln .c-no{padding-top:0;text-align:center;}
     .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
     .eu-ln .c-price{text-align:right;font-size:13px;color:var(--text);}
@@ -1343,48 +1386,50 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=8efb0bb"></script>
-<script src="js/supabase-config.js?v=8efb0bb"></script>
-<script src="js/supabase.js?v=8efb0bb"></script>
-<script src="js/auth.js?v=8efb0bb"></script>
-<script src="js/storage.js?v=8efb0bb"></script>
-<script src="js/quota.js?v=8efb0bb"></script>
-<script src="js/case-logic.js?v=8efb0bb"></script>
-<script src="js/mail-templates.js?v=8efb0bb"></script>
-<script src="js/phase-logic.js?v=8efb0bb"></script>
-<script src="js/image.js?v=8efb0bb"></script>
-<script src="js/cases-api.js?v=8efb0bb"></script>
-<script src="js/clients-api.js?v=8efb0bb"></script>
-<script src="js/phases-api.js?v=8efb0bb"></script>
+<script src="js/crypto-util.js?v=d9e57b4"></script>
+<script src="js/supabase-config.js?v=d9e57b4"></script>
+<script src="js/supabase.js?v=d9e57b4"></script>
+<script src="js/auth.js?v=d9e57b4"></script>
+<script src="js/storage.js?v=d9e57b4"></script>
+<script src="js/quota.js?v=d9e57b4"></script>
+<script src="js/case-logic.js?v=d9e57b4"></script>
+<script src="js/mail-templates.js?v=d9e57b4"></script>
+<script src="js/phase-logic.js?v=d9e57b4"></script>
+<script src="js/image.js?v=d9e57b4"></script>
+<script src="js/cases-api.js?v=d9e57b4"></script>
+<script src="js/clients-api.js?v=d9e57b4"></script>
+<script src="js/phases-api.js?v=d9e57b4"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=8efb0bb"></script>
-<script src="js/reports-api.js?v=8efb0bb"></script>
-<script src="js/report-pdf.js?v=8efb0bb"></script>
-<script src="js/notice-logic.js?v=8efb0bb"></script>
-<script src="js/notices-api.js?v=8efb0bb"></script>
-<script src="js/notice-pdf.js?v=8efb0bb"></script>
-<script src="js/estimate-logic.js?v=8efb0bb"></script>
-<script src="js/estimates-api.js?v=8efb0bb"></script>
-<script src="js/estimate-pdf.js?v=8efb0bb"></script>
-<script src="js/case-list.js?v=8efb0bb"></script>
-<script src="js/clients-ui.js?v=8efb0bb"></script>
-<script src="js/case-detail.js?v=8efb0bb"></script>
-<script src="js/phase-ui.js?v=8efb0bb"></script>
-<script src="js/phase-detail.js?v=8efb0bb"></script>
-<script src="js/billing-ui.js?v=8efb0bb"></script>
-<script src="js/team.js?v=8efb0bb"></script>
-<script src="js/timeline.js?v=8efb0bb"></script>
-<script src="js/report-form.js?v=8efb0bb"></script>
-<script src="js/report-ui.js?v=8efb0bb"></script>
-<script src="js/report-share.js?v=8efb0bb"></script>
-<script src="js/report-edit.js?v=8efb0bb"></script>
-<script src="js/mail-ui.js?v=8efb0bb"></script>
-<script src="js/outbox-ui.js?v=8efb0bb"></script>
-<script src="js/staff-inbox.js?v=8efb0bb"></script>
-<script src="js/notice-ui.js?v=8efb0bb"></script>
-<script src="js/notice-edit.js?v=8efb0bb"></script>
-<script src="js/estimate-ui.js?v=8efb0bb"></script>
-<script src="js/app.js?v=8efb0bb"></script>
+<script src="js/report-logic.js?v=d9e57b4"></script>
+<script src="js/reports-api.js?v=d9e57b4"></script>
+<script src="js/report-pdf.js?v=d9e57b4"></script>
+<script src="js/notice-logic.js?v=d9e57b4"></script>
+<script src="js/notices-api.js?v=d9e57b4"></script>
+<script src="js/notice-pdf.js?v=d9e57b4"></script>
+<script src="js/estimate-logic.js?v=d9e57b4"></script>
+<script src="js/estimates-api.js?v=d9e57b4"></script>
+<script src="js/estimate-pdf.js?v=d9e57b4"></script>
+<script src="js/estimate-presets-api.js?v=d9e57b4"></script>
+<script src="js/estimate-presets.js?v=d9e57b4"></script>
+<script src="js/case-list.js?v=d9e57b4"></script>
+<script src="js/clients-ui.js?v=d9e57b4"></script>
+<script src="js/case-detail.js?v=d9e57b4"></script>
+<script src="js/phase-ui.js?v=d9e57b4"></script>
+<script src="js/phase-detail.js?v=d9e57b4"></script>
+<script src="js/billing-ui.js?v=d9e57b4"></script>
+<script src="js/team.js?v=d9e57b4"></script>
+<script src="js/timeline.js?v=d9e57b4"></script>
+<script src="js/report-form.js?v=d9e57b4"></script>
+<script src="js/report-ui.js?v=d9e57b4"></script>
+<script src="js/report-share.js?v=d9e57b4"></script>
+<script src="js/report-edit.js?v=d9e57b4"></script>
+<script src="js/mail-ui.js?v=d9e57b4"></script>
+<script src="js/outbox-ui.js?v=d9e57b4"></script>
+<script src="js/staff-inbox.js?v=d9e57b4"></script>
+<script src="js/notice-ui.js?v=d9e57b4"></script>
+<script src="js/notice-edit.js?v=d9e57b4"></script>
+<script src="js/estimate-ui.js?v=d9e57b4"></script>
+<script src="js/app.js?v=d9e57b4"></script>
 </body>
 </html>

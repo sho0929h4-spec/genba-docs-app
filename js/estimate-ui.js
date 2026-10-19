@@ -7,6 +7,7 @@
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert は使わない（画面内に出す）。
 // mk() は case-list.js、dBtn / errText / currentCase は case-detail.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
 // 計算・文言は EstimateLogic、DB は EstimatesApi（版管理・送付・承諾は Task 5 でこの画面に足す）、紙面は EstimatePdf。
+// 「よく使う明細」（定型・Task 11）は js/estimate-presets.js（クイック追加の下のボタン列・行の「…」→ 登録・編集シート）。
 //
 // 編集は draft のみ。提出済み以降（issued/sent/accepted/superseded）は読み取り専用で表示する。
 // 明細は1つの DOM を CSS で切り替える（760px以上=表、未満=行カード）。金額が正、単価は表示だけ（EstimateLogic.unitPrice）。
@@ -501,6 +502,8 @@ function eueBuild(s) {
   els.qMsg = mk('div', 'err');
   els.qMsg.id = 'eu-q-msg';
   c2.appendChild(els.qMsg);
+  // よく使う明細（定型・Task 11）: 見積のフェーズの種類＋共通のボタン。読み取り専用では出さない
+  if (!ro) c2.appendChild(EstimatePresets.section(s, { add: p => eueAddPreset(s, p) }));
   els.adj = eueCheck('eu-adjust', '税込合計を00に（端数を値引きで調整。明細を変えると取り直します）', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
   els.adj.style.marginTop = '8px';
   c2.appendChild(els.adj);
@@ -845,10 +848,42 @@ function eueLineEl(s, l, i, n, editable) {
     mkOp('↓', (i + 1) + '行目を下へ', 'down', () => eueMove(s, id, 1), ei >= editable.length - 1);
     mkOp('複製', (i + 1) + '行目を複製', 'dup', () => eueDupLine(s, id));
     mkOp('削除', (i + 1) + '行目を削除', 'del', () => eueDelLine(s, id));
+    // 「…」: その他の操作（よく使う明細に登録）。行の下に小さなメニューを開く・もう一度押すと閉じる
+    mkOp('…', (i + 1) + '行目のその他の操作', 'more', () => eueMoreMenu(s, id, row));
   }
   if (s.readOnly) ops.hidden = true; // ↑↓・複製・削除・外すは読み取り専用では出さない
   row.appendChild(ops);
   return row;
+}
+
+// 行の「…」メニュー（入力の無いメニュー。もう一度「…」を押すか、項目を押すと閉じる）
+function eueMoreMenu(s, id, row) {
+  const open = row.querySelector('.eu-more-menu');
+  const btn = row.querySelector('.c-ops .more');
+  s.els.lines.querySelectorAll('.eu-more-menu').forEach(m => { m.remove(); });
+  s.els.lines.querySelectorAll('.c-ops .more[aria-expanded]').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+  if (open || s.readOnly) return;
+  const menu = mk('div', 'eu-more-menu');
+  const reg = dBtn('★ よく使う明細に登録', 'btn sm ghost inline eu-more-reg', () => {
+    menu.remove();
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    const ln = eueLine(s, id);
+    if (ln) EstimatePresets.openRegister(s, ln);
+  });
+  menu.appendChild(reg);
+  row.appendChild(menu);
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  reg.focus({ preventScroll: true });
+}
+// よく使う明細のボタン: 定型の行を末尾に足す（空の行は除く＝クイック追加と同じ）。金額が0なら金額の欄へ（入力待ち）
+function eueAddPreset(s, preset) {
+  if (s.readOnly) return;
+  const l = EstimateLogic.presetToLine(preset);
+  s.lines = s.lines.filter(x => EstimateLogic.isRealLine(x) || x.isAutoShokehi || eueIsAdj(x)).concat([l]);
+  s.els.qMsg.textContent = '';
+  eueLinesRebuilt(s);
+  const el = s.els.lines.querySelector('[data-id="' + l.id + '"] .eu-amt');
+  if (el && !l.amount) el.focus({ preventScroll: false });
 }
 
 function eueAddLine(s) {
