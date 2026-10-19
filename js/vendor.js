@@ -7,7 +7,7 @@
 //   ・anon ができるのは share_open / share_submit と、自分の share フォルダへの写真の新規アップロードだけ
 //     （DB: migration 009/010。ファイル名は英数._- で .jpg、100件まで、上書き不可、読み取り・削除不可）。
 // 入力欄は ⑥ と同じもの（js/report-form.js の rfBuildForm を共有。作業者欄なし・作業区分は発行時に決まっていて変更不可）。
-// 入力内容と写真リスト（path, name, caption, phase）は localStorage `share-{share_id}` に保存して再読込で復元する。
+// 入力内容と写真リスト（path, name, caption, phase, marks）は localStorage `share-{share_id}` に保存して再読込で復元する。
 // 写真のプレビューはこの端末で選んだ写真（blob URL）だけ。anon は Storage から読めないので、再読込後はプレビューなし。
 // PDFプレビューは出さない（anon は署名URLを作れず、ロゴ・写真を PDF に載せられないため。PDF は提出後に社内で作る）。
 (() => {
@@ -116,7 +116,7 @@
     lsSet(s.key, {
       t: Date.now(),
       f: { room: f.room, work_date: f.work_date, time_start: f.time_start, time_end: f.time_end, data: f.data },
-      photos: s.report.photos.map(p => ({ path: p.path, name: p.name, caption: p.caption || '', phase: p.phase || '' }))
+      photos: s.report.photos.map(p => ({ path: p.path, name: p.name, caption: p.caption || '', phase: p.phase || '', marks: PhotoMarks.normalize(p.marks) }))
     });
   }
   // 壊れた値・他の share の写真は捨てる
@@ -136,7 +136,8 @@
       path: p.path,
       name: typeof p.name === 'string' ? p.name.slice(0, 120) : '',
       caption: typeof p.caption === 'string' ? p.caption.slice(0, 200) : '',
-      phase: typeof p.phase === 'string' && Object.prototype.hasOwnProperty.call(ReportLogic.PHASES, p.phase) ? p.phase : ''
+      phase: typeof p.phase === 'string' && Object.prototype.hasOwnProperty.call(ReportLogic.PHASES, p.phase) ? p.phase : '',
+      marks: PhotoMarks.normalize(p.marks)
     }));
     return true;
   }
@@ -215,15 +216,34 @@
     rfRenderPhotos(s, {
       thumb(p, i) {
         const url = s.blobs.get(p.path);
+        const nMarks = PhotoMarks.normalize(p.marks).length;
         if (!url) {
-          const box = el('div', 'rep-ph-img rep-ph-none', 'アップロード済み（プレビューなし）');
+          const box = el('div', 'rep-ph-img rep-ph-none', 'アップロード済み（プレビューなし）' + (nMarks ? '・印 ' + nMarks + '個' : ''));
           box.setAttribute('aria-label', 'No.' + (i + 1));
           return box;
         }
         const img = el('img', 'rep-ph-img');
         img.alt = 'No.' + (i + 1);
         img.src = url;
+        if (nMarks) PhotoMarkEditor.thumbSrc(url, p.marks).then(u => { if (img.isConnected) img.src = u; });
         return img;
+      },
+      // 印（Task 14）: この端末で選んだ写真（プレビューがあるもの）だけ付けられる。保存は端末（localStorage）に。提出で送る
+      canMark: p => s.blobs.has(p.path),
+      mark(i) {
+        const p = s.report.photos[i];
+        if (!p || s.photoBusy || s.submitting || s.done || !s.blobs.has(p.path)) return;
+        PhotoMarkEditor.open({
+          src: s.blobs.get(p.path),
+          marks: p.marks,
+          title: 'No.' + (i + 1) + ' に印を付ける',
+          onSave: async marks => {
+            if (s.done) throw new Error('提出済みです');
+            p.marks = marks;
+            saveLocal();
+          },
+          onClose: () => { if (s && !s.done) renderPhotos(); }
+        });
       },
       move(i, dir) {
         const a = s.report.photos, j = i + (dir < 0 ? -1 : 1);
@@ -282,7 +302,12 @@
   async function submit() {
     if (!s || s.photoBusy || s.submitting || s.done) return;
     const f = s.f;
-    const photos = s.report.photos.map(p => ({ path: p.path, name: p.name || '', caption: p.caption || '', phase: p.phase || '' }));
+    const photos = s.report.photos.map(p => {
+      const o = { path: p.path, name: p.name || '', caption: p.caption || '', phase: p.phase || '' };
+      const marks = PhotoMarks.normalize(p.marks);
+      if (marks.length) o.marks = marks;
+      return o;
+    });
     const cur = { work_type: f.work_type, room: f.room, work_date: f.work_date, time_start: f.time_start, time_end: f.time_end, data: f.data, photos };
     const { errors, warnings } = ReportLogic.validate(cur);
     showVal(errors, warnings);

@@ -25,7 +25,7 @@ function edLsGet(id) {
 }
 function edLsSet(s) {
   try {
-    const photos = (s.report.photos || []).map(p => ({ path: p.path, caption: p.caption || '', phase: p.phase || '' }));
+    const photos = (s.report.photos || []).map(p => ({ path: p.path, caption: p.caption || '', phase: p.phase || '', marks: PhotoMarks.normalize(p.marks) }));
     localStorage.setItem(edKey(s.id), JSON.stringify({ t: Date.now(), base: s.report.updated_at || null, f: edCollect(s), photos }));
   } catch (e) { /* 容量不足など。サーバ保存が本線 */ }
 }
@@ -258,15 +258,46 @@ function edRenderPhotos(s) {
       const img = mk('img', 'rep-ph-img');
       img.alt = 'No.' + (i + 1);
       img.loading = 'lazy';
-      edPhotoUrl(s, p.path).then(u => { if (ed === s && img.isConnected) img.src = u; }).catch(() => { /* 灰色の枠のまま */ });
+      edPhotoUrl(s, p.path).then(u => PhotoMarkEditor.thumbSrc(u, p.marks))
+        .then(u => { if (ed === s && img.isConnected) img.src = u; }).catch(() => { /* 灰色の枠のまま */ });
       return img;
     },
+    mark: i => edOpenMarks(s, i),
     move: (i, dir) => edPhotoOp(s, () => ReportsApi.movePhoto(s.report, i, dir)),
     remove(i) {
       if (s.photoBusy || !confirm('この写真を削除しますか？')) return;
       edPhotoOp(s, () => ReportsApi.removePhoto(s.report, i));
     },
     after: () => edSyncPhotoDisabled(s)
+  });
+}
+
+// 印（Task 14）: 空なら marks を持たせない（印のない写真は今までと同じ形）
+function edSetMarks(p, marks) {
+  if (marks && marks.length) p.marks = marks;
+  else delete p.marks;
+}
+// 写真に印を付ける全画面シート。保存は写真のキャプションと同じ自動保存の道（photos ごと送る）を、終わるまで待つ
+async function edOpenMarks(s, i) {
+  if (s.photoBusy || s.ro || s.submitting) return;
+  const p = (s.report.photos || [])[i];
+  if (!p) return;
+  let url;
+  try { url = await edPhotoUrl(s, p.path); }
+  catch (e) { edPhotoMsg(s, '写真を読み込めませんでした: ' + errText(e), true); return; }
+  if (ed !== s || s.ro) return;
+  PhotoMarkEditor.open({
+    src: url,
+    marks: p.marks,
+    title: 'No.' + (i + 1) + ' に印を付ける',
+    async onSave(marks) {
+      if (ed !== s || s.ro) throw new Error('この報告書は今は変更できません');
+      edSetMarks(p, marks);
+      edMarkDirty(s, true);
+      await edFlush(s);
+      if (edPending(s)) throw new Error(s.saveErr || '通信を確認して、もう一度「保存」を押してください');
+    },
+    onClose: () => { if (ed === s) edRenderPhotos(s); }
   });
 }
 
@@ -472,7 +503,7 @@ function edSameStamp(a, b) {
   const x = Date.parse(a), y = Date.parse(b);
   return Number.isFinite(x) && x === y;
 }
-// 退避の写真は「パスが一致するものの キャプション/区分だけ」戻す（増減は戻さない）。変えたものがあれば true
+// 退避の写真は「パスが一致するものの キャプション/区分/印だけ」戻す（増減は戻さない）。変えたものがあれば true
 function edApplyPhotoDraft(photos, saved) {
   if (!Array.isArray(saved)) return false;
   let changed = false;
@@ -482,6 +513,10 @@ function edApplyPhotoDraft(photos, saved) {
     const cap = typeof sp.caption === 'string' ? sp.caption : (p.caption || '');
     const ph = typeof sp.phase === 'string' ? sp.phase : (p.phase || '');
     if ((p.caption || '') !== cap || (p.phase || '') !== ph) { p.caption = cap; p.phase = ph; changed = true; }
+    if (Array.isArray(sp.marks)) {
+      const mk2 = PhotoMarks.normalize(sp.marks);
+      if (JSON.stringify(mk2) !== JSON.stringify(PhotoMarks.normalize(p.marks))) { edSetMarks(p, mk2); changed = true; }
+    }
   });
   return changed;
 }

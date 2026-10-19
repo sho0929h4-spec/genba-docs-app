@@ -4,7 +4,7 @@
 // buildPhotoPage と 1019–1054行の .rp-* CSS）から写したもの。新規はワイヤーフレーム⑩（ロゴ＋会社名、
 // 現場住所・元請け・作業者、フッタの会社連絡先とページ番号 n / N）。
 // ユーザー入力が入るので、描画はすべて createElement + textContent（innerHTML は使わない）。
-// 依存: ReportLogic（js/report-logic.js）、PDF 化だけ html2canvas 1.4.1 / jsPDF 2.5.1（index.html で読み込む）
+// 依存: ReportLogic（js/report-logic.js）、写真の印は PhotoMarks（js/photo-marks.js。無ければ印なし）、PDF 化だけ html2canvas 1.4.1 / jsPDF 2.5.1（index.html で読み込む）
 (function () {
   const RL = () => window.ReportLogic;
   const A4_PX = 794;       // 210mm @96dpi（旧 fitReportToWidth 913行）
@@ -263,6 +263,9 @@
         const img = imgEl(trim(ph.url), '', `No.${num}`);
         img.style.objectFit = fit;
         img.dataset.fit = fit;
+        // 印（Task 14）: 元の写真はそのまま。applyMarks が写真に印を重ねた画像に差し替える
+        const marks = window.PhotoMarks ? window.PhotoMarks.normalize(ph.marks) : [];
+        if (marks.length) { img._marks = marks; img.dataset.marks = String(marks.length); }
         watchFail(img);
         box.appendChild(img);
       } else {
@@ -278,6 +281,23 @@
     foot.appendChild(el('span', 'rp-pno'));
     page.appendChild(foot);
     return page;
+  }
+
+  /* ===== 写真の印（Task 14） ===== */
+  // 印のある写真を、canvas で印を重ねた画像（data URL）に差し替える（丸＝楕円、矢印＝線＋三角、コメント＝白地に赤文字の札。
+  // 線は写真の短辺の 1%・最低 3px。描き方は js/photo-marks.js の drawMarks）。元の写真（Storage のファイル）は変えない。
+  // 合成できなかったとき（読み込み失敗など）は元の写真のまま（読み込み失敗は watchFail の表示になる）。
+  const MARK_MAX_EDGE = 2400; // 合成画像の長辺の上限（PDF の写真枠には十分。メモリ節約）
+  function applyMarks(root) {
+    if (!window.PhotoMarks) return Promise.resolve();
+    const jobs = Array.from(root.querySelectorAll('.rp-cimg img')).filter(img => img._marks && !img._marking).map(img => {
+      img._marking = true;
+      const src = img.getAttribute('src');
+      return window.PhotoMarks.compose(src, img._marks, { maxEdge: MARK_MAX_EDGE, quality: 0.92 })
+        .then(url => { if (img.getAttribute('src') === src) { img.src = url; img.dataset.marked = '1'; } })
+        .catch(() => { /* 元の写真のまま */ });
+    });
+    return Promise.all(jobs);
   }
 
   /* ===== 公開: ページ一式 ===== */
@@ -442,6 +462,7 @@
       if (!img.complete) img.addEventListener('load', () => fit(container), { once: true });
     }));
     fit(container);
+    applyMarks(container);
     return pages;
   }
 
@@ -518,6 +539,7 @@
       canvas.width = canvas.height = 0;
     };
     const ready = async () => {
+      await applyMarks(host); // 印のある写真は印を重ねた画像に差し替えてから撮る
       await waitImages(host);
       if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) { /* 無視 */ } }
       layoutPhotos(host);

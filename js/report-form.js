@@ -385,7 +385,7 @@ function edApplyMode(s) {
 }
 
 /* ---------- 写真の一覧 ---------- */
-// h: { thumb(p, i) → 要素, move(i, dir), remove(i), after() }
+// h: { thumb(p, i) → 要素, move(i, dir), remove(i), after(), mark(i)（印の編集シートを開く。任意）, canMark(p)（任意） }
 //   キャプション/区分の変更は p を直接書き換えて onDirty(s, true)
 function rfRenderPhotos(s, h) {
   const T = ReportLogic.TEXT;
@@ -400,7 +400,22 @@ function rfRenderPhotos(s, h) {
   const rows = photos.map((p, i) => {
     const row = rfMk('div', 'rep-ph' + (s.ro ? ' ro' : ''));
     row.dataset.i = String(i);
-    row.appendChild(h.thumb(p, i));
+    // サムネイル＋「印を付ける」（Task 14。h.mark があり、読み取り専用でなく、h.canMark(p) が真のとき）
+    const tw = rfMk('div', 'rep-ph-t');
+    const th = h.thumb(p, i);
+    tw.appendChild(th);
+    if (h.mark && !s.ro && (!h.canMark || h.canMark(p))) {
+      const n = Array.isArray(p.marks) ? p.marks.length : 0;
+      const mb = rfMk('button', 'rep-ph-mark' + (n ? ' has' : ''), n ? '✏ 印 ' + n + '個' : '✏ 印を付ける');
+      mb.type = 'button';
+      mb.dataset.mv = 'mark';
+      mb.setAttribute('aria-label', 'No.' + (i + 1) + ' に印を付ける');
+      mb.addEventListener('click', () => h.mark(i));
+      tw.appendChild(mb);
+      th.classList.add('pme-open');
+      th.addEventListener('click', () => { if (!mb.disabled) h.mark(i); });
+    }
+    row.appendChild(tw);
 
     const f = rfMk('div', 'rep-ph-f');
     const cap = document.createElement('input');
