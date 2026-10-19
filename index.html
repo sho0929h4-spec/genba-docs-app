@@ -810,32 +810,71 @@
   .eu-head>*{min-width:0;}
   .eu-head b{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
   .eu-cli{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:0 10px;}
+  /* 明細の表（Task 15。旧ツールと同じ列: 並び替え／摘要＋詳細（2行目・薄い）／数量／単位／単価（表示のみ）／金額／複製・削除。1行=2行分の高さ）
+     640px未満は 摘要・詳細の下に 数量・単位・金額、その下に単価。並び替えは 1100px以上=⠿ のドラッグ、未満=↑↓ */
   .eu-lines-h{display:none;}
-  .eu-ln{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"no price" "desc desc" "detail detail" "qty unit" "amt amt" "ops ops";gap:6px 10px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff;min-width:0;}
+  .eu-lines{border-top:1px solid var(--border);}
+  .eu-ln{display:grid;grid-template-columns:36px 64px 56px minmax(0,1fr) 36px;grid-template-areas:"hd desc desc desc ops" "hd detail detail detail ops" "more qty unit amt amt" ". price price price price";gap:4px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);background:#fff;min-width:0;}
   .eu-ln.auto{background:#f7faff;}
   .eu-ln.adj{background:#fdf8ef;}
   .eu-ln>*{min-width:0;}
-  .eu-ln .c-no{grid-area:no;font-size:12px;font-weight:700;color:var(--muted);}
+  .eu-ln .c-hd{grid-area:hd;align-self:stretch;display:flex;flex-direction:column;gap:4px;justify-content:center;align-items:center;}
   .eu-ln .c-desc{grid-area:desc;}
   .eu-ln .c-detail{grid-area:detail;}
   .eu-ln .c-qty{grid-area:qty;}
   .eu-ln .c-unit{grid-area:unit;}
-  .eu-ln .c-price{grid-area:price;align-self:center;text-align:right;font-size:12px;color:var(--muted);}
+  .eu-ln .c-price{grid-area:price;text-align:right;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;}
   .eu-ln .c-amt{grid-area:amt;}
-  .eu-ln .c-ops{grid-area:ops;display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;}
-  .eu-ln label.eu-l{display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;}
-  .eu-ln input{width:100%;min-width:0;padding:8px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
-  .eu-ln input.eu-num{text-align:right;}
+  .eu-ln .c-ops{grid-area:ops;align-self:stretch;display:flex;flex-direction:column;gap:4px;justify-content:center;}
+  .eu-ln .c-more{grid-area:more;display:flex;justify-content:flex-end;}
+  .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+  .eu-ln input{display:block;width:100%;min-width:0;height:36px;min-height:36px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .eu-ln input:focus{outline:2px solid var(--navy2);outline-offset:-1px;border-color:var(--navy2);}
+  .eu-ln input.eu-num{text-align:right;padding:4px 6px;}
+  .eu-ln input.eu-unit{padding:4px 6px;}
+  .eu-ln input.eu-unit::-webkit-calendar-picker-indicator{display:none !important;} /* 候補（datalist）の矢印が幅を取って単位が隠れるため */
   .eu-ln input:disabled,.eu-ln input[readonly]{background:#f4f6f9;color:var(--text);}
-  .eu-ln .c-detail input{font-size:16px;color:var(--muted);}
-  .eu-pct{display:flex;align-items:center;gap:4px;}
+  .eu-ln .c-detail input{color:var(--muted);background:#fafbfd;}
+  .eu-ln.auto .c-detail input,.eu-ln.adj .c-detail input{background:#fff;}
+  .eu-ln .c-amt input{font-weight:700;}
+  .eu-ln.row-dragging{opacity:.45;}
+  .eu-ln.drop-before{box-shadow:inset 0 3px 0 var(--navy2);}
+  .eu-ln.drop-after{box-shadow:inset 0 -3px 0 var(--navy2);}
+  .eu-adj-tag{font-size:11px;font-weight:700;color:var(--amber);}
+  .eu-pct{display:flex;align-items:center;gap:2px;}
   .eu-pct input{flex:1;}
-  .eu-ops button{min-width:36px;min-height:36px;border:1.5px solid var(--border);background:#fff;border-radius:8px;color:var(--navy);font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;padding:0 8px;}
+  .eu-ops button{min-width:36px;min-height:36px;border:1px solid var(--border);background:#fff;border-radius:6px;color:var(--navy);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;padding:0 6px;line-height:1;}
+  .eu-ops button:hover:not(:disabled){border-color:var(--navy2);background:#f4f7fb;}
   .eu-ops button.del{color:var(--red);}
-  .eu-ops button:disabled{opacity:.4;cursor:default;}
+  .eu-ops button:disabled{opacity:.35;cursor:default;}
+  .eu-ln .c-ops button{width:36px;padding:0;}
+  .eu-drag{display:none;}
+  .eu-add-row{display:block;width:100%;min-height:40px;margin-top:8px;border:1.5px dashed var(--border);border-radius:8px;background:#fff;color:var(--muted);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;}
+  .eu-add-row:hover{border-color:var(--navy2);color:var(--navy);background:#f7faff;}
   .eu-quick{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;}
   .eu-quick .btn{min-height:40px;}
-  .eu-quick .eu-pct input{width:72px;flex:none;padding:8px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
+  .eu-q-btn{display:inline-flex;align-items:baseline;gap:6px;}
+  .eu-q-sub{font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap;}
+  .eu-q-shokehi{display:inline-flex;align-items:center;gap:6px;}
+  .eu-quick .eu-pct input{width:56px;flex:none;padding:6px 8px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
+  .eu-quick .nu-chk.eu-adj-chk{gap:8px;min-height:40px;padding:0 12px;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-size:14px;font-weight:700;color:var(--navy);}
+  .eu-quick .nu-chk.eu-adj-chk input{width:20px;height:20px;}
+  @media(min-width:640px){
+    .eu-lines{border-top:0;}
+    .eu-lines-h{display:grid;grid-template-columns:36px minmax(0,1fr) 52px 46px 62px 92px 36px;gap:4px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 0 5px;border-bottom:1px solid var(--border);margin-top:4px;}
+    .eu-lines-h .r{text-align:right;padding-right:6px;}
+    .eu-ln{grid-template-columns:36px minmax(0,1fr) 52px 46px 62px 92px 36px;grid-template-areas:"hd desc qty unit price amt ops" "hd detail detail detail detail more ops";padding:5px 0;}
+    .eu-ln .c-price{font-size:13px;line-height:36px;align-self:start;color:var(--text);padding-right:2px;}
+    .eu-ln .c-price .eu-l2{display:none;}
+  }
+  @media(min-width:1100px){
+    .eu-lines-h{grid-template-columns:24px minmax(0,1fr) 52px 46px 62px 92px 36px;}
+    .eu-ln{grid-template-columns:24px minmax(0,1fr) 52px 46px 62px 92px 36px;}
+    .eu-ln .c-hd .up,.eu-ln .c-hd .down{display:none;}
+    .eu-ops .eu-drag{display:flex;align-items:center;justify-content:center;width:24px;min-width:24px;height:100%;min-height:76px;padding:0;border:0;border-radius:4px;background:none;color:#a3b1c2;font-size:18px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}
+    .eu-ops .eu-drag:hover,.eu-ops .eu-drag:focus-visible{color:var(--navy2);background:#eef3f9;}
+    .eu-drag:active{cursor:grabbing;}
+  }
   /* よく使う明細（定型・Task 11） */
   .eu-pr{margin-top:4px;}
   .eu-pr-ttl{display:flex;gap:6px;flex-wrap:wrap;align-items:baseline;}
@@ -879,9 +918,12 @@
     .eu-pr-grid .g-qty,.eu-pr-grid .g-unit{grid-column:span 1;}
     .eu-pr-grid .g-amt{grid-column:span 4;}
   }
-  .eu-notes-first{font-size:13px;background:#f4f7fb;border-radius:10px;padding:9px 12px;margin-bottom:8px;overflow-wrap:anywhere;}
-  .eu-note-row{display:grid;grid-template-columns:minmax(0,170px) minmax(0,1fr);gap:8px;align-items:center;margin-bottom:6px;}
-  .eu-note-row input[type=text],.eu-note-row input[type=number]{width:100%;min-width:0;padding:8px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
+  .eu-notes-first{display:flex;gap:8px;align-items:flex-start;font-size:13px;background:#f4f7fb;border-radius:10px;padding:9px 12px;margin-bottom:10px;overflow-wrap:anywhere;}
+  .eu-req{flex:none;font-size:11px;font-weight:700;line-height:1.5;color:#fff;background:var(--navy);border-radius:4px;padding:0 6px;margin-top:1px;}
+  .eu-note-opts{border:1px solid var(--border);border-radius:10px;padding:0 12px;}
+  .eu-note-row{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:8px;align-items:center;padding:6px 0;}
+  .eu-note-row+.eu-note-row{border-top:1px solid var(--border);}
+  .eu-note-row input[type=text],.eu-note-row input[type=number]{width:100%;min-width:0;padding:6px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
   .eu-note-koki{display:flex;align-items:center;gap:6px;}
   .eu-note-koki input{max-width:90px;}
   .eu-notes-pv{white-space:pre-wrap;font-size:12px;color:var(--muted);border:1px dashed var(--border);border-radius:10px;padding:8px 10px;margin-top:8px;overflow-wrap:anywhere;}
@@ -899,33 +941,51 @@
   .eu-ro input:disabled,.eu-ro select:disabled,.eu-ro textarea:disabled{border-color:#eef2f7;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);opacity:1;}
   .eu-ro select:disabled{-webkit-appearance:none;appearance:none;}
   .eu-ro input[type=checkbox]:disabled{opacity:.7;}
-  .eu-ro .eu-ln{grid-template-columns:24px 3.6em 3.4em minmax(0,1fr);grid-template-areas:"no desc desc desc" ". detail detail detail" ". qty unit amt";gap:2px 6px;padding:8px 10px;margin-bottom:8px;}
-  .eu-ro .eu-ln.no-detail{grid-template-areas:"no desc desc desc" ". qty unit amt";}
+  .eu-ro .eu-lines-h.ro .h-hd,.eu-ro .eu-lines-h.ro .h-ops{display:none;}
+  .eu-ro .eu-ln{grid-template-columns:64px 56px minmax(0,1fr);grid-template-areas:"desc desc desc" "detail detail detail" "qty unit amt";gap:2px 6px;padding:6px 0;}
+  .eu-ro .eu-ln.no-detail{grid-template-areas:"desc desc desc" "qty unit amt";}
   .eu-ro .eu-ln.no-detail .c-detail{display:none;}
   .eu-ro .eu-ln .c-price{display:none;}
-  .eu-ro .eu-ln .c-ops{display:none;}
-  .eu-ro .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
-  .eu-ro .eu-ln input{min-height:32px;padding:4px 6px;}
+  .eu-ro .eu-ln input{min-height:32px;height:32px;padding:4px 6px;}
   .eu-ro .eu-ln .c-desc input{font-weight:700;}
-  .eu-ro .eu-ln .c-amt input{font-weight:700;}
-  .eu-ro .eu-ln .c-qty input{padding-right:2px;}
-  .eu-ro .eu-ln .c-unit input{padding-left:2px;}
-  .eu-ro .eu-ln .c-qty .eu-pct{gap:2px;}
-  .eu-ro .eu-lines-h{display:none;}
-  @media(min-width:760px){
-    .eu-lines-h{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 214px;gap:8px;font-size:11px;font-weight:700;color:var(--muted);padding:0 4px 6px;border-bottom:1px solid var(--border);}
-    .eu-lines-h .r{text-align:right;}
-    .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px 214px;grid-template-areas:"no desc qty unit price amt ops" ". detail . . . . .";gap:4px 8px;border:0;border-bottom:1px solid var(--border);border-radius:0;padding:8px 4px;margin:0;align-items:center;}
-    .eu-ln .c-no{padding-top:0;text-align:center;}
-    .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
-    .eu-ln .c-price{text-align:right;font-size:13px;color:var(--text);}
-    .eu-ln .c-price .eu-l2{display:none;}
-    .eu-ln .c-ops{flex-wrap:nowrap;}
-    .eu-ro .eu-lines-h.ro{display:grid;grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px;}
-    .eu-ro .eu-lines-h.ro>div:last-child{display:none;}
-    .eu-ro .eu-ln{grid-template-columns:30px minmax(0,1fr) 82px 70px 96px 128px;grid-template-areas:"no desc qty unit price amt" ". detail . . . .";gap:4px 8px;padding:8px 4px;margin:0;border:0;border-bottom:1px solid var(--border);border-radius:0;}
-    .eu-ro .eu-ln.no-detail{grid-template-areas:"no desc qty unit price amt";}
+  @media(min-width:640px){
+    .eu-ro .eu-lines-h.ro,.eu-ro .eu-ln{grid-template-columns:minmax(0,1fr) 52px 46px 62px 92px;}
+    .eu-ro .eu-ln{grid-template-areas:"desc qty unit price amt" "detail detail detail detail .";}
+    .eu-ro .eu-ln.no-detail{grid-template-areas:"desc qty unit price amt";}
     .eu-ro .eu-ln .c-price{display:block;}
+  }
+  /* 見積の並び（Task 15・js/estimate-layout.js）: PC=上のバー＋左 入力 520px／右 紙面、スマホ=1段＋紙面の折りたたみ */
+  .eu-split{display:block;min-width:0;}
+  .eu-left{min-width:0;}
+  .eu-pv{margin-top:4px;min-width:0;}
+  .eu-pv-toggle{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;min-height:48px;padding:10px 16px;background:#fff;border:1px solid var(--border);border-radius:14px;font-family:inherit;font-size:15px;font-weight:700;color:var(--navy);cursor:pointer;text-align:left;}
+  .eu-pv-state{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;}
+  .eu-pv-body{display:none;margin-top:8px;background:#d8dfe8;border-radius:12px;padding:12px;min-width:0;}
+  .eu-pv.open .eu-pv-body{display:block;}
+  .eu-pv-h{display:none;font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .eu-pv-pages{display:flex;flex-direction:column;align-items:center;gap:16px;min-width:0;}
+  .eu-sheet{position:relative;flex:none;overflow:hidden;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.14);}
+  .eu-sheet .es-page{position:absolute;left:0;top:0;box-shadow:none;}
+  .eu-top-slot:empty{display:none;}
+  @media(min-width:1100px){
+    #screen-estimate.active{display:flex;flex-direction:column;height:100vh;height:100dvh;padding-bottom:0;overflow:hidden;}
+    #screen-estimate .hdr{flex:none;}
+    #screen-estimate .eu-bar{display:none !important;}
+    #estimate-root.eu-split-on{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:0;display:flex;flex-direction:column;}
+    #estimate-root.eu-split-on .eu-topbar{flex:none;display:flex;align-items:center;flex-wrap:nowrap;gap:12px;margin:0;padding:8px 20px;min-height:56px;background:#fff;border-bottom:1px solid var(--border);}
+    .eu-topbar>.rep-acts{flex:1;min-width:0;}
+    .eu-top-slot{display:flex;flex:none;}
+    .eu-top-slot .eu-btns{gap:8px;}
+    .eu-top-slot .eu-btns .btn{flex:none;width:auto;max-width:none;min-height:40px;padding:8px 20px;font-size:14px;}
+    .eu-split{flex:1;min-height:0;display:grid;grid-template-columns:520px minmax(0,1fr);}
+    .eu-left{overflow-y:auto;padding:14px 12px 48px;border-right:1px solid var(--border);}
+    .eu-left .rep-card{padding:12px 12px;}
+    .eu-pv{margin:0;overflow-y:auto;background:#d8dfe8;}
+    .eu-pv-toggle{display:none;}
+    .eu-pv-body,.eu-pv.open .eu-pv-body{display:block;margin:0;border-radius:0;padding:14px 24px 40px;background:transparent;}
+    .eu-pv-h{display:block;}
+    .eu-pv-pages{gap:20px;}
+    .eu-notes-pv{display:none;}
   }
   @media(max-width:420px){ .eu-cli{grid-template-columns:minmax(0,1fr) 80px;} .eu-note-row{grid-template-columns:minmax(0,1fr);} .eu-tot{gap:2px 12px;} }
   @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph.ro{grid-template-columns:80px minmax(0,1fr);} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
@@ -1272,7 +1332,7 @@
       <div id="eu-t-post-box" hidden><span>値引き</span><b id="eu-t-post">¥0</b></div>
       <div class="eu-grand"><span>見積金額（税込）</span><b id="eu-t-total">¥0</b></div>
     </div>
-    <div class="eu-btns">
+    <div class="eu-btns" id="eu-btns">
       <button class="btn ghost" id="eu-pdf" type="button">PDFプレビュー</button>
       <button class="btn" id="eu-issue" type="button">提出する</button>
     </div>
@@ -1459,57 +1519,58 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=8d41a97"></script>
-<script src="js/supabase-config.js?v=8d41a97"></script>
-<script src="js/supabase.js?v=8d41a97"></script>
-<script src="js/auth.js?v=8d41a97"></script>
-<script src="js/storage.js?v=8d41a97"></script>
-<script src="js/quota.js?v=8d41a97"></script>
-<script src="js/case-logic.js?v=8d41a97"></script>
-<script src="js/mail-templates.js?v=8d41a97"></script>
-<script src="js/phase-logic.js?v=8d41a97"></script>
-<script src="js/image.js?v=8d41a97"></script>
-<script src="js/cases-api.js?v=8d41a97"></script>
-<script src="js/clients-api.js?v=8d41a97"></script>
-<script src="js/phases-api.js?v=8d41a97"></script>
+<script src="js/crypto-util.js?v=06d9041"></script>
+<script src="js/supabase-config.js?v=06d9041"></script>
+<script src="js/supabase.js?v=06d9041"></script>
+<script src="js/auth.js?v=06d9041"></script>
+<script src="js/storage.js?v=06d9041"></script>
+<script src="js/quota.js?v=06d9041"></script>
+<script src="js/case-logic.js?v=06d9041"></script>
+<script src="js/mail-templates.js?v=06d9041"></script>
+<script src="js/phase-logic.js?v=06d9041"></script>
+<script src="js/image.js?v=06d9041"></script>
+<script src="js/cases-api.js?v=06d9041"></script>
+<script src="js/clients-api.js?v=06d9041"></script>
+<script src="js/phases-api.js?v=06d9041"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=8d41a97"></script>
-<script src="js/reports-api.js?v=8d41a97"></script>
-<script src="js/photo-marks.js?v=8d41a97"></script>
-<script src="js/report-pdf.js?v=8d41a97"></script>
-<script src="js/notice-logic.js?v=8d41a97"></script>
-<script src="js/notices-api.js?v=8d41a97"></script>
-<script src="js/notice-pdf.js?v=8d41a97"></script>
-<script src="js/estimate-logic.js?v=8d41a97"></script>
-<script src="js/estimates-api.js?v=8d41a97"></script>
-<script src="js/estimate-pdf.js?v=8d41a97"></script>
-<script src="js/estimate-presets-api.js?v=8d41a97"></script>
-<script src="js/estimate-presets.js?v=8d41a97"></script>
-<script src="js/case-list.js?v=8d41a97"></script>
-<script src="js/clients-ui.js?v=8d41a97"></script>
-<script src="js/case-detail.js?v=8d41a97"></script>
-<script src="js/case-rooms-api.js?v=8d41a97"></script>
-<script src="js/case-rooms.js?v=8d41a97"></script>
-<script src="js/edit-logic.js?v=8d41a97"></script>
-<script src="js/case-trash.js?v=8d41a97"></script>
-<script src="js/case-undo.js?v=8d41a97"></script>
-<script src="js/phase-ui.js?v=8d41a97"></script>
-<script src="js/phase-detail.js?v=8d41a97"></script>
-<script src="js/billing-ui.js?v=8d41a97"></script>
-<script src="js/team.js?v=8d41a97"></script>
-<script src="js/timeline.js?v=8d41a97"></script>
-<script src="js/photo-mark-editor.js?v=8d41a97"></script>
-<script src="js/report-form.js?v=8d41a97"></script>
-<script src="js/report-ui.js?v=8d41a97"></script>
-<script src="js/report-share.js?v=8d41a97"></script>
-<script src="js/report-edit.js?v=8d41a97"></script>
-<script src="js/mail-ui.js?v=8d41a97"></script>
-<script src="js/outbox-ui.js?v=8d41a97"></script>
-<script src="js/staff-inbox.js?v=8d41a97"></script>
-<script src="js/notice-ui.js?v=8d41a97"></script>
-<script src="js/notice-edit.js?v=8d41a97"></script>
-<script src="js/estimate-ui.js?v=8d41a97"></script>
-<script src="js/app.js?v=8d41a97"></script>
+<script src="js/report-logic.js?v=06d9041"></script>
+<script src="js/reports-api.js?v=06d9041"></script>
+<script src="js/photo-marks.js?v=06d9041"></script>
+<script src="js/report-pdf.js?v=06d9041"></script>
+<script src="js/notice-logic.js?v=06d9041"></script>
+<script src="js/notices-api.js?v=06d9041"></script>
+<script src="js/notice-pdf.js?v=06d9041"></script>
+<script src="js/estimate-logic.js?v=06d9041"></script>
+<script src="js/estimates-api.js?v=06d9041"></script>
+<script src="js/estimate-pdf.js?v=06d9041"></script>
+<script src="js/estimate-presets-api.js?v=06d9041"></script>
+<script src="js/estimate-presets.js?v=06d9041"></script>
+<script src="js/estimate-layout.js?v=06d9041"></script>
+<script src="js/case-list.js?v=06d9041"></script>
+<script src="js/clients-ui.js?v=06d9041"></script>
+<script src="js/case-detail.js?v=06d9041"></script>
+<script src="js/case-rooms-api.js?v=06d9041"></script>
+<script src="js/case-rooms.js?v=06d9041"></script>
+<script src="js/edit-logic.js?v=06d9041"></script>
+<script src="js/case-trash.js?v=06d9041"></script>
+<script src="js/case-undo.js?v=06d9041"></script>
+<script src="js/phase-ui.js?v=06d9041"></script>
+<script src="js/phase-detail.js?v=06d9041"></script>
+<script src="js/billing-ui.js?v=06d9041"></script>
+<script src="js/team.js?v=06d9041"></script>
+<script src="js/timeline.js?v=06d9041"></script>
+<script src="js/photo-mark-editor.js?v=06d9041"></script>
+<script src="js/report-form.js?v=06d9041"></script>
+<script src="js/report-ui.js?v=06d9041"></script>
+<script src="js/report-share.js?v=06d9041"></script>
+<script src="js/report-edit.js?v=06d9041"></script>
+<script src="js/mail-ui.js?v=06d9041"></script>
+<script src="js/outbox-ui.js?v=06d9041"></script>
+<script src="js/staff-inbox.js?v=06d9041"></script>
+<script src="js/notice-ui.js?v=06d9041"></script>
+<script src="js/notice-edit.js?v=06d9041"></script>
+<script src="js/estimate-ui.js?v=06d9041"></script>
+<script src="js/app.js?v=06d9041"></script>
 </body>
 </html>

@@ -10,7 +10,9 @@
 // 「よく使う明細」（定型・Task 11）は js/estimate-presets.js（クイック追加の下のボタン列・行の「…」→ 登録・編集シート）。
 //
 // 編集は draft のみ。提出済み以降（issued/sent/accepted/superseded）は読み取り専用で表示する。
-// 明細は1つの DOM を CSS で切り替える（760px以上=表、未満=行カード）。金額が正、単価は表示だけ（EstimateLogic.unitPrice）。
+// 画面の並び（PC 1100px以上=上のバー＋左 入力／右 紙面、未満=1段＋紙面の折りたたみ）は js/estimate-layout.js（Task 15）。
+// 明細はコンパクトな表（1つの DOM を CSS で切り替え: 640px以上=1行2段、未満=摘要・詳細の下に数量・単位・金額）。
+// 並び替えは 1100px以上=⠿ のドラッグ（↑↓キーでも可）、未満=↑↓。金額が正、単価は表示だけ（EstimateLogic.unitPrice）。
 // 諸経費の自動行・「税込合計を00に」の値引き行は EstimatesApi.normalizeLines で毎回取り直す（保存時と同じ計算）。
 // 自動保存: 入力から1.5秒で EstimatesApi.save（data と lines。lines は正規化して合計と一緒に送られる）。
 //   同時に localStorage `estimate-draft-{id}` へ退避（base = 読み込み時のサーバー updated_at）。
@@ -290,6 +292,7 @@ function eueChanged(s) {
   eueDisarmIssue(s);
   eueLsSet(s);
   if (s.els.val && s.els.val.firstChild) s.els.val.replaceChildren();
+  EstimateLayout.changed(s); // 紙面プレビューは 300ms 後に描き直す
   eueSetSave(s, 'pending');
   clearTimeout(s.timer);
   s.timer = setTimeout(() => eueFlush(s), EU_DELAY);
@@ -462,8 +465,8 @@ function eueBuild(s) {
   els.manager = eueInput('eu-manager', 'text', d.manager, v => set(x => { x.manager = v; }), { placeholder: '例：山田' });
   c1.appendChild(eueField('担当者', els.manager));
 
-  /* ----- 明細 ----- */
-  const c2 = mk('div', 'rep-card');
+  /* ----- 明細（旧ツールと同じ並び: 表 → ＋ 行を追加 → クイック追加・税込合計を00に → よく使う明細） ----- */
+  const c2 = mk('div', 'rep-card eu-lines-card');
   const c2h = mk('div', 'rep-between');
   c2h.appendChild(mk('h3', null, '明細'));
   if (!ro) c2h.appendChild(mk('span', 'rep-sub', '金額を入力（単価は 金額÷数量 で自動）'));
@@ -473,45 +476,54 @@ function eueBuild(s) {
   EU_UNITS.forEach(u => { const o = document.createElement('option'); o.value = u; dl.appendChild(o); });
   c2.appendChild(dl);
   const lh = mk('div', 'eu-lines-h' + (ro ? ' ro' : ''));
-  [['No', ''], ['摘要 ／ 詳細（任意）', ''], ['数量', 'r'], ['単位', ''], ['単価', 'r'], ['金額', 'r'], ['', '']]
+  lh.setAttribute('aria-hidden', 'true'); // 各欄には見えないラベルがある
+  [['', 'h-hd'], ['摘要 ／ 詳細', 'h-desc'], ['数量', 'r'], ['単位', ''], ['単価', 'r'], ['金額', 'r'], ['', 'h-ops']]
     .forEach(([t, c]) => lh.appendChild(mk('div', c || null, t)));
   c2.appendChild(lh);
   els.lines = mk('div', 'eu-lines' + (ro ? ' ro' : ''));
   els.lines.id = 'eu-lines';
   c2.appendChild(els.lines);
-  const add = dBtn('＋ 行を追加', 'btn sm ghost inline', () => eueAddLine(s));
+  const add = dBtn('＋ 行を追加', 'eu-add-row', () => eueAddLine(s));
   add.id = 'eu-add-line';
-  add.style.marginTop = '10px';
   c2.appendChild(add);
 
   const qttl = mk('div', 'rep-group-ttl', 'クイック追加');
   c2.appendChild(qttl);
   const q = mk('div', 'eu-quick');
-  const qk = dBtn('＋ 現場管理費（' + euYen(EstimateLogic.QUICK.kanri.unitPrice) + '/日）', 'btn sm ghost inline', () => eueQuick(s, 'kanri'));
-  qk.id = 'eu-q-kanri';
-  const qt = dBtn('＋ 交通費（' + euYen(EstimateLogic.QUICK.kotsu.unitPrice) + '/台）', 'btn sm ghost inline', () => eueQuick(s, 'kotsu'));
-  qt.id = 'eu-q-kotsu';
-  const pctWrap = mk('span', 'eu-pct');
-  els.qPct = eueInput('eu-q-pct', 'text', String(EstimateLogic.QUICK.shokehiPct), () => {}, { inputMode: 'decimal' });
-  els.qPct.setAttribute('aria-label', '諸経費の%');
-  pctWrap.append(els.qPct, mk('span', null, '%'));
+  const qBtn = (id, label, sub, fn) => {
+    const b = dBtn('', 'btn sm ghost inline eu-q-btn', fn);
+    b.id = id;
+    b.append(mk('span', null, label), mk('span', 'eu-q-sub', sub));
+    return b;
+  };
+  const qk = qBtn('eu-q-kanri', '＋ 現場管理費', euYen(EstimateLogic.QUICK.kanri.unitPrice) + '/日', () => eueQuick(s, 'kanri'));
+  const qt = qBtn('eu-q-kotsu', '＋ 交通費', euYen(EstimateLogic.QUICK.kotsu.unitPrice) + '/台', () => eueQuick(s, 'kotsu'));
+  const shk = mk('span', 'eu-q-shokehi');
   const qs = dBtn('＋ 諸経費', 'btn sm ghost inline', () => eueShokehi(s));
   qs.id = 'eu-q-shokehi';
-  q.append(qk, qt, pctWrap, qs);
+  const pctWrap = mk('span', 'eu-pct');
+  els.qPct = eueInput('eu-q-pct', 'text', String(EstimateLogic.QUICK.shokehiPct), () => {}, { inputMode: 'decimal' });
+  els.qPct.setAttribute('aria-label', '諸経費の%（合計×%）');
+  pctWrap.append(mk('span', 'eu-q-sub', '合計×'), els.qPct, mk('span', null, '%'));
+  shk.append(qs, pctWrap);
+  els.adj = eueCheck('eu-adjust', '税込合計を00に', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
+  els.adj.classList.add('eu-adj-chk');
+  els.adj.title = '税込合計の下2桁が00になるよう、端数を値引きの行で調整します（明細を変えると取り直します）';
+  q.append(qk, qt, shk, els.adj);
   c2.appendChild(q);
   els.qMsg = mk('div', 'err');
   els.qMsg.id = 'eu-q-msg';
   c2.appendChild(els.qMsg);
   // よく使う明細（定型・Task 11）: 見積のフェーズの種類＋共通のボタン。読み取り専用では出さない
   if (!ro) c2.appendChild(EstimatePresets.section(s, { add: p => eueAddPreset(s, p) }));
-  els.adj = eueCheck('eu-adjust', '税込合計を00に（端数を値引きで調整。明細を変えると取り直します）', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
-  els.adj.style.marginTop = '8px';
-  c2.appendChild(els.adj);
 
-  /* ----- 備考 ----- */
+  /* ----- 備考（固定の1行目「必須」→ 工期・工事時間・荷物の移動 → 自由記入） ----- */
   const c3 = mk('div', 'rep-card');
   c3.appendChild(mk('h3', null, '備考'));
-  c3.appendChild(mk('div', 'eu-notes-first', EstimateLogic.NOTE_FIRST));
+  const first = mk('div', 'eu-notes-first');
+  first.append(mk('span', 'eu-req', '必須'), mk('span', null, EstimateLogic.NOTE_FIRST));
+  c3.appendChild(first);
+  const opts = mk('div', 'eu-note-opts');
   const nrow = (key, label, control, wrapper) => {
     const r = mk('div', 'eu-note-row');
     if (ro && !d.notes[key].on) r.hidden = true; // 読み取り専用では使っていない備考の行は出さない
@@ -523,21 +535,23 @@ function eueBuild(s) {
   els.koki = eueInput('eu-note-koki-val', 'text', d.notes.koki.val, v => { set(x => { x.notes.koki.val = v; }); eueNotesPv(s); }, { inputMode: 'numeric' });
   els.koki.setAttribute('aria-label', '工期の日数');
   kokiBox.append(els.koki, mk('span', null, '日間'));
-  c3.appendChild(nrow('koki', '工期', els.koki, kokiBox));
+  opts.appendChild(nrow('koki', '工期', els.koki, kokiBox));
   els.jikan = eueInput('eu-note-jikan-val', 'text', d.notes.jikan.val, v => { set(x => { x.notes.jikan.val = v; }); eueNotesPv(s); }, { placeholder: '例：9:00〜17:00' });
   els.jikan.setAttribute('aria-label', '工事時間');
-  c3.appendChild(nrow('jikan', '工事時間', els.jikan));
+  opts.appendChild(nrow('jikan', '工事時間', els.jikan));
   els.nimotsu = eueInput('eu-note-nimotsu-val', 'text', d.notes.nimotsu.val, v => { set(x => { x.notes.nimotsu.val = v; }); eueNotesPv(s); }, { placeholder: '例：工事箇所周辺の家具の移動をお願いします' });
   els.nimotsu.setAttribute('aria-label', '荷物の移動依頼');
-  c3.appendChild(nrow('nimotsu', '荷物の移動依頼', els.nimotsu));
+  opts.appendChild(nrow('nimotsu', '荷物の移動依頼', els.nimotsu));
+  if (ro && !['koki', 'jikan', 'nimotsu'].some(k => d.notes[k].on)) opts.hidden = true;
+  c3.appendChild(opts);
   els.extra = document.createElement('textarea');
   els.extra.id = 'eu-note-extra';
   els.extra.className = 'short';
   els.extra.value = d.notes.extra;
   els.extra.placeholder = '例：養生は弊社にて行います。';
   els.extra.addEventListener('input', () => { set(x => { x.notes.extra = els.extra.value; }); eueNotesPv(s); });
-  const ex = eueField('自由記入', els.extra);
-  ex.style.marginTop = '8px';
+  const ex = eueField('その他（自由記入）', els.extra);
+  ex.style.marginTop = '10px';
   ex.style.marginBottom = '0';
   if (ro && !String(d.notes.extra || '').trim()) ex.hidden = true;
   c3.appendChild(ex);
@@ -545,22 +559,24 @@ function eueBuild(s) {
   els.notesPv.id = 'eu-notes-pv';
   c3.appendChild(els.notesPv);
 
-  $('estimate-root').replaceChildren(top, head, notice, roBox, els.val, c1, c2, c3);
+  // 並び（PC=上のバー＋左 入力／右 紙面、スマホ=1段＋紙面の折りたたみ）は EstimateLayout
+  EstimateLayout.mount(s, top, [head, notice, roBox, els.val, c1, c2, c3]);
   eueRenderLines(s);
   eueNotesPv(s);
   eueTotals(s);
+  const left = $('eu-left');
   if (ro) {
-    $('estimate-root').querySelectorAll('input, select, textarea, button').forEach(e => {
+    left.querySelectorAll('input, select, textarea, button').forEach(e => {
       if (e !== els.back && !e.closest('.eu-ver')) e.disabled = true;
     });
     add.hidden = true;
     q.hidden = true;
     qttl.hidden = true;
-    els.adj.hidden = true;
-    $('estimate-root').querySelectorAll('input[placeholder], textarea[placeholder]').forEach(e => { e.removeAttribute('placeholder'); });
+    left.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(e => { e.removeAttribute('placeholder'); });
   }
   // 読み取り専用: 入力欄は値の表示だけ（枠を薄く）・編集ボタンは出さない
   $('estimate-root').classList.toggle('eu-ro', !!ro);
+  EstimateLayout.render(); // 紙面は入力欄が全部そろってから描く
   // 版の操作（無効化の後に足す）・紐付けた依頼
   const extra = [];
   const acts = eueActsCard(s);
@@ -764,6 +780,7 @@ function eueLineEl(s, l, i, n, editable) {
   const adj = eueIsAdj(l), auto = !!l.isAutoShokehi;
   const row = mk('div', 'eu-ln' + (auto ? ' auto' : '') + (adj ? ' adj' : '') + (s.readOnly && !String(l.detail || '').trim() ? ' no-detail' : ''));
   row.dataset.id = id;
+  if (!adj) row.dataset.drag = '1'; // ⠿ で動かせる行（値引きの調整行は常に末尾）
   const cell = (cls, label, control, forId) => {
     const c = mk('div', cls);
     if (label) {
@@ -776,10 +793,31 @@ function eueLineEl(s, l, i, n, editable) {
   };
   const upd = fn => { const ln = eueLine(s, id); if (!ln) return; fn(ln); eueLinesChanged(s); };
   const pre = 'eu-ln' + (i + 1);
+  const opBtn = (t, label, cls, fn, dis, title) => {
+    const b = mk('button', cls || null, t);
+    b.type = 'button';
+    b.setAttribute('aria-label', label);
+    if (title) b.title = title;
+    b.disabled = !!dis;
+    b.addEventListener('click', fn);
+    return b;
+  };
 
-  row.appendChild(mk('div', 'c-no', adj ? '調整' : String(i + 1)));
+  // 並び替え: PC（1100px以上）は ⠿ をドラッグ（↑↓キーでも可）、それより狭い画面は ↑↓ ボタン（CSS で出し分け）
+  const hd = mk('div', 'c-hd eu-ops');
+  if (adj) hd.appendChild(mk('span', 'eu-adj-tag', '調整'));
+  else {
+    const ei = editable.findIndex(x => x.id === id);
+    const drag = opBtn('⠿', (i + 1) + '行目を並び替え（ドラッグ、または↑↓キー）', 'eu-drag', () => {}, false, 'ドラッグで並び替え（↑↓キーでも動かせます）');
+    EstimateLayout.dragHandle(drag, s.els.lines, row, k => eueMoveTo(s, id, k), dir => eueMove(s, id, dir, 'eu-drag'));
+    hd.append(drag,
+      opBtn('↑', (i + 1) + '行目を上へ', 'up', () => eueMove(s, id, -1), ei <= 0),
+      opBtn('↓', (i + 1) + '行目を下へ', 'down', () => eueMove(s, id, 1), ei >= editable.length - 1));
+  }
+  row.appendChild(hd);
 
-  const desc = eueInput(pre + '-desc', 'text', l.description, v => upd(x => { x.description = v; }), { placeholder: '例：クロス張替え' });
+  // 摘要（1行目）＋詳細（2行目・薄い）
+  const desc = eueInput(pre + '-desc', 'text', l.description, v => upd(x => { x.description = v; }), { placeholder: '摘要（例：クロス張替え）' });
   desc.className = 'eu-desc';
   if (adj) desc.readOnly = true;
   row.appendChild(cell('c-desc', '摘要', desc, desc.id));
@@ -797,22 +835,23 @@ function eueLineEl(s, l, i, n, editable) {
     pw.append(pct, mk('span', null, '%'));
     row.appendChild(cell('c-qty', '諸経費の%', pw, pct.id));
   } else {
-    const qty = eueInput(pre + '-qty', 'text', String(l.quantity), v => upd(x => { x.quantity = euParseQty(v); }), { inputMode: 'decimal' });
+    const qty = eueInput(pre + '-qty', 'text', String(l.quantity), v => upd(x => { x.quantity = euParseQty(v); }), { inputMode: 'decimal', placeholder: '数量' });
     qty.className = 'eu-num eu-qty';
     if (adj) qty.readOnly = true;
     row.appendChild(cell('c-qty', '数量', qty, qty.id));
   }
-  const unit = eueInput(pre + '-unit', 'text', l.unit, v => upd(x => { x.unit = v; }), { list: 'eu-units', maxLength: 10 });
+  const unit = eueInput(pre + '-unit', 'text', l.unit, v => upd(x => { x.unit = v; }), { list: 'eu-units', maxLength: 10, placeholder: '単位' });
   unit.className = 'eu-unit';
-  if (adj || auto) unit.readOnly = adj;
+  if (adj) unit.readOnly = true;
   row.appendChild(cell('c-unit', '単位', unit, unit.id));
 
+  // 単価は表示だけ（金額÷数量）
   const price = mk('div', 'c-price');
   price.append(mk('span', 'eu-l2', '単価 '), mk('span', 'v eu-num', euYen(EstimateLogic.unitPrice(l))));
   row.appendChild(price);
 
   // 金額: 入力中は数字のまま、確定（change/blur）で EstimateLogic.commitAmount → 3桁区切り
-  const amt = eueInput(pre + '-amt', 'text', EstimateLogic.fmt(l.amount), v => upd(x => { x.amount = euParseAmount(v); }), { inputMode: 'numeric' });
+  const amt = eueInput(pre + '-amt', 'text', EstimateLogic.fmt(l.amount), v => upd(x => { x.amount = euParseAmount(v); }), { inputMode: 'numeric', placeholder: '金額' });
   amt.className = 'eu-num eu-amt';
   if (auto || adj) amt.readOnly = true;
   else {
@@ -827,41 +866,29 @@ function eueLineEl(s, l, i, n, editable) {
   }
   row.appendChild(cell('c-amt', auto ? '金額（自動計算）' : adj ? '値引き（自動計算）' : '金額（円）', amt, amt.id));
 
+  // 複製・削除（右端に縦に2つ）／調整行は「外す」
   const ops = mk('div', 'c-ops eu-ops');
+  const more = mk('div', 'c-more eu-ops');
   if (adj) {
-    const off = mk('button', 'del', '外す');
-    off.type = 'button';
-    off.setAttribute('aria-label', '税込合計を00にするのをやめる');
-    off.addEventListener('click', () => eueToggleAdjust(s, false));
-    ops.appendChild(off);
+    ops.appendChild(opBtn('外す', '税込合計を00にするのをやめる', 'del', () => eueToggleAdjust(s, false)));
   } else {
-    const ei = editable.findIndex(x => x.id === id);
-    const mkOp = (t, label, cls, fn, dis) => {
-      const b = mk('button', cls || null, t);
-      b.type = 'button';
-      b.setAttribute('aria-label', label);
-      b.disabled = !!dis;
-      b.addEventListener('click', fn);
-      ops.appendChild(b);
-    };
-    mkOp('↑', (i + 1) + '行目を上へ', 'up', () => eueMove(s, id, -1), ei <= 0);
-    mkOp('↓', (i + 1) + '行目を下へ', 'down', () => eueMove(s, id, 1), ei >= editable.length - 1);
-    mkOp('複製', (i + 1) + '行目を複製', 'dup', () => eueDupLine(s, id));
-    mkOp('削除', (i + 1) + '行目を削除', 'del', () => eueDelLine(s, id));
+    ops.append(
+      opBtn('⧉', (i + 1) + '行目を複製', 'dup', () => eueDupLine(s, id), false, 'この行を複製（すぐ下に）'),
+      opBtn('✕', (i + 1) + '行目を削除', 'del', () => eueDelLine(s, id), false, 'この行を削除'));
     // 「…」: その他の操作（よく使う明細に登録）。行の下に小さなメニューを開く・もう一度押すと閉じる
-    mkOp('…', (i + 1) + '行目のその他の操作', 'more', () => eueMoreMenu(s, id, row));
+    more.appendChild(opBtn('…', (i + 1) + '行目のその他の操作', 'more', () => eueMoreMenu(s, id, row), false, 'その他（よく使う明細に登録）'));
   }
-  if (s.readOnly) ops.hidden = true; // ↑↓・複製・削除・外すは読み取り専用では出さない
-  row.appendChild(ops);
+  if (s.readOnly) { hd.hidden = true; ops.hidden = true; more.hidden = true; } // 並び替え・複製・削除・外すは読み取り専用では出さない
+  row.append(ops, more);
   return row;
 }
 
 // 行の「…」メニュー（入力の無いメニュー。もう一度「…」を押すか、項目を押すと閉じる）
 function eueMoreMenu(s, id, row) {
   const open = row.querySelector('.eu-more-menu');
-  const btn = row.querySelector('.c-ops .more');
+  const btn = row.querySelector('.c-more .more');
   s.els.lines.querySelectorAll('.eu-more-menu').forEach(m => { m.remove(); });
-  s.els.lines.querySelectorAll('.c-ops .more[aria-expanded]').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
+  s.els.lines.querySelectorAll('.c-more .more[aria-expanded]').forEach(b => { b.setAttribute('aria-expanded', 'false'); });
   if (open || s.readOnly) return;
   const menu = mk('div', 'eu-more-menu');
   const reg = dBtn('★ よく使う明細に登録', 'btn sm ghost inline eu-more-reg', () => {
@@ -911,16 +938,30 @@ function eueShokehi(s) {
   s.lines = r;
   eueLinesRebuilt(s);
 }
-function eueMove(s, id, dir) {
+// focusCls: 動かした後にフォーカスを戻すボタン（既定は押した ↑/↓。⠿ の↑↓キーなら eu-drag）
+function eueMove(s, id, dir, focusCls) {
   const ls = s.lines.slice();
   const i = ls.findIndex(l => l.id === id);
   const j = i + dir;
-  if (i < 0 || j < 0 || j >= ls.length || eueIsAdj(ls[j])) return;
+  if (s.readOnly || i < 0 || j < 0 || j >= ls.length || eueIsAdj(ls[j])) return;
   [ls[i], ls[j]] = [ls[j], ls[i]];
   s.lines = ls;
   eueLinesRebuilt(s);
-  const b = s.els.lines.querySelector('[data-id="' + id + '"] .' + (dir < 0 ? 'up' : 'down'));
+  const b = s.els.lines.querySelector('[data-id="' + id + '"] .' + (focusCls || (dir < 0 ? 'up' : 'down')));
   if (b && !b.disabled) b.focus({ preventScroll: true });
+}
+// ⠿ のドラッグ: 動かせる行（調整行を除く）の中で k 番目へ
+function eueMoveTo(s, id, k) {
+  if (s.readOnly) return;
+  const movable = s.lines.filter(l => !eueIsAdj(l));
+  const i = movable.findIndex(l => l.id === id);
+  if (i < 0 || i === k || k < 0 || k >= movable.length) return;
+  const [it] = movable.splice(i, 1);
+  movable.splice(k, 0, it);
+  s.lines = movable.concat(s.lines.filter(eueIsAdj));
+  eueLinesRebuilt(s);
+  const b = s.els.lines.querySelector('[data-id="' + id + '"] .eu-drag');
+  if (b) b.focus({ preventScroll: true });
 }
 function eueDupLine(s, id) {
   const i = s.lines.findIndex(l => l.id === id);
@@ -1025,12 +1066,12 @@ async function eueIssue(s) {
   eueBuild(s);
   eueSetSave(s, '');
   eueSyncBar(s);
-  window.scrollTo(0, 0);
+  EstimateLayout.scrollTop();
 }
 
 // 提出中は入力・行の操作を止める。解除時は元の無効状態（備考の未チェックの欄など）に戻す
 function eueLockInputs(s, on) {
-  const root = $('estimate-root');
+  const root = $('eu-left') || $('estimate-root'); // 上のバーのボタンは s.busy（eueSyncBar）で止める
   if (on) {
     s.locked = [];
     root.querySelectorAll('input, select, textarea, button').forEach(e => {
@@ -1046,6 +1087,7 @@ function eueLockInputs(s, on) {
 
 /* ---------- 入口 ---------- */
 function eueMessage(text, isErr, backHash) {
+  EstimateLayout.unmount(); // ボタンを下部バーへ戻してから描き直す
   $('estimate-bar').hidden = true;
   const nodes = [];
   nodes.push(dBtn('← 戻る', 'back', () => { location.hash = backHash || ''; }));
