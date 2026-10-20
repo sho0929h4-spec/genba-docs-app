@@ -18,7 +18,7 @@ let repSummary = null;    // case_summaries の1行
 let repReports = [];
 let repMembers = [];      // [{user_id, display_name}]
 let repDrafts = [];       // mail_drafts（案件内の全部）
-let repShares = [];       // report_shares（案件内の報告書の分。URL が使えるか＝調査報告待ちの判定）
+let repShares = [];       // report_shares（案件内の報告書の分。URL が使えるか）
 let repBusy = false;      // 確認・下書き作成の実行中（二重実行を防ぐ）
 const REP_VENDOR = '__vendor__';
 
@@ -129,7 +129,7 @@ function buildReports() {
   const acts = mk('div', 'rep-acts rep-top-acts');
   acts.appendChild(dBtn('＋ 報告書を作成', 'btn inline', () => toggleRepForm()));
   if (typeof openShareScreen === 'function' && !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin())) { // 現場用では出さない
-    acts.appendChild(dBtn('🔗 担当者へURLを渡す', 'btn inline ghost', () => openShareScreen(repCaseId)));
+    acts.appendChild(dBtn('🔗 担当者URL', 'btn inline ghost', () => openShareScreen(repCaseId)));
   }
 
   const formBox = mk('div');
@@ -242,7 +242,8 @@ function repRowEl(r) {
   const title = [RL.WORK_TYPE_LABEL[r.work_type] || r.work_type, r.room, dateText].filter(Boolean).join(' ・ ');
   const top = mk('div', 'rep-between');
   top.appendChild(mk('b', null, title));
-  top.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status, r.submitted_via)));
+  const me = ctx && ctx.user ? ctx.user.id : null;
+  top.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status, r.submitted_via, RL.submittedByOther(r, me))));
   row.appendChild(top);
 
   let sub = '作業担当者: ' + repWorkerText(r);
@@ -251,18 +252,17 @@ function repRowEl(r) {
 
   const acts = mk('div', 'rep-acts');
   acts.style.marginTop = '6px';
-  // Task 24: URL を渡した下書きも社内で続きを書ける（入力中ロックは廃止）。「調査報告待ち」は表示だけ
+  // Task 24・25: 担当者URL付きの下書きも社内で続きを書ける（入力中ロックは廃止。「調査報告待ち」の表示もやめた）
   const waiting = r.status === 'draft' && repShares.some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
   const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin(); // 現場用（Task 18）: 確認・送付・担当者URLは管理者側
   if (field && r.status !== 'draft') {
     acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
   } else if (r.status === 'draft') {
-    if (waiting) acts.appendChild(mk('span', 'rep-pill p-wait rep-waiting', '調査報告待ち'));
     acts.appendChild(dBtn('続きを書く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
-    if (waiting && !field && typeof openShareScreen === 'function') acts.appendChild(dBtn('URLを見る', 'btn sm ghost inline rep-share-url', () => openShareScreen(repCaseId, r.id)));
+    if (waiting && !field && typeof openShareScreen === 'function') acts.appendChild(dBtn('担当者URL', 'btn sm ghost inline rep-share-url', () => openShareScreen(repCaseId, r.id)));
   } else if (r.status === 'submitted') {
-    // 協力業者URLからの提出は「確認する」、社内の提出は確認を飛ばして「報告書を送る」（Task 23）
-    acts.appendChild(dBtn(r.submitted_via === 'share' ? '確認する' : '報告書を送る', 'btn sm inline', () => onRepConfirm(r)));
+    // 担当者URL・別の人の提出は「確認する」、自分の提出は確認を飛ばして「報告書を送る」（Task 23・25）
+    acts.appendChild(dBtn(RL.needsCheck(r, me) ? '確認する' : '報告書を送る', 'btn sm inline', () => onRepConfirm(r)));
   } else {
     acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
   }
@@ -304,8 +304,8 @@ async function runRepOp(label, fn) {
 
 async function onRepConfirm(r) {
   if (repBusy) return;
-  // 画面内の確認（confirm() は使わない。Task 23 M6）。協力業者URLからの提出は確認、社内の提出はそのまま送る
-  const share = r.submitted_via === 'share';
+  // 画面内の確認（confirm() は使わない。Task 23 M6）。担当者URL・別の人の提出は確認、自分の提出はそのまま送る（Task 25）
+  const share = ReportLogic.needsCheck(r, ctx && ctx.user ? ctx.user.id : null);
   const row = document.querySelector('#rep-list .rep-row[data-id="' + r.id + '"]');
   const ok = await askInline(row, share ? 'この報告書を確認済みにしますか？\n確認すると、依頼元へ送る報告メールの下書きが作られます。'
     : '依頼元へ送る報告メールの下書きを作りますか？', { okLabel: share ? '確認済みにする' : '下書きを作る', id: 'rep-ask' });

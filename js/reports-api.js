@@ -87,8 +87,42 @@ const ReportsApi = (() => {
       if (f.room) row.room = String(f.room).slice(0, 40);
       if (f.work_date && /^\d{4}-\d{2}-\d{2}$/.test(f.work_date)) row.work_date = f.work_date;
       const made = must(await sb.from('reports').insert(row).select().single());
-      await logSystem(caseId, () => `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`);
+      await logSystem(caseId, () => f.logText || `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`);
       return made;
+    },
+    // Task 25: フェーズの報告書（下書き・作業区分はフェーズで固定）と担当者URL（期限なし・1本）を用意する（無ければ作る）。
+    //   フェーズを作ったとき（PhasesApi.create）と、画面（フェーズ詳細・現場用のツール・⑦）を開いたときに呼ぶ（既存のフェーズは遅延作成）。
+    //   報告書が1件も無ければ作る（済んだフェーズ＝調査済み・完了・請求・入金の記録があるものは作らない。o.force で作る）。
+    //   いちばん新しい下書きに使える URL が無ければ URL を作る。提出済みの報告書しか無ければ何もしない。
+    //   o: { reports（このフェーズの報告書。省略すると読む）, shares（その URL。省略すると読む）, title（フェーズ名）, force }
+    //   → { report, share, made: 作ったか } か null（作らなかった）
+    async ensurePhaseReport(phase, caseRow, o = {}) {
+      const p = phase || {};
+      if (!p.id) return null;
+      const caseId = p.case_id || (caseRow && caseRow.id);
+      let reports = Array.isArray(o.reports) ? o.reports.filter(r => r.phase_id === p.id)
+        : must(await sb.from('reports').select('*').eq('phase_id', p.id).order('created_at'));
+      const finished = !!(p.done_at || p.billed_at || p.paid_at);
+      let report = null, made = false;
+      const drafts = (reports || []).filter(r => r.status === 'draft')
+        .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+      if (!(reports || []).length) {
+        if (finished && !o.force) return null;
+        // 作業担当者の初期値はフェーズの作業担当者（無ければ空。開いた人にはしない）
+        const f = window.PhaseLogic.reportFields(p, caseRow || {}, { title: o.title || '' });
+        f.logText = `${o.title ? o.title + 'の' : ''}報告書と担当者URLを用意した`;
+        report = await api.create(caseId, f);
+        made = true;
+      } else if (drafts.length) report = drafts[drafts.length - 1];
+      else return null;
+      const shares = made ? [] : Array.isArray(o.shares) ? o.shares : await api.listShares(report.id);
+      let share = api.latestShare(shares, report.id);
+      if (!share || !api.shareActive(share)) {
+        // 提出済みの URL（submitted_at）が残っている下書きは、社内が差し戻した等。新しい URL を作る
+        share = (await api.createShare(report, '')).share;
+        made = true;
+      }
+      return { report, share, made };
     },
     // 下書きの間だけ保存できる（status=draft の行だけを更新し、0行なら提出済みとみなす）
     async save(id, fields) {
@@ -185,9 +219,11 @@ const ReportsApi = (() => {
         const ph = must(await sb.from('case_phases').select('id, case_id, kind, result, scheduled_at, done_at').eq('id', report.phase_id).maybeSingle());
         if (!ph || ph.kind !== 'survey') return null;
         const d = RL().normalizeData(report.data);
-        const next = window.PhaseLogic.resultFromReport(ph.result, { cause: RL().causeText(d), reason: d.reason, next: RL().nextActionText(d) });
-        if (!next) return null;
         const caseRow = (typeof CasesApi !== 'undefined' && await CasesApi.getSummary(report.case_id)) || { id: report.case_id };
+        // Task 25: 原因は報告書の号室の区画へ（調査結果は号室ごと）
+        const next = window.PhaseLogic.resultFromReport(ph.result, { cause: RL().causeText(d), reason: d.reason, next: RL().nextActionText(d) },
+          { room: report.room, caseRow });
+        if (!next) return null;
         const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
         return await PhasesApi.saveResult(ph, next, caseRow, window.PhaseLogic.phaseTitle(ph, seq));
       } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
@@ -253,7 +289,7 @@ const ReportsApi = (() => {
       return list.find(api.shareActive) || list[0] || null;
     },
     hashToken,
-    // URL が使える（無効化・提出・期限切れのどれでもない）か。使える下書きは「調査報告待ち」（社内も編集できる。044 でロックは廃止）
+    // URL が使える（無効化・提出・期限切れのどれでもない）か。社内も編集できる（044 でロックは廃止）
     shareActive: sh => !!sh && !sh.revoked_at && !sh.submitted_at && (!sh.expires_at || Date.parse(sh.expires_at) > Date.now()),
 
     /* ===== 送付メール ===== */

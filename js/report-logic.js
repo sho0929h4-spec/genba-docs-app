@@ -372,6 +372,21 @@
     return d;
   }
 
+  // Task 25: 調査結果を直したとき、自動で作った報告書の下書きの初期値（原因・原因と判断した理由・次の対応方針）を入れ直す。
+  //   その4項目（causes / causeOther / reason / nextAction）が前の初期値（prevInit）のまま＝まだ誰も触っていないときだけ。
+  //   → 入れ直した data（変わらなければ null）
+  const INIT_KEYS = ['causes', 'causeOther', 'reason', 'nextAction'];
+  function reapplyInit(data, prevInit, nextInit) {
+    const d = normalizeData(data);
+    const blank = emptyData();
+    const base = Object.assign({}, d);
+    INIT_KEYS.forEach(k => { base[k] = JSON.parse(JSON.stringify(blank[k])); });
+    const pick = x => JSON.stringify(INIT_KEYS.map(k => x[k]));
+    if (pick(d) !== pick(applyInit(base, prevInit))) return null;
+    const next = applyInit(base, nextInit);
+    return pick(next) === pick(d) ? null : next;
+  }
+
   // 旧 getLeakAction（629–633行）。「漏れている〜」以外では対応は出さない（旧 onLeakChange 620–622行で空にしていた）
   function leakActionText(d) {
     if (!str(d.leak).startsWith('漏れている')) return '';
@@ -572,17 +587,36 @@
   function mailtoUrl(opts) { return buildMailto(opts).url; }
 
   // via（submitted_via）: 社内（member）が提出したものは確認待ちにしない＝「提出済み（未送付）」（Task 23。協力業者URL＝share だけ確認待ち）
-  const statusLabel = (s, via) => (s === 'submitted' && via && via !== 'share' ? '提出済み（未送付）' : STATUS_LABEL[s] || str(s));
+  //   Task 25: 別の人が社内で提出したもの（other = true）は確認待ち（「報告書を確認する」）
+  const statusLabel = (s, via, other) => (s === 'submitted' && via && via !== 'share' && !other ? '提出済み（未送付）' : STATUS_LABEL[s] || str(s));
+  // 確認が要る提出か（Task 25）: 担当者URLから提出した、または別の人（me 以外）が社内で提出した。PhaseLogic の段階と同じ
+  const needsCheck = (r, me) => !!r && r.status === 'submitted' && (r.submitted_via === 'share' || (!!me && !!r.submitted_by && r.submitted_by !== me));
+  const submittedByOther = (r, me) => !!r && !!me && !!r.submitted_by && r.submitted_by !== me;
+
+  // 写真の欄の注意書き（Task 25）: 作業担当者への指示で「被害箇所の写真撮影」を選んだ号室。rooms = [{ room, role }]（PhaseLogic.photoRooms /
+  //   share_open の photo_rooms）→ '📷 402号室（加害部屋）・302号室: 被害箇所のアップの写真と、…撮ってください'。無ければ ''
+  const PHOTO_NOTE = '被害箇所のアップの写真と、お部屋のどの位置かが分かるように引いた写真を撮ってください';
+  const ROOM_ROLE_LABEL = { cause: '加害部屋', damage: '被害部屋', other: 'その他' };
+  function photoNote(rooms) {
+    const list = (Array.isArray(rooms) ? rooms : []).filter(r => r && typeof r === 'object');
+    if (!list.length) return '';
+    const label = r => {
+      const room = str(r.room);
+      const no = !room ? '' : /[0-9０-９A-Za-zＡ-Ｚａ-ｚ]$/.test(room) ? room + '号室' : room;
+      return (no || '号室未設定') + (ROOM_ROLE_LABEL[r.role] ? '（' + ROOM_ROLE_LABEL[r.role] + '）' : '');
+    };
+    return '📷 ' + list.map(label).filter((t, i, a) => a.indexOf(t) === i).join('・') + ': ' + PHOTO_NOTE;
+  }
 
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
-    normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, legacyChips, isYmd, hasCause,
+    normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     ROOM_LUGGAGE, ROOM_PET, RESIDENTS_MAX, normalizeRoom, roomStatusText,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
-    buildMail, mailtoUrl, buildMailto, statusLabel
+    buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ReportLogic = api;

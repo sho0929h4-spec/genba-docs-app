@@ -409,18 +409,25 @@
   .ph-track span.on{background:#e7f4ea;color:var(--green);font-weight:700;}
   .ph-mkdoc{justify-self:start;min-height:36px;padding:6px 12px;border-radius:9px;border:1.5px dashed var(--navy2);background:#fff;color:var(--navy2);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
   .ph-mkdoc:disabled{opacity:.6;cursor:default;}
-  /* Task 16: 報告書の流れ（担当者へURLを渡す／自社で作る） */
+  /* Task 16 → 25: 報告書の流れ（報告書を開く） */
   .ph-flow{display:grid;gap:6px;min-width:0;}
   .ph-flow-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0;}
   .ph-flow-acts .btn.sm{white-space:nowrap;}
-  .ph-flow-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
-  .ph-choice{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:56px;padding:8px 12px;border-radius:10px;border:1.5px solid var(--navy2);background:#fff;color:var(--navy2);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;text-align:left;min-width:0;overflow-wrap:anywhere;}
-  .ph-choice.ph-flow-share{background:var(--navy2);color:#fff;}
-  .ph-choice:disabled{opacity:.6;cursor:default;}
-  .ph-choice-sub{font-size:11px;font-weight:400;line-height:1.4;opacity:.9;}
+  /* Task 25: 担当者URL（フェーズ詳細のカードの上・現場用のツールページ） */
+  .ph-share{display:grid;gap:4px;min-width:0;margin:8px 0 4px;padding:8px 10px;border-radius:10px;background:#f3f6fa;}
+  .ph-share .shr-box{margin-top:0;}
+  .ph-share-t{font-size:13px;}
+  .fd-share{background:#fff;border:1px solid var(--line,#dde3ea);border-radius:14px;padding:10px 12px;display:grid;gap:6px;min-width:0;}
+  .fd-share .shr-box{margin-top:0;border:none;padding:0;}
+  .fd-brief-room{display:grid;gap:2px;padding-top:4px;border-top:1px dashed #c4d2e3;}
+  .fd-brief-head{font-weight:700;font-size:14px;}
+  .rep-photo-note{margin:6px 0 2px;padding:8px 10px;border-radius:8px;background:#fff6e0;border:1px solid #f0d48a;color:#6b4a00;font-size:13px;font-weight:700;line-height:1.5;overflow-wrap:anywhere;}
+  .pd-rooms{display:grid;gap:6px;min-width:0;}
+  .pd-room-blocks{display:grid;gap:10px;min-width:0;margin-top:6px;}
+  .pd-room-block{display:grid;gap:6px;min-width:0;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:#fbfcfe;}
+  .pd-room-hd{font-weight:700;color:var(--navy);font-size:14px;}
   .ph-flow-wait{font-size:13px;font-weight:700;color:#8a5a00;overflow-wrap:anywhere;min-width:0;}
   .ph-st-hint{overflow-wrap:anywhere;}
-  @media (max-width:420px){ .ph-flow-choice{grid-template-columns:minmax(0,1fr);} }
   .ph-foot{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;padding:4px 12px 6px;border-top:1px solid var(--border);}
   .ph-confirm{background:#fdecea;border:1px solid #f5c6c0;border-radius:10px;padding:9px 11px;margin:4px 0;font-size:13px;display:grid;gap:6px;width:100%;overflow-wrap:anywhere;}
   .ph-err{margin:0 12px 8px;}
@@ -445,6 +452,8 @@
   .ph-brief label.ph-rl{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:var(--muted);min-width:0;}
   .ph-brief textarea{width:100%;min-width:0;min-height:64px;max-height:260px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);line-height:1.5;resize:vertical;field-sizing:content;}
   .ph-brief .ph-cau{min-height:40px;}
+  .ph-brief input[type=text]{width:100%;min-width:0;min-height:44px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .ph-brief label.pd-brief-other[hidden]{display:none;}
   .ph-wk-brief{font-size:12px;overflow-wrap:anywhere;min-width:0;}
   .ph-wk-brief[data-state=on]{background:#f7faff;border:1px solid #dbe5f1;border-radius:9px;padding:6px 10px;font-weight:700;color:var(--navy2);}
   /* 案件ページの対応フェーズの表（Task 10）。PC（900px 以上）は1行1フェーズの表、スマホは1フェーズ = 2行の小さなカード。DOM は同じ */
@@ -1832,63 +1841,63 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=805e561"></script>
-<script src="js/supabase-config.js?v=805e561"></script>
-<script src="js/supabase.js?v=805e561"></script>
-<script src="js/auth.js?v=805e561"></script>
-<script src="js/storage.js?v=805e561"></script>
-<script src="js/quota.js?v=805e561"></script>
-<script src="js/messages-api.js?v=805e561"></script>
-<script src="js/case-logic.js?v=805e561"></script>
-<script src="js/mail-templates.js?v=805e561"></script>
-<script src="js/phase-logic.js?v=805e561"></script>
-<script src="js/image.js?v=805e561"></script>
-<script src="js/cases-api.js?v=805e561"></script>
-<script src="js/clients-api.js?v=805e561"></script>
-<script src="js/phases-api.js?v=805e561"></script>
+<script src="js/crypto-util.js?v=ab5b4f6"></script>
+<script src="js/supabase-config.js?v=ab5b4f6"></script>
+<script src="js/supabase.js?v=ab5b4f6"></script>
+<script src="js/auth.js?v=ab5b4f6"></script>
+<script src="js/storage.js?v=ab5b4f6"></script>
+<script src="js/quota.js?v=ab5b4f6"></script>
+<script src="js/messages-api.js?v=ab5b4f6"></script>
+<script src="js/case-logic.js?v=ab5b4f6"></script>
+<script src="js/mail-templates.js?v=ab5b4f6"></script>
+<script src="js/phase-logic.js?v=ab5b4f6"></script>
+<script src="js/image.js?v=ab5b4f6"></script>
+<script src="js/cases-api.js?v=ab5b4f6"></script>
+<script src="js/clients-api.js?v=ab5b4f6"></script>
+<script src="js/phases-api.js?v=ab5b4f6"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=805e561"></script>
-<script src="js/reports-api.js?v=805e561"></script>
-<script src="js/photo-marks.js?v=805e561"></script>
-<script src="js/report-pdf.js?v=805e561"></script>
-<script src="js/notice-logic.js?v=805e561"></script>
-<script src="js/notices-api.js?v=805e561"></script>
-<script src="js/notice-pdf.js?v=805e561"></script>
-<script src="js/estimate-logic.js?v=805e561"></script>
-<script src="js/estimates-api.js?v=805e561"></script>
-<script src="js/estimate-pdf.js?v=805e561"></script>
-<script src="js/estimate-presets-api.js?v=805e561"></script>
-<script src="js/estimate-presets.js?v=805e561"></script>
-<script src="js/estimate-layout.js?v=805e561"></script>
-<script src="js/estimate-import.js?v=805e561"></script>
-<script src="js/case-list.js?v=805e561"></script>
-<script src="js/clients-ui.js?v=805e561"></script>
-<script src="js/case-detail.js?v=805e561"></script>
-<script src="js/case-rooms-api.js?v=805e561"></script>
-<script src="js/case-rooms.js?v=805e561"></script>
-<script src="js/edit-logic.js?v=805e561"></script>
-<script src="js/case-trash.js?v=805e561"></script>
-<script src="js/case-undo.js?v=805e561"></script>
-<script src="js/phase-ui.js?v=805e561"></script>
-<script src="js/phase-detail.js?v=805e561"></script>
-<script src="js/billing-ui.js?v=805e561"></script>
-<script src="js/team.js?v=805e561"></script>
-<script src="js/tasks.js?v=805e561"></script>
-<script src="js/timeline.js?v=805e561"></script>
-<script src="js/photo-mark-editor.js?v=805e561"></script>
-<script src="js/report-form.js?v=805e561"></script>
-<script src="js/report-ui.js?v=805e561"></script>
-<script src="js/report-share.js?v=805e561"></script>
-<script src="js/report-edit.js?v=805e561"></script>
-<script src="js/mail-ui.js?v=805e561"></script>
-<script src="js/outbox-ui.js?v=805e561"></script>
-<script src="js/staff-inbox.js?v=805e561"></script>
-<script src="js/staff-messages.js?v=805e561"></script>
-<script src="js/notice-ui.js?v=805e561"></script>
-<script src="js/notice-edit.js?v=805e561"></script>
-<script src="js/estimate-ui.js?v=805e561"></script>
-<script src="js/field-ui.js?v=805e561"></script>
-<script src="js/app.js?v=805e561"></script>
+<script src="js/report-logic.js?v=ab5b4f6"></script>
+<script src="js/reports-api.js?v=ab5b4f6"></script>
+<script src="js/photo-marks.js?v=ab5b4f6"></script>
+<script src="js/report-pdf.js?v=ab5b4f6"></script>
+<script src="js/notice-logic.js?v=ab5b4f6"></script>
+<script src="js/notices-api.js?v=ab5b4f6"></script>
+<script src="js/notice-pdf.js?v=ab5b4f6"></script>
+<script src="js/estimate-logic.js?v=ab5b4f6"></script>
+<script src="js/estimates-api.js?v=ab5b4f6"></script>
+<script src="js/estimate-pdf.js?v=ab5b4f6"></script>
+<script src="js/estimate-presets-api.js?v=ab5b4f6"></script>
+<script src="js/estimate-presets.js?v=ab5b4f6"></script>
+<script src="js/estimate-layout.js?v=ab5b4f6"></script>
+<script src="js/estimate-import.js?v=ab5b4f6"></script>
+<script src="js/case-list.js?v=ab5b4f6"></script>
+<script src="js/clients-ui.js?v=ab5b4f6"></script>
+<script src="js/case-detail.js?v=ab5b4f6"></script>
+<script src="js/case-rooms-api.js?v=ab5b4f6"></script>
+<script src="js/case-rooms.js?v=ab5b4f6"></script>
+<script src="js/edit-logic.js?v=ab5b4f6"></script>
+<script src="js/case-trash.js?v=ab5b4f6"></script>
+<script src="js/case-undo.js?v=ab5b4f6"></script>
+<script src="js/phase-ui.js?v=ab5b4f6"></script>
+<script src="js/phase-detail.js?v=ab5b4f6"></script>
+<script src="js/billing-ui.js?v=ab5b4f6"></script>
+<script src="js/team.js?v=ab5b4f6"></script>
+<script src="js/tasks.js?v=ab5b4f6"></script>
+<script src="js/timeline.js?v=ab5b4f6"></script>
+<script src="js/photo-mark-editor.js?v=ab5b4f6"></script>
+<script src="js/report-form.js?v=ab5b4f6"></script>
+<script src="js/report-ui.js?v=ab5b4f6"></script>
+<script src="js/report-share.js?v=ab5b4f6"></script>
+<script src="js/report-edit.js?v=ab5b4f6"></script>
+<script src="js/mail-ui.js?v=ab5b4f6"></script>
+<script src="js/outbox-ui.js?v=ab5b4f6"></script>
+<script src="js/staff-inbox.js?v=ab5b4f6"></script>
+<script src="js/staff-messages.js?v=ab5b4f6"></script>
+<script src="js/notice-ui.js?v=ab5b4f6"></script>
+<script src="js/notice-edit.js?v=ab5b4f6"></script>
+<script src="js/estimate-ui.js?v=ab5b4f6"></script>
+<script src="js/field-ui.js?v=ab5b4f6"></script>
+<script src="js/app.js?v=ab5b4f6"></script>
 </body>
 </html>

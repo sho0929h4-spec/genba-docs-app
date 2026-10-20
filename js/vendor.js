@@ -186,7 +186,8 @@
     nodes.push(...rfBuildForm(s, {
       infoTitle: '号室・作業日・時間',
       fixedMode: true,
-      photoHint: 'カメラで撮るか、アルバムから選べます。写真は自動で圧縮して、選んだ時点で送信します'
+      photoHint: 'カメラで撮るか、アルバムから選べます。写真は自動で圧縮して、選んだ時点で送信します',
+      photoNote: L.photoNote(info.photo_rooms) // Task 25: 指示で「被害箇所の写真撮影」を選んだ号室（migration 045 share_open）
     }));
     s.els.photoInput.addEventListener('change', () => {
       const files = Array.from(s.els.photoInput.files || []);

@@ -181,7 +181,7 @@ function edBuild(s) {
   els.val.setAttribute('role', 'alert');
   nodes.push(els.val);
 
-  if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via) + '」のため、内容は変更できません（読み取り専用）'));
+  if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via, L.submittedByOther(s.report, edMe())) + '」のため、内容は変更できません（読み取り専用）'));
 
   const info = s.info;
   nodes.push(...rfBuildForm(s, {
@@ -191,6 +191,11 @@ function edBuild(s) {
     fixedLabel: s.fixed ? L.WORK_TYPE_LABEL[s.f.work_type] : '',
     fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
     infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
+    // Task 25: 作業担当者への指示で「被害箇所の写真撮影」を選んだ号室の注意書き（このフェーズの指示）
+    photoNote: (() => {
+      const ph = s.report.phase_id && Array.isArray(info.phases) ? info.phases.find(p => p.id === s.report.phase_id) : null;
+      return ph && typeof PhaseLogic !== 'undefined' ? L.photoNote(PhaseLogic.photoRooms(ph.plan)) : '';
+    })(),
     // 作業者: メンバー or その他（名前を入力。URL で入力する社外の担当者など）
     afterRoom(g2, basic) {
       const known = s.members.some(m => m.user_id === s.f.worker_id);
@@ -488,7 +493,7 @@ async function openReport(id) {
   $('rep-submit').hidden = s.ro;
   // 提出済み（確認待ち）のときだけ「確認する」。現場用（Task 18）では出さない（確認・送付は管理者側）
   $('rep-confirm').hidden = r.status !== 'submitted' || (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
-  $('rep-confirm').textContent = r.submitted_via === 'share' ? '確認する' : '報告書を送る'; // 社内の提出は確認を飛ばす（Task 23）
+  $('rep-confirm').textContent = ReportLogic.needsCheck(r, edMe()) ? '確認する' : '報告書を送る'; // 自分の提出は確認を飛ばす（Task 23・25）
   $('rep-to-pdf').onclick = () => edGoPdf(s);
   $('rep-submit').onclick = () => edSubmit(s);
   $('rep-confirm').onclick = () => edConfirm(s);
@@ -540,11 +545,13 @@ function edIsUntouched(r, f) {
     JSON.stringify(f.data) === emptyJson && (r.photos || []).length === 0;
 }
 
+const edMe = () => (typeof ctx !== 'undefined' && ctx && ctx.user ? ctx.user.id : null);
+
 /* ---------- ⑥から確認する（提出済みのとき） ---------- */
 async function edConfirm(s) {
   if (s.submitting || s.photoBusy || s.report.status !== 'submitted') return;
   // 画面内の確認（confirm() は使わない。Task 23 M6）。下のバーの上に出す
-  const share = s.report.submitted_via === 'share';
+  const share = ReportLogic.needsCheck(s.report, edMe());
   const ok = await askInline($('report-bar'), share ? 'この報告書を確認済みにしますか？\n確認すると、依頼元へ送る報告メールの下書きが作られます。'
     : '依頼元へ送る報告メールの下書きを作りますか？', { okLabel: share ? '確認済みにする' : '下書きを作る', prepend: true, id: 'rep-ask' });
   if (!ok || ed !== s || s.submitting) return;

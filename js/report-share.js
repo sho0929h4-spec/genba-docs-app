@@ -1,5 +1,6 @@
-// js/report-share.js — ⑦ 担当者へURLを渡す（#case/{id}/share）… openShareScreen(caseId, reportId)  （Task 6 → Task 24 で単純化）
-// 担当者名（任意）・対応フェーズ・作業区分 →「URLを発行」で下書きの報告書を作り、その報告書の URL を発行する。
+// js/report-share.js — ⑦ 担当者URL（#case/{id}/share）… openShareScreen(caseId, reportId)  （Task 6 → Task 24 で単純化 → Task 25 で自動発行）
+// Task 25: 担当者URLはフェーズを作ったときに自動でできる（報告書の下書きと1本ずつ）。⑦はその URL を出す（無いフェーズはここで作る）。
+//   「URLを発行」の欄（担当者名・対応フェーズ・作業区分）は廃止。
 // Task 24（migration 044）: URL は報告書1件につき1本。token は自社だけ読める平文で保存するので、いつでも同じ URL を表示できる。
 //   期限なし固定・無効にする／2本目の発行はない。「URLを作り直す」= 同じ報告書に発行し直す（古い URL は DB が自動で無効にする）。
 //   社内も同じ報告書を編集できる（入力中ロックは廃止。あとから保存した内容が残る）。提出されたら「提出済み（M/D）」だけ出す。
@@ -18,16 +19,6 @@ let shrFocus = null;     // 開いたときに見せる報告書（⑤ の「URL
 
 const shrMD = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : (d.getMonth() + 1) + '/' + d.getDate(); };
 const shrHash = caseId => '#case/' + caseId + '/share';
-const SHR_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // phase-ui.js の PH_WORK_TYPE と同じ
-// 既定のフェーズ: 報告書の無いフェーズのうち、段階が 調査日を決める／調査に行く の調査 → 完了報告必要の工事 → 無し
-function shrDefaultPhase(phases) {
-  const list = (phases || []).filter(p => !(p.reports || []).length);
-  const st = p => PhaseLogic.stage(p, null, new Date()).key;
-  const a = list.find(p => p.kind === 'survey' && (st(p) === 'schedule' || st(p) === 'visit'));
-  if (a) return a.id;
-  const b = list.find(p => p.kind !== 'survey' && st(p) === 'report');
-  return b ? b.id : '';
-}
 const shrWho = name => (String(name || '').trim() ? String(name).trim() + ' 様' : '担当者 様');
 
 // URL の欄（URL・URLをコピー・送る文面をコピー・LINEで送る・URLを作り直す）。⑦ と対応フェーズで共通
@@ -35,7 +26,7 @@ const shrWho = name => (String(name || '').trim() ? String(name).trim() + ' 様'
 function shareUrlBox(o) {
   const box = mk('div', 'shr-box');
   const head = mk('div', 'rep-between');
-  head.append(mk('b', null, shrWho(o.name) + 'あてのURL'), mk('span', 'rep-pill p-wait', '有効（提出まで）'));
+  head.append(mk('b', null, o.title || shrWho(o.name) + 'あてのURL'), mk('span', 'rep-pill p-wait', '有効（提出まで）'));
   box.appendChild(head);
   const line = mk('div', 'shr-link');
   const inp = document.createElement('input');
@@ -140,111 +131,56 @@ async function loadShare(caseId) {
   if (seq !== shrSeq) return;
   if (!res[0]) { shrMessage(caseId, '案件が見つかりません', false); return; }
   [shrSummary, shrReports, shrShares] = [res[0], res[1] || [], res[2] || []];
+  // Task 25: 報告書・担当者URLの無いフェーズ（済んだものを除く）は、ここで作る（自動発行の遅延作成）
+  let made = false;
+  for (const p of shrPhases()) {
+    try {
+      const own = shrReports.filter(r => r.phase_id === p.id);
+      const r = await ReportsApi.ensurePhaseReport(Object.assign({ case_id: caseId }, p), shrSummary,
+        { reports: own, shares: shrShares.filter(sh => own.some(x => x.id === sh.report_id)), title: shrTitle(p) });
+      if (r && r.made) made = true;
+    } catch (e) { console.warn('報告書と担当者URLを用意できませんでした', e); }
+    if (seq !== shrSeq) return;
+  }
+  if (made) {
+    try { await refreshShares(true); } catch (e) { console.warn(e); }
+    if (seq !== shrSeq) return;
+  }
   buildShare();
 }
 
-async function refreshShares() {
+async function refreshShares(noRender) {
   const seq = shrSeq, id = shrCaseId;
   const reports = await ReportsApi.listByCase(id);
   const shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id));
   if (seq !== shrSeq) return;
   shrReports = reports || [];
   shrShares = shares || [];
-  renderShareList();
+  if (!noRender) renderShareList();
+}
+const shrPhases = () => (shrSummary && Array.isArray(shrSummary.phases) ? shrSummary.phases : []);
+function shrTitle(p) {
+  const same = shrPhases().filter(x => x.kind === p.kind);
+  return PhaseLogic.phaseTitle(p, p.seq != null ? p.seq : same.indexOf(p) + 1);
 }
 
 /* ---- 骨組み ---- */
 function buildShare() {
   const caseId = shrCaseId;
   const card = mk('div', 'rep-card');
-  card.appendChild(mk('h3', null, '🔗 担当者へURLを渡す'));
+  card.appendChild(mk('h3', null, '🔗 担当者URL'));
   card.appendChild(mk('div', 'rep-sub', shrSummary.name + (shrSummary.address ? ' ・ ' + shrSummary.address : '')));
-
-  const vendor = document.createElement('input');
-  vendor.type = 'text';
-  vendor.id = 'shr-vendor';
-  vendor.maxLength = 60;
-  vendor.autocomplete = 'off';
-  vendor.placeholder = '例：山本設備（空でもよい）';
-  const phases = (shrSummary.phases || []);
-  const count = {};
-  const phOpts = [['', '（フェーズに付けない）']].concat(phases.map(p => {
-    count[p.kind] = (count[p.kind] || 0) + 1;
-    return [p.id, PhaseLogic.phaseTitle(p, p.seq != null ? p.seq : count[p.kind])];
-  }));
-  const ph0 = shrDefaultPhase(phases);
-  const p0 = phases.find(p => p.id === ph0);
-  const type = edSelect('shr-type', Object.entries(ReportLogic.WORK_TYPE_LABEL), p0 ? SHR_WORK_TYPE[p0.kind] : 'investigate', () => {});
-  const phaseSel = edSelect('shr-phase', phOpts, ph0, v => {
-    const p = phases.find(x => x.id === v);
-    if (p) type.value = SHR_WORK_TYPE[p.kind];
-  });
-  const form = mk('div');
-  form.style.marginTop = '10px';
-  form.appendChild(edField('担当者名（任意）', vendor));
-  const g2 = mk('div', 'rep-g2');
-  g2.append(edField('対応フェーズ', phaseSel), edField('作業区分', type));
-  form.appendChild(g2);
-  card.appendChild(form);
-
-  const issue = dBtn('URLを発行', 'btn', b => onShareIssue(b, caseId, vendor, type, phaseSel, phOpts));
-  issue.id = 'shr-issue';
-  card.appendChild(issue);
-  const err = mk('div', 'err');
-  err.id = 'shr-err';
-  card.appendChild(err);
   card.appendChild(mk('div', 'rep-note',
-    'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要・期限なし。' +
+    '対応フェーズを作ると、そのフェーズの報告書と担当者URLが自動でできます（報告書1件につき1本・期限なし）。' +
+    'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要。' +
     '他の案件・金額・タイムライン・依頼元の連絡先は見えません。提出するとURLは使えなくなります。社内でも同じ報告書を開いて編集できます。'));
-
+  if (!shrPhases().length) card.appendChild(mk('div', 'empty', '対応フェーズがまだありません。案件ページで「＋ 調査」などを押すと、担当者URLができます'));
   const listErr = mk('div', 'err');
   listErr.id = 'shr-list-err';
   const list = mk('div');
   list.id = 'shr-list';
-
   $('share-root').replaceChildren(shrBack(caseId), card, listErr, list);
   renderShareList();
-}
-
-/* ---- 発行（新しい報告書） ---- */
-function onShareIssue(btn, caseId, vendorEl, typeEl, phaseEl, phOpts) {
-  const name = vendorEl.value.trim();
-  setMsg('shr-err', '');
-  return withBusy(btn, async () => {
-    let report;
-    try {
-      const f = { work_type: typeEl.value, worker_name: name };
-      if (phaseEl && phaseEl.value) {
-        f.phase_id = phaseEl.value;
-        f.phaseTitle = (phOpts.find(o => o[0] === phaseEl.value) || [])[1] || '';
-      }
-      // Task 23 I11: 号室・作業日の初期値（案件の号室・フェーズの日）
-      const cs = shrSummary;
-      const ph0 = cs && f.phase_id ? (cs.phases || []).find(x => x.id === f.phase_id) : null;
-      if (cs) {
-        const pf = PhaseLogic.reportFields(ph0 || {}, cs, { workerName: name });
-        if (pf.room) f.room = pf.room;
-        f.work_date = pf.work_date;
-        if (ph0 && ph0.kind === 'survey' && pf.init) f.init = pf.init;
-      }
-      report = await ReportsApi.create(caseId, f);
-    } catch (e) {
-      setMsg('shr-err', '報告書を作成できませんでした: ' + errText(e));
-      return;
-    }
-    try {
-      await ReportsApi.createShare(report, name);
-    } catch (e) {
-      try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ }
-      setMsg('shr-err', 'URLを発行できませんでした: ' + errText(e));
-      return;
-    }
-    if (caseId !== shrCaseId) return;
-    vendorEl.value = '';
-    shrFocus = report.id;
-    try { await refreshShares(); }
-    catch (e) { setMsg('shr-list-err', '表示を更新できませんでした: ' + errText(e)); }
-  });
 }
 
 /* ---- 作り直す（同じ報告書） ---- */
@@ -259,20 +195,24 @@ async function onShareRemake(btn, rep, name) {
   });
 }
 
-/* ---- URL を渡した報告書（報告書ごとにいちばん新しい URL） ---- */
+/* ---- URL のある報告書（フェーズの順 → フェーズに付いていない報告書。報告書ごとにいちばん新しい URL） ---- */
 function renderShareList() {
   const box = $('shr-list');
   if (!box) return;
-  const reps = shrReports.filter(r => ReportsApi.latestShare(shrShares, r.id));
+  const phases = shrPhases();
+  const order = r => { const i = phases.findIndex(p => p.id === r.phase_id); return i < 0 ? phases.length : i; };
+  const reps = shrReports.filter(r => ReportsApi.latestShare(shrShares, r.id))
+    .sort((a, b) => order(a) - order(b) || String(a.created_at || '').localeCompare(String(b.created_at || '')));
   if (reps.length === 0) { box.replaceChildren(); return; }
   box.replaceChildren(...reps.map(rep => {
     const sh = ReportsApi.latestShare(shrShares, rep.id);
     const card = mk('div', 'rep-card shr-item');
     card.dataset.reportId = rep.id;
-    const php = rep.phase_id ? (shrSummary.phases || []).find(p => p.id === rep.phase_id) : null;
+    const php = rep.phase_id ? phases.find(p => p.id === rep.phase_id) : null;
+    if (php) card.dataset.phaseId = php.id;
     const wt = ReportLogic.WORK_TYPE_LABEL[rep.work_type] || rep.work_type;
     const top = mk('div', 'rep-between');
-    top.appendChild(mk('b', null, (php ? PhaseLogic.phaseTitle(php) + ' ・ ' : '') + wt + 'の報告書'));
+    top.appendChild(mk('b', null, (php ? shrTitle(php) + ' ・ ' : '') + wt + 'の報告書'));
     top.appendChild(dBtn('報告書を開く', 'btn sm ghost inline shr-open', () => { location.hash = '#report/' + rep.id; }));
     card.appendChild(top);
     const submittedAt = sh.submitted_at || (rep.status !== 'draft' ? rep.submitted_at : null);
@@ -285,7 +225,7 @@ function renderShareList() {
     const remake = b => onShareRemake(b, rep, sh.vendor_name);
     if (url) {
       card.appendChild(shareUrlBox({
-        url, name: sh.vendor_name, askHost: card, onRemake: remake,
+        url, name: sh.vendor_name, title: '担当者URL', askHost: card, onRemake: remake,
         text: PhaseLogic.shareRequestText({ phase: php, caseRow: shrSummary, org: ctx && ctx.org, url })
       }));
     } else {

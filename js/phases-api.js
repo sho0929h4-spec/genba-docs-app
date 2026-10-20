@@ -59,12 +59,19 @@ const PhasesApi = (() => {
       return must(await sb.from('case_phases').select('*').eq('case_id', caseId).order('created_at').order('id'));
     },
     // 請求のしかたは元請マスタから写す（請求先は元請が既定。月ごとの元請なら monthly）
-    async create(caseId, kind, caseRow) {
+    // Task 25: 作ったら、そのフェーズの報告書（下書き・作業区分はフェーズで固定）と担当者URL（期限なし・1本）も自動で作る
+    //   （失敗してもフェーズは作れたことにする。画面を開いたときに無ければ作り直す: ReportsApi.ensurePhaseReport）
+    //   title: 「調査 2回目」など（タイムラインの記録用。省略すると種類の名前）
+    async create(caseId, kind, caseRow, title) {
       if (!PL().KIND_KEYS.includes(kind)) throw new Error('フェーズの種類が正しくありません');
       const monthly = !!(caseRow && caseRow.client_id && caseRow.client_billing_mode === 'monthly');
       const row = must(await sb.from('case_phases')
         .insert({ case_id: caseId, kind, billing_mode: monthly ? 'monthly' : 'single' }).select().single());
       await logSystem(caseId, () => `${PL().kindLabel(kind)}を追加した`);
+      if (typeof ReportsApi !== 'undefined') {
+        try { row.autoReport = await ReportsApi.ensurePhaseReport(row, caseRow, { reports: [], title: title || PL().kindLabel(kind) }); }
+        catch (e) { console.warn('報告書と担当者URLを自動で作れませんでした（画面を開いたときに作り直します）', e); }
+      }
       return row;
     },
     async update(id, fields) {
@@ -75,7 +82,11 @@ const PhasesApi = (() => {
       return rows[0];
     },
     // 中身（見積書・報告書・工事掲示・送ったメール）があると DB が拒否する（未送信の下書きは一緒に消える）
-    async remove(phase, title) {
+    //   Task 25: 自動で作った報告書（下書き・写真なし）と担当者URLは先に消す（reports: このフェーズの報告書）
+    async remove(phase, title, reports) {
+      for (const r of (reports || []).filter(x => x.phase_id === phase.id && PL().isBlankReport(x))) {
+        await ReportsApi.remove(r);
+      }
       const rows = must(await sb.from('case_phases').delete().eq('id', phase.id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした');
       await logSystem(phase.case_id, `${title}を削除した`);
@@ -199,6 +210,17 @@ const PhasesApi = (() => {
         throw err;
       } finally {
         if (first) await logSystem(phase.case_id, `${title}の調査結果を記録した`);
+      }
+      // Task 25: 報告書はフェーズを作ったときにできている → まだ触っていない下書きの初期値（原因はその報告書の号室の区画）を入れ直す
+      if (phase.kind === 'survey' || row.kind === 'survey') {
+        try {
+          const RL = window.ReportLogic;
+          const reps = must(await sb.from('reports').select('id, room, data, status').eq('phase_id', phase.id).eq('status', 'draft')) || [];
+          for (const r of reps) {
+            const data = RL.reapplyInit(r.data, PL().reportInit(phase.result, r.room), PL().reportInit(row.result, r.room));
+            if (data) await ReportsApi.save(r.id, { data });
+          }
+        } catch (e) { console.warn('報告書の初期値を入れ直せませんでした', e); }
       }
       return { phase: row, draft, first };
     },

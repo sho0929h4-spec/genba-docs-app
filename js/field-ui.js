@@ -276,10 +276,11 @@ async function fdLoadCase(seq) {
   if (!fd || fd.seq !== seq) return;
   s.loading = false;
   s.err = err;
+  let shares = [];
   if (!err && res[1] && res[1].length) {
-    // 担当者URLが使えるか（調査報告待ち。Task 23 I6。案件ページの phLoad と同じ形）
+    // 担当者URL（Task 25: ツールページにいつも出す）
     try {
-      const shares = (await ReportsApi.listSharesByReports(res[1].map(r => r.id))) || [];
+      shares = (await ReportsApi.listSharesByReports(res[1].map(r => r.id))) || [];
       res[1].forEach(r => {
         const act = shares.find(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
         r.share_active = !!act;
@@ -290,7 +291,20 @@ async function fdLoadCase(seq) {
   }
   if (!err) {
     if (!res[0]) s.err = '案件が見つかりません';
-    else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [] };
+    else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [], shares };
+  }
+  // Task 25: 選んだ対応に報告書・担当者URLが無ければ作る（既存のフェーズの遅延作成。1回だけ）
+  if (!s.ensured) s.ensured = new Set();
+  const sel = !s.err && s.data ? fdSelected(s) : null;
+  if (sel && !s.ensured.has(sel.id)) {
+    s.ensured.add(sel.id);
+    try {
+      const own = s.data.reports.filter(r => r.phase_id === sel.id);
+      const r = await ReportsApi.ensurePhaseReport(Object.assign({ case_id: s.caseId }, sel), s.data.caseRow,
+        { reports: own, shares: shares.filter(sh => own.some(x => x.id === sh.report_id)), title: fdTitleOf(s.data.caseRow, sel) });
+      if (r && r.made && fd && fd.seq === seq) return fdLoadCase(seq);
+    } catch (e) { console.warn('報告書と担当者URLを用意できませんでした', e); }
+    if (!fd || fd.seq !== seq) return;
   }
   fdRenderCase();
 }
@@ -348,14 +362,16 @@ function fdRenderCase() {
       fdSel.set(c.id, ch.id);
       s.toolErr = '';
       s.msg = '';
+      // Task 25: まだ用意していない対応なら、報告書・担当者URLを確かめてから描く
       fdRenderCase();
+      if (!s.ensured || !s.ensured.has(ch.id)) fdLoadCase(s.seq); // 読み直して描き直す（その間も今の画面のまま）
     });
     b.dataset.phaseId = ch.id;
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
     chips.appendChild(b);
   });
   nodes.push(chips);
-  const st = PhaseLogic.stage(sel, null, new Date());
+  const st = PhaseLogic.stage(sel, null, new Date(), { me: fdMe() });
   const stText = PhaseLogic.fieldStageLabel(st) || (st.label ? '✓ ' + st.label : '');
   if (stText) {
     const sl = mk('div', 'fd-stage-line' + fdBallClass(st), '今: ' + stText);
@@ -384,6 +400,9 @@ function fdRenderCase() {
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
   nodes.push(err);
+  // Task 25: 担当者URL（ツールの下。コピー／送る文面）
+  const share = fdShareCard(s, c, sel);
+  if (share) nodes.push(share);
   // 管理者に連絡（Task 23。この案件・対応を選んだ状態でシートを開く）
   const ct = dBtn('📨 管理者に連絡', 'btn ghost fd-contact', () => smOpenSheet({ rows: [c], caseId: c.id, phaseId: sel.id,
     onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（「✉️ 管理者に連絡」のタブで返事を見られます）'; fdRenderCase(); } } }));
@@ -395,6 +414,7 @@ function fdRenderCase() {
 }
 
 // 「📝 現場への指示（○○さんから）」。指示が無く、知らせてもらってもいなければ出さない
+//   Task 25: 号室ごとに ■ 402号室（加害部屋） 怪しい箇所: … 指示: … 補足: …（PhaseLogic.briefLines と同じ文）
 function fdBriefCard(s, c, p) {
   const lines = PhaseLogic.briefLines(p.plan);
   const notified = !!p.notified_at;
@@ -403,14 +423,17 @@ function fdBriefCard(s, c, p) {
   card.id = 'fd-brief';
   const from = String(p.notified_by_name || c.assignee_name || '').trim();
   card.appendChild(mk('b', null, '📝 現場への指示' + (from ? '（' + from + 'さんから）' : '')));
-  const b = PhaseLogic.normalizeBrief(p.plan);
-  const label = (list, keys) => keys.map(k => (list.find(x => x.key === k) || {}).label).filter(Boolean).join('・');
-  const head = [];
-  if (b.suspects.length) head.push('怪しい箇所: ' + label(PhaseLogic.BRIEF_SUSPECTS, b.suspects));
-  if (b.priority.length) head.push('優先: ' + label(PhaseLogic.BRIEF_PRIORITY, b.priority));
-  if (head.length) card.appendChild(mk('div', 'fd-brief-head', head.join(' ／ ')));
-  if (b.note.trim()) card.appendChild(mk('div', 'fd-brief-text', b.note.trim()));
-  if (b.visitNote.trim()) card.appendChild(mk('div', 'fd-brief-text', '当日の注意: ' + b.visitNote.trim()));
+  let block = null;
+  lines.forEach(l => {
+    if (!l) { block = null; return; }
+    if (/^■ /.test(l)) {
+      block = mk('div', 'fd-brief-room');
+      block.appendChild(mk('div', 'fd-brief-head', l.slice(2)));
+      card.appendChild(block);
+      return;
+    }
+    (block || card).appendChild(mk('div', 'fd-brief-text', l));
+  });
   if (!lines.length) card.appendChild(mk('div', 'fd-tiny', '指示の記載はありません'));
   const row = mk('div', 'fd-row');
   if (p.ack_at) {
@@ -424,6 +447,28 @@ function fdBriefCard(s, c, p) {
     row.appendChild(ack);
   }
   if (row.childNodes.length) card.appendChild(row);
+  return card;
+}
+
+// 「🔗 担当者URL」（Task 25: 対応ごとに自動でできる。コピー／送る文面）。URL が無い・提出済みならその旨
+function fdShareCard(s, c, p) {
+  const card = mk('div', 'fd-share');
+  card.id = 'fd-share';
+  const reps = s.data.reports.filter(r => r.phase_id === p.id)
+    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  const drafts = reps.filter(r => r.status === 'draft');
+  const draft = drafts[drafts.length - 1] || null;
+  const sh = draft ? ReportsApi.latestShare(s.data.shares || [], draft.id) : null;
+  const url = sh && ReportsApi.shareActive(sh) ? ReportsApi.shareUrl(sh) : '';
+  if (url) {
+    card.dataset.state = 'live';
+    card.appendChild(shareUrlBox({ url, name: sh.vendor_name, title: '🔗 担当者URL',
+      text: PhaseLogic.shareRequestText({ phase: p, caseRow: c, org: ctx && ctx.org, url }) }));
+    return card;
+  }
+  card.dataset.state = reps.length && !draft ? 'done' : 'none';
+  card.appendChild(mk('b', null, '🔗 担当者URL'));
+  card.appendChild(mk('div', 'fd-tiny', reps.length && !draft ? '報告書は提出済みです（URLはもう使えません）' : 'まだありません（管理者に作ってもらってください）'));
   return card;
 }
 

@@ -147,6 +147,7 @@ function edPhaseOptions() {
 //   afterRoom(g2, basic) … 号室の右/下に欄を足す（⑥の作業者）
 //   fixedMode            … true なら作業区分の切替を出さない（⑧: 区分は発行時に社内で決める）
 //   photoHint            … 写真カードの説明（省略時は既定文）
+//   photoNote            … 写真カードの注意書き（Task 25: 指示で「被害箇所の写真撮影」を選んだ号室。ReportLogic.photoNote。空なら出さない）
 function rfBuildForm(s, opts) {
   const o = opts || {};
   const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
@@ -332,6 +333,11 @@ function rfBuildForm(s, opts) {
   els.photoAdd.addEventListener('click', () => { if (!s.photoBusy && !ro) { s.pendingPhase = ''; els.photoInput.click(); } });
   phHead.append(els.photoTitle, els.photoAdd, els.photoInput);
   ph.appendChild(phHead);
+  if (o.photoNote) {
+    const pn = rfMk('div', 'rep-photo-note', o.photoNote);
+    pn.id = 'rp-photo-note';
+    ph.appendChild(pn);
+  }
   ph.appendChild(rfMk('div', 'rep-hint', o.photoHint || T.photoAddHint));
   els.photoMsg = rfMk('div', 'rep-photo-msg');
   els.photoMsg.id = 'rp-photo-msg';

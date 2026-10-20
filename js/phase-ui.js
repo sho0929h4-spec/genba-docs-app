@@ -14,8 +14,8 @@
 //   調査: 調査日時 → 作業担当者 → 現場担当への指示 → 調査した（報告書の流れの2択。Task 16）→ 調査結果（Task 5b）→ 報告書 → 見積書 → 精算
 //   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 作業担当者 → 現場担当への指示 → 完了報告（報告書。2択）→ 請求（Task 7）
 //   Task 16: 「調査済みにする」「完了にする」「取り消す」は無い。done_at は報告書が提出されたとき DB（migration 034）が入れる。
-//     報告書の2択 = 作業員にURLを渡す（このフェーズの報告書を作って協力業者URLを発行・URLと送る文面をコピー）／
-//     自社で作る（報告書を作って編集画面へ）。phReportFlow
+//     Task 25: フェーズを作ったら報告書（下書き）と担当者URLが自動でできる（既存のフェーズは詳細ページを開いたときに作る）。
+//     カードの上に「担当者URL」（phShareBlock）、報告書の段は「報告書を開く」1つ（phReportFlow）
 //   現場担当への指示（case_phases.plan。Task 9）の段の中身は js/phase-detail.js（phBriefBody）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
@@ -51,9 +51,10 @@ const phYmd = iso => phToInput(iso).slice(0, 10);
 /* ---------- 読み込み ---------- */
 function phState(root, phaseId) {
   return { gen: caseGen, caseId: currentCase.id, phaseId: phaseId || null, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(),
-    dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null,
-    shareForm: new Set() }; // Task 16: 担当者へURLを渡す欄が開いているフェーズ
+    dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null, ensured: new Set() };
 }
+// 段階は見ている人で変わる（Task 25: 作業担当者が別の人 → 🟡 報告待ち（名前）、別の人の提出 → 報告書を確認する）
+const phStageOpts = () => ({ me: phMyId(), members: phMembers() });
 // 案件ページ（対応フェーズの表）
 function renderPhases(root) {
   ph = phState(root, null);
@@ -94,7 +95,7 @@ async function phLoad() {
   const [phases, series, reports] = res;
   const notices = res[3];
   let drafts = res[4];
-  // 担当者URL（URL が使える＝調査報告待ちか = share_active。case_summaries の reports と同じ形にそろえる）
+  // 担当者URL（URL が使えるか = share_active。case_summaries の reports と同じ形にそろえる）
   let shares = [];
   try { shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id)); }
   catch (e) { console.warn('担当者URLの読み込みに失敗', e); }
@@ -110,6 +111,21 @@ async function phLoad() {
     if (r.created.length || r.removed) drafts = await ReportsApi.listDrafts(s.caseId);
   } catch (e) { console.warn('リマインドの確認に失敗', e); }
   if (!phAlive(s) || seq !== phSeq) return '';
+  // Task 25: 詳細ページのフェーズに報告書・担当者URLが無ければ作る（既存のフェーズは開いたときに作る＝遅延作成。1回だけ試す）
+  if (s.phaseId && !s.ensured.has(s.phaseId)) {
+    s.ensured.add(s.phaseId);
+    const p0 = (phases || []).find(x => x.id === s.phaseId);
+    if (p0) {
+      try {
+        const own = (reports || []).filter(r => r.phase_id === p0.id);
+        const same = (phases || []).filter(x => x.kind === p0.kind);
+        const r = await ReportsApi.ensurePhaseReport(p0, currentCase, { reports: own, shares: shares.filter(sh => own.some(x => x.id === sh.report_id)),
+          title: PhaseLogic.phaseTitle(p0, same.indexOf(p0) + 1) });
+        if (r && r.made) { if (phAlive(s) && seq === phSeq) return phLoad(); return ''; }
+      } catch (e) { console.warn('報告書と担当者URLを用意できませんでした', e); }
+      if (!phAlive(s) || seq !== phSeq) return '';
+    }
+  }
   s.loadErr = '';
   s.data = {
     phases: phases || [],
@@ -242,7 +258,8 @@ function phKeepFocus(keep) {
 function phAdd(btn, kind) {
   const s = ph;
   return phRun(btn, 'case-phases-err', '追加', async () => {
-    const row = await PhasesApi.create(s.caseId, kind, currentCase);
+    const n = s.data ? s.data.phases.filter(x => x.kind === kind).length + 1 : 1;
+    const row = await PhasesApi.create(s.caseId, kind, currentCase, PhaseLogic.kindLabel(kind) + ' ' + n + '回目');
     s.newId = row.id;
   }).then(() => {
     if (!phAlive(s) || !s.newId) return;
@@ -271,13 +288,9 @@ function phDrawDetail(s, keep) {
     s.root.replaceChildren(mk('div', 'empty ph-gone', 'このフェーズは見つかりません（削除された可能性があります）'), err);
     return;
   }
-  // 作業員の名前（URLを渡す欄）の入力中の値は描き直しても残す
-  const keptName = (s.root.querySelector('.ph-share-name') || {}).value;
   const nodes = [phCard(p)];
   if (s.loadErr) nodes.push(mk('div', 'err', '最新の表示に更新できませんでした: ' + s.loadErr));
   s.root.replaceChildren(...nodes, err);
-  const nameEl = s.root.querySelector('.ph-share-name');
-  if (nameEl && keptName != null) nameEl.value = keptName;
   if (typeof pdSyncHead === 'function') pdSyncHead(p, phTitle(p)); // 詳細ページの見出し（js/phase-detail.js）
   phKeepFocus(keep);
 }
@@ -298,12 +311,11 @@ const PH_CHIP_LABEL = { report: '報告書', estimate: '見積', bill: '請求',
 function phFormOpen(s) {
   const c = s && s.cell;
   if (!c) return false;
-  return (c.col === 'when' && s.editing.has(c.id)) || (c.col === 'bill' && s.billForm.has(c.id)) || (c.col === 'pay' && s.dueEdit.has(c.id))
-    || ((c.col === 'status' || c.col === 'report') && s.shareForm.has(c.id));
+  return (c.col === 'when' && s.editing.has(c.id)) || (c.col === 'bill' && s.billForm.has(c.id)) || (c.col === 'pay' && s.dueEdit.has(c.id));
 }
 function phCloseCell(s) {
   const c = s.cell;
-  if (c) { s.editing.delete(c.id); s.billForm.delete(c.id); s.dueEdit.delete(c.id); s.shareForm.delete(c.id); phMsg('ph-err-' + c.id, ''); }
+  if (c) { s.editing.delete(c.id); s.billForm.delete(c.id); s.dueEdit.delete(c.id); phMsg('ph-err-' + c.id, ''); }
   s.cell = null;
 }
 // セルを押した: 編集欄を開く（同じセルなら閉じる）。入力中の欄があれば切り替えずに知らせる
@@ -341,7 +353,7 @@ function phSyncNow(s) {
   if (!el) return;
   if (!s.data) { el.hidden = true; return; }
   const phases = s.data.phases.map(p => { const d = phDocs(p); return Object.assign({}, p, { estimates: d.estimates, reports: d.reports }); });
-  const now = PhaseLogic.caseNow(phases, new Date());
+  const now = PhaseLogic.caseNow(phases, new Date(), phStageOpts());
   el.hidden = false;
   el.dataset.us = String(now.us);
   el.dataset.them = String(now.them);
@@ -378,7 +390,7 @@ function phTableRow(p, multi) {
   const s = ph;
   const docs = phDocs(p);
   const seq = phSeqOf(p);
-  const row = PhaseLogic.phaseRow(p, seq, { estimates: docs.estimates, reports: docs.reports, mails: docs.mails }, new Date());
+  const row = PhaseLogic.phaseRow(p, seq, { estimates: docs.estimates, reports: docs.reports, mails: docs.mails }, new Date(), phStageOpts());
   const st = row.stage;
   const errId = 'ph-err-' + p.id;
   const busy = s.running.has(errId);
@@ -427,16 +439,10 @@ function phTableRow(p, multi) {
   sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
   // スマホの改行（2行目にチップ）
   tr.appendChild(mk('span', 'ph-br'));
-  // 報告書（無ければ その場の欄で2択＝作業員にURLを渡す／自社で作る。あれば一覧へ）
+  // 報告書（Task 25: 無ければ報告書と担当者URLを作って開く。あればこのフェーズの一番新しい報告書を開く＝Task 23 M5）
   const rep = row.report;
-  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : rep.state === 'waiting' ? 'wait' : '',
-    rep.state === 'none' ? '担当者へURLを渡すか自社で作る' : 'このフェーズの報告書を開く',
-    // Task 23 M5: このフェーズの報告書（一番新しいもの）を開く（案件全体の一覧ではなく）
-    () => {
-      if (rep.state === 'none') return phOpenCell(p, 'report');
-      const last = docs.reports.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))).pop();
-      location.hash = last ? '#report/' + last.id : '#case/' + s.caseId + '/reports';
-    }, rep.state === 'none' ? '未' : '');
+  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : '',
+    'このフェーズの報告書を開く', b => phOpenReport(b, p, docs, errId), rep.state === 'none' ? '未' : '');
   // 見積（無ければ作る／あれば一覧へ）。金額は PC だけ2段目に
   const est = row.estimate;
   const eb = cell('estimate', est.state === 'none' ? '＋ 作る' : est.text, est.state === 'none' ? 'none add' : est.state === 'accepted' ? 'ok' : est.state === 'sent' ? 'wait' : '',
@@ -551,7 +557,7 @@ function phMakeReport(btn, p, errId) {
       // 調査で作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
       if (p.kind === 'survey') {
         await phResSettle();
-        f.init = PhaseLogic.reportInit(phResultOf(p));
+        f.init = PhaseLogic.reportInit(phResultOf(p), f.room);
       }
       if (!phAlive(s)) return;
       const row = await ReportsApi.create(s.caseId, f);
@@ -648,7 +654,7 @@ function phStep(state, n, title, body) {
 //   調査結果の段は何か入っていれば済（調査前に入れても済）、調査済みで未入力なら「今」
 function phStepState(p, docs, i) {
   const isSurvey = p.kind === 'survey';
-  const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date());
+  const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date(), phStageOpts());
   const map = isSurvey ? PH_STEP_INDEX.survey : PH_STEP_INDEX.work;
   const hasRes = isSurvey && PhaseLogic.hasResult(phResultOf(p));
   let cur = map[st.key] != null ? map[st.key] : 0;
@@ -663,7 +669,7 @@ function phStepState(p, docs, i) {
 function phCard(p) {
   const docs = phDocs(p);
   const isSurvey = p.kind === 'survey';
-  const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date());
+  const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: docs.reports }, new Date(), phStageOpts());
   const stateOf = i => phStepState(p, docs, i);
   const errId = 'ph-err-' + p.id;
 
@@ -681,6 +687,8 @@ function phCard(p) {
   tag.title = '今の段階';
   hd.appendChild(tag);
   card.appendChild(hd);
+  // Task 25: 担当者URL（いつも出す。コピー／送る文面。管理者も同じURLで入力できる）
+  card.appendChild(phShareBlock(p, docs, errId));
 
   const steps = mk('div', 'ph-steps');
   // 作業担当者の段（Task 6b）は日時の段の次。番号は並び順で振り直す（段階の判定 phStepState の i は今までどおり）
@@ -850,14 +858,14 @@ function phSaveSchedule(btn, p, startIso, endIso, errId) {
 }
 
 /* ---- 調査した・完了報告（Task 16: 報告書の流れ。手で「調査済み」「完了」にするボタンは無い） ---- */
-// 調査の「調査した」の段: 調査済みの日（報告書の提出で自動）＋ 報告書の2択（作業員にURLを渡す／自社で作る）
+// 調査の「調査した」の段: 調査済みの日（報告書の提出で自動）＋ 報告書を開く（Task 25）
 function phSurveyDoneBody(p, docs, errId) {
   const line = mk('div', 'ph-row ph-done-line');
   if (p.done_at) line.appendChild(mk('span', 'ph-done', PhaseLogic.fmtMD(p.done_at) + ' 調査済み（報告書の提出）'));
   else line.appendChild(mk('span', 'ph-sub', '報告書が提出されると、自動で「調査した」になります'));
   return [line].concat(phReportFlow(p, docs, errId, false));
 }
-// 工事の「完了報告（報告書）」の段: 完了の日（報告書の提出で自動）＋ 2択
+// 工事の「完了報告（報告書）」の段: 完了の日（報告書の提出で自動）＋ 報告書を開く
 function phWorkDoneBody(p, docs, errId) {
   const line = mk('div', 'ph-row ph-done-line');
   if (p.done_at) line.appendChild(mk('span', 'ph-done', PhaseLogic.fmtMD(p.done_at) + ' 完了（報告書の提出）'));
@@ -871,6 +879,7 @@ function phStatusBody(p, st, docs, errId) {
   const out = [];
   const hint = t => out.push(mk('div', 'ph-sub ph-st-hint', t));
   const reportKeys = ['visit', 'waiting', 'write', 'check', 'report'];
+  if (p.kind === 'survey' && st.key === 'waiting') hint('作業担当者の報告を待っています（担当者URLか報告書の画面から提出されます）');
   if (p.kind === 'survey') {
     if (st.key === 'schedule') {
       hint('調査日時を決めてください（日時の欄から）。先に報告書の用意をするときは下から');
@@ -900,134 +909,105 @@ function phStatusBody(p, st, docs, errId) {
   return out;
 }
 
-// 報告書の流れ（このフェーズの報告書の状態に合わせて出す）
-//   報告書なし → 2択「担当者へURLを渡す」「自社で作る」
-//   下書き（URLなし）→ 開いて書く／担当者へURLを渡す（この下書きに URL を発行）
-//   URLを渡した下書き → 🟡 調査報告待ち。URL・送る文面のコピー・LINE・作り直す（Task 24: いつでも同じ URL を出せる）と、開いて書く（社内も編集できる）
+// 報告書の流れ（このフェーズの報告書の状態に合わせて出す）。Task 25: 2択（担当者へURLを渡す／自社で作る）は廃止し「報告書を開く」1つ
+//   提出前（下書き・無い）→ 「報告書を開く」（無ければ報告書と担当者URLを作って開く）。担当者URLはカードの上の欄（phShareBlock）
 //   提出済み・確認済み → 開く（contact = true なら 報告連絡 の行も。詳細ページは下の「報告書」の段に出る）
 function phReportFlow(p, docs, errId, contact) {
-  const s = ph;
   const out = [];
   const box = mk('div', 'ph-flow');
   box.dataset.phaseId = p.id;
   const reps = docs.reports;
+  const me = phMyId();
   const sent = reps.find(r => r.status === 'sent');
   const confirmed = reps.find(r => r.status === 'confirmed');
   const submitted = reps.find(r => r.status === 'submitted');
-  const waiting = reps.find(r => r.status === 'draft' && r.share_active);
-  const draft = reps.find(r => r.status === 'draft' && !r.share_active);
   const open = (r, label) => dBtn(label, 'btn sm ghost inline ph-flow-open', () => { location.hash = '#report/' + r.id; });
   const done = sent || confirmed || submitted;
   if (done) {
+    const check = typeof ReportLogic !== 'undefined' ? ReportLogic.needsCheck(done, me) : done.submitted_via === 'share';
     box.dataset.state = done.status;
     const line = mk('div', 'ph-row');
     line.appendChild(mk('span', 'ph-sub', done.status === 'sent' ? '報告書は送付済みです'
       : done.status === 'confirmed' ? '報告書は確認済みです。依頼元に送ってください'
         : '報告書が提出されました（' + (done.submitted_at ? PhaseLogic.fmtMD(done.submitted_at) + '・' : '') + (done.worker_name || '社内') + '）。'
-          + (done.submitted_via === 'share' ? '内容を確認してください' : '依頼元に送ってください')));
-    line.appendChild(open(done, done.status === 'submitted' && done.submitted_via === 'share' ? '報告書を開いて確認' : '報告書を開く'));
+          + (check ? '内容を確認してください' : '依頼元に送ってください')));
+    line.appendChild(open(done, check ? '報告書を開いて確認' : '報告書を開く'));
     box.appendChild(line);
     if (contact && done.status !== 'sent') {
       const rc = phReportContactEl(done, PhaseLogic.docTrack(done, docs.mails), errId);
       if (rc) box.appendChild(rc);
     } else if (done.status !== 'sent') box.appendChild(mk('div', 'ph-sub', '下の「報告書」の段から確認して報告連絡できます'));
-  } else if (waiting) {
-    box.dataset.state = 'waiting';
-    const sh = ReportsApi.latestShare(s.data.shares, waiting.id);
-    const line = mk('div', 'ph-row');
-    line.appendChild(mk('span', 'ph-flow-wait', PhaseLogic.MARK.them + ' 調査報告待ち（' + (sh && String(sh.vendor_name || '').trim() ? String(sh.vendor_name).trim() + ' 様・' : '') + 'URL ' + (sh ? PhaseLogic.fmtMD(sh.created_at) : '') + '）'));
-    line.appendChild(open(waiting, '報告書を開いて書く'));
-    box.appendChild(line);
-    const url = ReportsApi.shareUrl(sh);
-    const remake = b => phRemakeShare(b, p, waiting, sh ? sh.vendor_name : '', errId);
-    if (url) {
-      box.appendChild(shareUrlBox({ url, name: sh.vendor_name, askHost: box, onRemake: remake,
-        text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url }) }));
-    } else {
-      // 044 より前に発行した URL は表示できない
-      box.appendChild(mk('div', 'ph-sub', '前に渡したURLはここに表示できません。分からなくなったら作り直してください'));
-      const acts = mk('div', 'ph-flow-acts');
-      acts.appendChild(shrRemakeBtn(box, remake));
-      box.appendChild(acts);
-    }
-  } else if (draft) {
-    box.dataset.state = 'draft';
-    box.appendChild(mk('div', 'ph-sub', '報告書の下書きがあります（提出すると次へ進みます）'));
-    const acts = mk('div', 'ph-flow-acts');
-    acts.appendChild(open(draft, '報告書を開いて書く'));
-    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('担当者へURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
-    box.appendChild(acts);
-    if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, draft, errId));
   } else {
-    box.dataset.state = 'none';
-    if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, null, errId));
-    else {
-      const acts = mk('div', 'ph-flow-acts ph-flow-choice');
-      const a = dBtn('担当者へURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
-      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。担当者がスマホで入力・提出します'));
-      const b = dBtn('自社で作る', 'ph-choice ph-flow-self', btn => phMakeReport(btn, p, errId));
-      b.appendChild(mk('span', 'ph-choice-sub', '報告書を作って編集画面を開きます'));
-      acts.append(a, b);
-      box.appendChild(acts);
-    }
+    box.dataset.state = reps.length ? 'draft' : 'none';
+    const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: reps }, new Date(), phStageOpts());
+    if (st.key === 'waiting') box.appendChild(mk('div', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + st.label + (st.due ? '・期限 ' + PhaseLogic.fmtYmdMD(st.due) : '')));
+    box.appendChild(mk('div', 'ph-sub', '作業担当者が担当者URL（上の欄）か報告書の画面から入力・提出します。提出すると次へ進みます'));
+    const acts = mk('div', 'ph-flow-acts');
+    acts.appendChild(dBtn('報告書を開く', 'btn sm inline ph-flow-open', b => phOpenReport(b, p, docs, errId)));
+    box.appendChild(acts);
   }
   out.push(box);
   return out;
 }
-function phShareOpen(p) {
+// 「報告書を開く」: このフェーズの一番新しい報告書を開く。無ければ報告書と担当者URLを作ってから開く（Task 25）
+function phOpenReport(btn, p, docs, errId) {
   const s = ph;
-  if (!phAlive(s)) return;
-  s.shareForm.add(p.id);
-  phMsg('ph-err-' + p.id, '');
-  phDraw();
-  const el = s.root.querySelector('.ph-flow[data-phase-id="' + p.id + '"] .ph-share-name');
-  if (el) { if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); el.focus({ preventScroll: true }); }
-}
-// 担当者の名前（URLの宛名・任意）を入れて発行。入力のある欄なので × とキャンセルでだけ閉じる
-function phShareForm(p, existing, errId) {
-  const s = ph;
-  const form = mk('div', 'ph-form ph-share-form');
-  const id = 'ph-share-name-' + p.id;
-  const lb = mk('label', 'ph-lbl', '担当者名（URLの宛名・任意）');
-  lb.htmlFor = id;
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.id = id;
-  inp.className = 'ph-share-name';
-  inp.maxLength = 60;
-  inp.autocomplete = 'off';
-  inp.placeholder = '例：山本設備';
-  const m = phMembers().find(x => x.user_id === p.worker_id);
-  inp.value = (m && m.display_name) || '';
-  form.append(lb, inp);
-  form.appendChild(mk('div', 'ph-sub', 'URLを開いた人は、この報告書の入力・写真の追加・提出だけができます（ログイン不要・期限なし。提出するとURLは使えなくなります）。社内でも同じ報告書を編集できます'));
-  const acts = mk('div', 'ph-acts');
-  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline ph-share-cancel', () => { s.shareForm.delete(p.id); phMsg(errId, ''); phDraw(); }));
-  acts.appendChild(dBtn('URLを発行', 'btn sm inline ph-share-issue', b => phIssueShare(b, p, existing, inp, errId)));
-  form.appendChild(acts);
-  return form;
-}
-function phIssueShare(btn, p, existing, nameEl, errId) {
-  const s = ph;
-  const name = String(nameEl.value || '').trim();
-  return phRun(btn, errId, 'URLの発行', async () => {
-    let report = existing;
-    let made = false;
-    if (!report) {
-      // Task 23: 号室・作業日の初期値（PhaseLogic.reportFields）。名前は URL の名前（メンバーと一致すれば提出時に DB が作業担当者を残す）
-      const f = PhaseLogic.reportFields(p, currentCase, { title: phTitle(p), workerName: name });
-      if (p.kind === 'survey') { await phResSettle(); f.init = PhaseLogic.reportInit(phResultOf(p)); }
-      report = await ReportsApi.create(s.caseId, f);
-      made = true;
-    }
-    try { await ReportsApi.createShare(report, name); }
-    catch (e) {
-      if (made) { try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ } }
-      throw e;
-    }
-    if (!phAlive(s)) return;
-    s.shareForm.delete(p.id); // phRun が読み直して、URL の欄（shareUrlBox）を出す
+  const last = docs.reports.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))).pop();
+  if (last) { location.hash = '#report/' + last.id; return; }
+  if (!phAlive(s) || s.running.has(errId)) return;
+  phMsg(errId, '');
+  s.running.add(errId);
+  return withBusy(btn, async () => {
+    try {
+      if (p.kind === 'survey') await phResSettle();
+      const cur = Object.assign({}, p, p.kind === 'survey' ? { result: phResultOf(p) } : {});
+      const r = await ReportsApi.ensurePhaseReport(cur, currentCase, { reports: [], title: phTitle(p), force: true });
+      if (phAlive(s) && r && r.report) location.hash = '#report/' + r.report.id;
+    } catch (e) { if (phAlive(s)) phMsg(errId, '報告書を作れませんでした: ' + errText(e)); }
+    finally { s.running.delete(errId); }
   });
+}
+// 担当者URLの欄（Task 25: フェーズを作ったときに自動でできる。いつも出す）
+//   下書きの報告書の使える URL → URL・URLをコピー・送る文面をコピー・LINEで送る・作り直す
+//   提出済み → 「報告書は提出済みです」／ URL がまだ無い → 「担当者URLを作る」
+function phShareBlock(p, docs, errId) {
+  const s = ph;
+  const box = mk('div', 'ph-share');
+  box.dataset.phaseId = p.id;
+  const head = mk('b', 'ph-share-t', '🔗 担当者URL');
+  box.appendChild(head);
+  const drafts = docs.reports.filter(r => r.status === 'draft');
+  const draft = drafts[drafts.length - 1] || null;
+  const sh = draft ? ReportsApi.latestShare(s.data.shares, draft.id) : null;
+  const live = sh && ReportsApi.shareActive(sh);
+  const url = live ? ReportsApi.shareUrl(sh) : '';
+  const remake = b => phRemakeShare(b, p, draft, sh ? sh.vendor_name : '', errId);
+  if (url) {
+    box.dataset.state = 'live';
+    head.remove(); // 見出しは URL の欄の中に
+    box.appendChild(shareUrlBox({ url, name: sh.vendor_name, title: '🔗 担当者URL', askHost: box, onRemake: remake,
+      text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url }) }));
+    box.appendChild(mk('div', 'ph-sub', '作業担当者に送ると、ログインなしでこのフェーズの報告書を入力・提出できます（社内でも同じ報告書を開いて書けます）'));
+  } else if (draft && live) {
+    box.dataset.state = 'legacy'; // 044 より前に発行した URL は表示できない
+    box.appendChild(mk('div', 'ph-sub', '前に渡したURLはここに表示できません。分からなくなったら作り直してください'));
+    const acts = mk('div', 'ph-flow-acts');
+    acts.appendChild(shrRemakeBtn(box, remake));
+    box.appendChild(acts);
+  } else if (!draft && docs.reports.length) {
+    box.dataset.state = 'done';
+    const last = docs.reports[docs.reports.length - 1];
+    box.appendChild(mk('span', 'ph-sub', '報告書は提出済みです' + (last.submitted_at ? '（' + PhaseLogic.fmtMD(last.submitted_at) + '）' : '') + '。URLはもう使えません'));
+  } else {
+    box.dataset.state = 'none';
+    box.appendChild(mk('span', 'ph-sub', 'まだありません'));
+    box.appendChild(dBtn('担当者URLを作る', 'btn sm inline ph-share-make', b => phRun(b, errId, '担当者URLの作成', async () => {
+      if (p.kind === 'survey') await phResSettle();
+      const cur = Object.assign({}, p, p.kind === 'survey' ? { result: phResultOf(p) } : {});
+      await ReportsApi.ensurePhaseReport(cur, currentCase, { reports: docs.reports, shares: s.data.shares, title: phTitle(p), force: true });
+    })));
+  }
+  return box;
 }
 // 「URLを作り直す」（同じ報告書に発行し直す。古い URL は DB が無効にする。migration 044）
 function phRemakeShare(btn, p, report, name, errId) {
@@ -1065,7 +1045,7 @@ function phContactEl(p, mails) {
     el.dataset.state = 'none';
     el.appendChild(mk('span', 'ph-sub', '未作成です。下の「調査結果」を入れると「調査結果のご報告」の下書きができます'));
     el.appendChild(dBtn('調査結果を入れる', 'linkbtn ph-ct-go', () => {
-      const ta = ph && ph.root && ph.root.querySelector('.ph-result[data-phase-id="' + p.id + '"] .ph-res-cause');
+      const ta = ph && ph.root && ph.root.querySelector('.ph-result[data-phase-id="' + p.id + '"] .ph-res-cause, .ph-result[data-phase-id="' + p.id + '"] .pd-room');
       if (ta) { ta.scrollIntoView({ block: 'center' }); ta.focus({ preventScroll: true }); }
     }));
   }
@@ -1133,9 +1113,9 @@ function phReportsBody(p, docs, errId) {
     if (rc) box.appendChild(rc);
     out.push(box);
   });
-  // 報告書が無いときは「調査した」（工事は「完了報告」）の段の2択から作る。あるときだけ追加の「＋ 報告書を作る」
+  // 報告書が無いときは「調査した」（工事は「完了報告」）の段の「報告書を開く」で作る。あるときだけ追加の「＋ 報告書を作る」
   if (!docs.reports.length) {
-    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、担当者へURLを渡すか自社で作ってください'));
+    out.push(mk('div', 'ph-sub', 'まだありません。上の「報告書を開く」で作れます'));
     return out;
   }
   const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => phMakeReport(btn, p, errId));
@@ -1173,7 +1153,8 @@ function phReportContactEl(r, t, errId) {
     row.dataset.state = 'draft';
     row.appendChild(dBtn('📨 報告連絡（確認して送る）', 'btn sm inline ph-rep-ct', () => openMailDraft(draft.id)));
   } else if (r.status === 'submitted') {
-    const share = r.submitted_via === 'share'; // 協力業者URLからの提出だけ「確認して」。社内の提出はそのまま送る（Task 23）
+    // 担当者URL・別の人の提出は「確認して」。自分の提出はそのまま送る（Task 23・25）
+    const share = typeof ReportLogic !== 'undefined' ? ReportLogic.needsCheck(r, phMyId()) : r.submitted_via === 'share';
     row.dataset.state = 'submitted';
     row.appendChild(dBtn(share ? '📨 確認して報告連絡' : '📨 報告書を送る', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
       const d = await ReportsApi.confirm(r, currentCase);
@@ -1537,16 +1518,18 @@ window.addEventListener('hashchange', () => { const el = document.getElementById
 function phFoot(p, docs, errId) {
   const foot = mk('div', 'ph-foot');
   const sentMail = docs.mails.some(m => m.status !== 'draft');
-  const has = docs.estimates.length || docs.reports.length || docs.notices.length || sentMail;
+  // Task 25: 自動で作った報告書（下書き・写真なし）と担当者URLは一緒に消せる
+  const has = docs.estimates.length || docs.reports.some(r => !PhaseLogic.isBlankReport(r)) || docs.notices.length || sentMail;
   if (ph.confirmDel === p.id && !has) {
     const box = mk('div', 'ph-confirm');
-    box.appendChild(mk('div', null, '「' + phTitle(p) + '」を削除しますか？（元に戻せません。未送信の連絡メールの下書きも消えます）'));
+    box.appendChild(mk('div', null, '「' + phTitle(p) + '」を削除しますか？（元に戻せません。未送信の連絡メールの下書き' +
+      (docs.reports.length ? '・下書きの報告書（写真なし）と担当者URL' : '') + 'も消えます）'));
     const acts = mk('div', 'ph-acts');
     acts.appendChild(dBtn('やめる', 'btn sm ghost inline ph-del-cancel', () => { ph.confirmDel = null; phDraw(); }));
     acts.appendChild(dBtn('削除する', 'btn sm inline ph-del-ok', b => {
       const s = ph;
       return phRun(b, errId, '削除', async () => {
-        await PhasesApi.remove(p, phTitle(p));
+        await PhasesApi.remove(p, phTitle(p), docs.reports);
         if (phAlive(s)) s.confirmDel = null;
       }).then(() => {
         // 詳細ページで消したら案件ページへ戻る（消えたフェーズのページに残らない）
@@ -1560,7 +1543,7 @@ function phFoot(p, docs, errId) {
   const del = dBtn('このフェーズを削除', 'linkbtn danger ph-del', () => { ph.confirmDel = p.id; phMsg(errId, ''); phDraw(); });
   if (has) {
     del.disabled = true;
-    foot.append(del, mk('span', 'ph-sub', '見積書・報告書・工事掲示・送ったメールがあるため削除できません'));
+    foot.append(del, mk('span', 'ph-sub', '見積書・報告書（写真や提出のあるもの）・工事掲示・送ったメールがあるため削除できません'));
   } else foot.appendChild(del);
   return foot;
 }
@@ -1572,8 +1555,8 @@ function phFoot(p, docs, errId) {
 // 保存の後はカードを描き直さず、メールの行とステップの丸だけを書き換える（入力中に要素が付け替わらない）。
 // 保存は1フェーズにつき直列（rs.chain）。保存中の入力は rs.dirty で次の保存に回す。画面を離れる・隠れるときは保留中の保存を flush する
 const PH_RES_DELAY = 1500;
+// Task 25: 原因・被害箇所は号室ごと（phResRoomEl）。ここは案件全体で1つの欄
 const PH_RES_TEXTS = [
-  { key: 'cause', label: '原因は何か', ph: '例: 上階 402 の浴室防水の劣化による漏水' },
   { key: 'why', label: 'なぜそうなったか', ph: '例: 築20年で防水層が硬化し、目地から浸水' },
   { key: 'scope', label: '復旧工事の範囲', ph: '例: 302 の天井ボード張替え・クロス貼替え（約6㎡）' }
 ];
@@ -1611,6 +1594,7 @@ function phResSession(p) {
 function phResultBody(p, docs) {
   const rs = phResSession(p);
   if (!rs.el) phResBuild(rs);
+  else if (rs.els.picker) rs.els.picker.repaint(); // 号室の候補（関係する部屋）が変わっていれば出し直す
   phResFillMail(rs, docs.mails);
   phResSetState(rs, rs.state);
   return [rs.el];
@@ -1622,6 +1606,39 @@ function phResBuild(rs) {
   rs.els = {};
   box.appendChild(mk('div', 'ph-sub', 'お客様に「どこからどこまで対応するか」「何に気をつけてもらうか」を伝えるための記録です。' +
     '入れると「調査結果のご報告」メールの下書きができ、この調査で作る報告書・工事の見積書の備考・工事掲示に引き継がれます（作るときの初期値）'));
+  // Task 25: 号室ごとの区画（原因・被害箇所）。号室は指示と同じ選び方（js/phase-detail.js pdRoomPicker）
+  box.appendChild(mk('div', 'ph-cau-t', '号室を選ぶ（押すと☑）・号室ごとに原因と被害箇所'));
+  const blocks = mk('div', 'pd-room-blocks ph-res-rooms');
+  const addBlock = c => {
+    if (rs.v.rooms.some(b => b.room === c.room)) return;
+    rs.v.rooms.push({ room: c.room, role: c.role || '', cause: '', damage: '' });
+    phResRoomsFill(rs);
+    phResChanged(rs);
+  };
+  if (typeof pdRoomPicker === 'function') {
+    const picker = pdRoomPicker({
+      label: '調査結果の号室',
+      rooms: () => rs.v.rooms,
+      onAdded: addBlock,
+      onToggle: async (c, on, btn) => {
+        if (on) { addBlock(c); return; }
+        const b = rs.v.rooms.find(x => x.room === c.room);
+        if (b && (String(b.cause).trim() || String(b.damage).trim())) {
+          const ok = await askInline(blocks, PhaseLogic.briefRoomHead(b) + 'の原因・被害箇所を消しますか？', { okLabel: '消す', id: 'ph-res-room-ask', prepend: true });
+          if (!ok) { edSetOn(btn, true); return; }
+        }
+        rs.v.rooms = rs.v.rooms.filter(x => x.room !== c.room);
+        phResRoomsFill(rs);
+        rs.els.picker.repaint();
+        phResChanged(rs);
+      }
+    });
+    box.appendChild(picker);
+    rs.els.picker = picker;
+  }
+  box.appendChild(blocks);
+  rs.els.blocks = blocks;
+  phResRoomsFill(rs);
   PH_RES_TEXTS.forEach(t => {
     const ta = document.createElement('textarea');
     ta.className = 'ph-res-' + t.key;
@@ -1688,6 +1705,32 @@ function phResBuild(rs) {
   Object.assign(rs.els, { save, retry, mail });
   rs.el = box;
   phResSyncExtras(rs);
+}
+
+// 号室の区画（原因・被害箇所の自由記載）
+function phResRoomsFill(rs) {
+  const host = rs.els.blocks;
+  if (!host) return;
+  const area = (b, key, label, ph) => {
+    const ta = document.createElement('textarea');
+    ta.className = 'ph-res-' + key;
+    ta.rows = 2;
+    ta.maxLength = PH_RES_MAX.text;
+    ta.placeholder = ph;
+    ta.value = b[key];
+    ta.addEventListener('input', () => { b[key] = ta.value; phResChanged(rs); });
+    const l = mk('label', 'ph-rl', label);
+    l.appendChild(ta);
+    return l;
+  };
+  host.replaceChildren(...rs.v.rooms.map(b => {
+    const el = mk('div', 'pd-room-block');
+    el.dataset.room = b.room;
+    el.appendChild(mk('div', 'pd-room-hd', PhaseLogic.briefRoomHead(b)));
+    el.append(area(b, 'cause', '原因', '例: 浴室防水の劣化による漏水'), area(b, 'damage', '被害箇所', '例: 天井ボード・洗面所の壁クロス（約6㎡）'));
+    return el;
+  }));
+  if (!rs.v.rooms.length) host.appendChild(mk('div', 'ph-sub pd-room-none', '上で号室を選ぶと、その号室の原因・被害箇所を書く欄が出ます'));
 }
 
 function phResSyncExtras(rs) {

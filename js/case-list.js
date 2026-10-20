@@ -116,7 +116,7 @@ function caseRowEl(r, now) {
   el.appendChild(meta);
 
   // 次: 各フェーズの今の段階（PhaseLogic.caseNext）。完了した案件は入金待ちだけ
-  const all = PhaseLogic.caseNext(r.phases, now || new Date());
+  const all = PhaseLogic.caseNext(r.phases, now || new Date(), { me: ctx && ctx.user ? ctx.user.id : null }); // Task 25: 見ている人で段階が変わる
   const next = r.status === 'done' ? all.filter(x => x.key === 'payment') : all;
   const kindCount = {};
   (r.phases || []).forEach(p => { kindCount[p.kind] = (kindCount[p.kind] || 0) + 1; });
