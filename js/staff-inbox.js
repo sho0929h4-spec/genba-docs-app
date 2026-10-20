@@ -62,6 +62,7 @@ function siMessageEl(it) {
   row.dataset.type = 'message';
   row.dataset.msgId = m.id;
   const top = mk('div', 'si-top');
+  top.appendChild(mk('span', 'si-reply-tag', '管理者から'));
   if (it.phase) top.appendChild(mk('span', 'ph-kind k-' + it.phase.kind, PhaseLogic.kindLabel(it.phase.kind)));
   top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
   top.appendChild(mk('span', 'ob-ph', it.title));
