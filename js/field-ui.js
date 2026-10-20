@@ -277,7 +277,7 @@ async function fdLoadCase(seq) {
   s.loading = false;
   s.err = err;
   if (!err && res[1] && res[1].length) {
-    // 協力業者URLで入力中か（「○○様が入力中」。Task 23 I6。案件ページの phLoad と同じ形）
+    // 担当者URLが使えるか（調査報告待ち。Task 23 I6。案件ページの phLoad と同じ形）
     try {
       const shares = (await ReportsApi.listSharesByReports(res[1].map(r => r.id))) || [];
       res[1].forEach(r => {
@@ -285,7 +285,7 @@ async function fdLoadCase(seq) {
         r.share_active = !!act;
         r.share_name = act ? act.vendor_name || '' : '';
       });
-    } catch (e) { console.warn('協力業者URLの読み込みに失敗', e); }
+    } catch (e) { console.warn('担当者URLの読み込みに失敗', e); }
     if (!fd || fd.seq !== seq) return;
   }
   if (!err) {

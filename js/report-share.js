@@ -1,22 +1,21 @@
-// js/report-share.js — ⑦ 協力業者に報告書の作成を依頼（#case/{id}/share）… openShareScreen(caseId)  （Task 6）
-// 協力業者名・対応フェーズ・作業区分・期限 → 下書きの報告書を作る（worker_name = 協力業者名・phase_id = 選んだフェーズ）→ URL を発行して表示。
-// Task 16: 対応フェーズを選べる（既定は まだ報告書の無いフェーズのうち最初の調査、無ければ完了報告が要る工事）。
-//   選んだフェーズの段階は 🟡 調査報告待ち（工事は 完了報告必要（作業員の入力待ち））になり、提出されると done_at が自動で入る（migration 034）
-// URL（token）は DB に保存されない（ハッシュだけ）。表示できるのは発行直後のこの画面だけ。
-//   画面を離れたら表示中の URL を DOM から消す。一覧は状態だけで、URL は出せない。
-// ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）
-// mk() は case-list.js、dBtn / dField / dSelect / errText は case-detail.js、withBusy / setMsg / showScreen / renderHeaders / $ は app.js
-// openShareScreen が定義されていると ⑤（js/report-ui.js）に「🔗 協力業者に作成を依頼」ボタンが出る
+// js/report-share.js — ⑦ 担当者へURLを渡す（#case/{id}/share）… openShareScreen(caseId, reportId)  （Task 6 → Task 24 で単純化）
+// 担当者名（任意）・対応フェーズ・作業区分 →「URLを発行」で下書きの報告書を作り、その報告書の URL を発行する。
+// Task 24（migration 044）: URL は報告書1件につき1本。token は自社だけ読める平文で保存するので、いつでも同じ URL を表示できる。
+//   期限なし固定・無効にする／2本目の発行はない。「URLを作り直す」= 同じ報告書に発行し直す（古い URL は DB が自動で無効にする）。
+//   社内も同じ報告書を編集できる（入力中ロックは廃止。あとから保存した内容が残る）。提出されたら「提出済み（M/D）」だけ出す。
+// 下に URL を渡した報告書を1件ずつ出す（報告書ごとにいちばん新しい URL だけ）。
+// shareUrlBox() は対応フェーズ（js/phase-ui.js）の「担当者へURLを渡す」でも使う
+// ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。確認は画面内（askInline。confirm は使わない）
+// mk() は case-list.js、dBtn / errText は case-detail.js、edField / edSelect は report-edit.js、withBusy / setMsg / showScreen / renderHeaders / askInline / $ は app.js
+// openShareScreen が定義されていると ⑤（js/report-ui.js）に「🔗 担当者へURLを渡す」ボタンが出る
 
 let shrCaseId = null;
 let shrSeq = 0;          // 読み込みのたびに増やす。古い応答を捨てる
 let shrSummary = null;
 let shrReports = [];
 let shrShares = [];
-let shrBusy = false;     // 無効化の実行中
+let shrFocus = null;     // 開いたときに見せる報告書（⑤ の「URLを見る」から）
 
-// 値 'none' = 期限なし（提出・無効化まで有効）。既定
-const SHR_DAYS = [['none', '期限なし（提出まで有効）'], ['7', '7日間'], ['14', '14日間'], ['30', '30日間']];
 const shrMD = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : (d.getMonth() + 1) + '/' + d.getDate(); };
 const shrHash = caseId => '#case/' + caseId + '/share';
 const SHR_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // phase-ui.js の PH_WORK_TYPE と同じ
@@ -29,9 +28,74 @@ function shrDefaultPhase(phases) {
   const b = list.find(p => p.kind !== 'survey' && st(p) === 'report');
   return b ? b.id : '';
 }
+const shrWho = name => (String(name || '').trim() ? String(name).trim() + ' 様' : '担当者 様');
 
-function openShareScreen(caseId) {
+// URL の欄（URL・URLをコピー・送る文面をコピー・LINEで送る・URLを作り直す）。⑦ と対応フェーズで共通
+//   o: { url, name, text（送る文面）, onRemake(btn)（任意。無ければ「URLを作り直す」を出さない）, askHost（作り直しの確認を出す場所） }
+function shareUrlBox(o) {
+  const box = mk('div', 'shr-box');
+  const head = mk('div', 'rep-between');
+  head.append(mk('b', null, shrWho(o.name) + 'あてのURL'), mk('span', 'rep-pill p-wait', '有効（提出まで）'));
+  box.appendChild(head);
+  const line = mk('div', 'shr-link');
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.readOnly = true;
+  inp.className = 'shr-url';
+  inp.value = o.url;
+  inp.setAttribute('aria-label', 'URL');
+  inp.addEventListener('focus', () => inp.select());
+  line.appendChild(inp);
+  box.appendChild(line);
+  const status = mk('div', 'shr-ok shr-copy-msg');
+  status.setAttribute('role', 'status');
+  const copy = async (text, fallback) => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard');
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'コピーしました';
+    } catch (e) {
+      fallback();
+      status.textContent = 'コピーできませんでした。選択したので、長押し（またはCtrl+C）でコピーしてください';
+    }
+  };
+  const acts = mk('div', 'rep-acts shr-acts');
+  acts.appendChild(dBtn('URLをコピー', 'btn sm inline shr-copy', () => copy(o.url, () => { inp.focus(); inp.select(); })));
+  acts.appendChild(dBtn('送る文面をコピー', 'btn sm ghost inline shr-text', () => copy(o.text, () => {
+    let ta = box.querySelector('.shr-msg');
+    if (!ta) {
+      ta = document.createElement('textarea');
+      ta.className = 'shr-msg';
+      ta.readOnly = true;
+      ta.rows = 5;
+      ta.value = o.text;
+      ta.setAttribute('aria-label', '送る文面');
+      box.insertBefore(ta, status);
+    }
+    ta.focus();
+    ta.select();
+  })));
+  const a = mk('a', 'shr-line', 'LINEで送る');
+  a.href = 'https://line.me/R/msg/text/?' + encodeURIComponent(o.text);
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  acts.appendChild(a);
+  if (o.onRemake) acts.appendChild(shrRemakeBtn(o.askHost || box, o.onRemake));
+  box.append(acts, status);
+  return box;
+}
+// 「URLを作り直す」: 画面内で確認してから。いま渡している URL は使えなくなる
+function shrRemakeBtn(host, onRemake) {
+  return dBtn('URLを作り直す', 'btn sm ghost inline shr-remake', async b => {
+    const ok = await askInline(host, 'URLを作り直しますか？\nいま渡しているURLは使えなくなります。新しいURLを送り直してください。',
+      { okLabel: '作り直す', id: 'shr-ask' });
+    if (ok) return onRemake(b);
+  });
+}
+
+function openShareScreen(caseId, reportId) {
   if (!caseId) return;
+  if (reportId) shrFocus = reportId;
   const h = shrHash(caseId);
   if (location.hash !== h) { location.hash = h; return; } // → hashchange → routeFromHash → もう一度ここへ
   showScreen('share');
@@ -39,7 +103,6 @@ function openShareScreen(caseId) {
   return loadShare(caseId);
 }
 
-// 画面を離れたら、表示していた URL を消す（戻る操作で見えないように）
 window.addEventListener('hashchange', () => {
   if (shrCaseId && location.hash !== shrHash(shrCaseId)) {
     shrSeq++;
@@ -62,7 +125,7 @@ function shrMessage(caseId, text, isErr) {
 async function loadShare(caseId) {
   const seq = ++shrSeq;
   shrCaseId = caseId;
-  shrSummary = null; shrReports = []; shrShares = []; shrBusy = false;
+  shrSummary = null; shrReports = []; shrShares = [];
   shrMessage(caseId, '読み込み中…', false);
   let res;
   try {
@@ -94,7 +157,7 @@ async function refreshShares() {
 function buildShare() {
   const caseId = shrCaseId;
   const card = mk('div', 'rep-card');
-  card.appendChild(mk('h3', null, '🔗 協力業者に報告書の作成を依頼'));
+  card.appendChild(mk('h3', null, '🔗 担当者へURLを渡す'));
   card.appendChild(mk('div', 'rep-sub', shrSummary.name + (shrSummary.address ? ' ・ ' + shrSummary.address : '')));
 
   const vendor = document.createElement('input');
@@ -102,7 +165,7 @@ function buildShare() {
   vendor.id = 'shr-vendor';
   vendor.maxLength = 60;
   vendor.autocomplete = 'off';
-  vendor.placeholder = '例：山本設備';
+  vendor.placeholder = '例：山本設備（空でもよい）';
   const phases = (shrSummary.phases || []);
   const count = {};
   const phOpts = [['', '（フェーズに付けない）']].concat(phases.map(p => {
@@ -116,53 +179,38 @@ function buildShare() {
     const p = phases.find(x => x.id === v);
     if (p) type.value = SHR_WORK_TYPE[p.kind];
   });
-  const days = edSelect('shr-days', SHR_DAYS, 'none', () => {});
   const form = mk('div');
   form.style.marginTop = '10px';
-  form.appendChild(edField('協力業者名 *', vendor));
-  form.appendChild(edField('対応フェーズ', phaseSel));
+  form.appendChild(edField('担当者名（任意）', vendor));
   const g2 = mk('div', 'rep-g2');
-  g2.append(edField('作業区分', type), edField('有効期限', days));
+  g2.append(edField('対応フェーズ', phaseSel), edField('作業区分', type));
   form.appendChild(g2);
   card.appendChild(form);
 
-  const issue = dBtn('URLを発行する', 'btn', b => onShareIssue(b, caseId, vendor, type, days, phaseSel, phOpts));
+  const issue = dBtn('URLを発行', 'btn', b => onShareIssue(b, caseId, vendor, type, phaseSel, phOpts));
   issue.id = 'shr-issue';
   card.appendChild(issue);
   const err = mk('div', 'err');
   err.id = 'shr-err';
   card.appendChild(err);
-  const result = mk('div');
-  result.id = 'shr-result';
-  card.appendChild(result);
   card.appendChild(mk('div', 'rep-note',
-    'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要。' +
-    '他の案件・金額・タイムライン・依頼元の連絡先は見えません。提出したら編集できなくなり、URLは自動で無効になります。'));
+    'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要・期限なし。' +
+    '他の案件・金額・タイムライン・依頼元の連絡先は見えません。提出するとURLは使えなくなります。社内でも同じ報告書を開いて編集できます。'));
 
-  const listCard = mk('div', 'rep-card');
-  listCard.appendChild(mk('h3', null, '発行済みのURL'));
-  const cnt = mk('div', 'rep-sub');
-  cnt.id = 'shr-active-count';
-  cnt.setAttribute('role', 'status');
-  listCard.appendChild(cnt);
-  listCard.appendChild(mk('div', 'rep-sub', 'URLそのものは発行した直後にしか表示できません。分からなくなったら、無効にして発行し直してください。'));
   const listErr = mk('div', 'err');
   listErr.id = 'shr-list-err';
   const list = mk('div');
   list.id = 'shr-list';
-  listCard.append(listErr, list);
 
-  $('share-root').replaceChildren(shrBack(caseId), card, listCard);
+  $('share-root').replaceChildren(shrBack(caseId), card, listErr, list);
   renderShareList();
 }
 
-/* ---- 発行 ---- */
-function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl, phaseEl, phOpts) {
+/* ---- 発行（新しい報告書） ---- */
+function onShareIssue(btn, caseId, vendorEl, typeEl, phaseEl, phOpts) {
   const name = vendorEl.value.trim();
   setMsg('shr-err', '');
-  if (!name) { setMsg('shr-err', '協力業者名を入力してください'); vendorEl.focus(); return; }
   return withBusy(btn, async () => {
-    $('shr-result').replaceChildren();
     let report;
     try {
       const f = { work_type: typeEl.value, worker_name: name };
@@ -171,7 +219,7 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl, phaseEl, phOpts) {
         f.phaseTitle = (phOpts.find(o => o[0] === phaseEl.value) || [])[1] || '';
       }
       // Task 23 I11: 号室・作業日の初期値（案件の号室・フェーズの日）
-      const cs = typeof shrSummary !== 'undefined' && shrSummary ? shrSummary : null;
+      const cs = shrSummary;
       const ph0 = cs && f.phase_id ? (cs.phases || []).find(x => x.id === f.phase_id) : null;
       if (cs) {
         const pf = PhaseLogic.reportFields(ph0 || {}, cs, { workerName: name });
@@ -184,129 +232,76 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl, phaseEl, phOpts) {
       setMsg('shr-err', '報告書を作成できませんでした: ' + errText(e));
       return;
     }
-    let res;
     try {
-      res = await ReportsApi.createShare(report, name, daysEl.value === 'none' ? null : Number(daysEl.value));
+      await ReportsApi.createShare(report, name);
     } catch (e) {
       try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ }
       setMsg('shr-err', 'URLを発行できませんでした: ' + errText(e));
       return;
     }
-    if (caseId !== shrCaseId) return; // 発行中に別の画面へ移った（URLは表示しない）
+    if (caseId !== shrCaseId) return;
     vendorEl.value = '';
-    renderShareResult(res, name);
+    shrFocus = report.id;
     try { await refreshShares(); }
-    catch (e) { setMsg('shr-list-err', '一覧を更新できませんでした: ' + errText(e)); }
+    catch (e) { setMsg('shr-list-err', '表示を更新できませんでした: ' + errText(e)); }
   });
 }
 
-function renderShareResult(res, vendorName) {
-  const box = $('shr-result');
-  const url = res.url;
-  const due = res.share.expires_at ? shrMD(res.share.expires_at) : ''; // 期限なしは ''
-  const wrap = mk('div', 'rep-card');
-  wrap.style.margin = '12px 0 0';
-  wrap.style.borderColor = 'var(--navy)';
-  const head = mk('div', 'rep-between');
-  head.append(mk('b', null, vendorName + ' 様あてのURL'), mk('span', 'rep-pill p-wait', due ? '有効・' + due + 'まで' : '有効（提出まで）'));
-  wrap.appendChild(head);
-
-  const line = mk('div', 'shr-link');
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.readOnly = true;
-  inp.id = 'shr-url';
-  inp.value = url;
-  inp.setAttribute('aria-label', '発行したURL');
-  inp.addEventListener('focus', () => inp.select());
-  const status = mk('div', 'shr-ok');
-  status.id = 'shr-copy-msg';
-  status.setAttribute('role', 'status');
-  const copy = dBtn('コピー', 'btn sm inline', async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard');
-      await navigator.clipboard.writeText(url);
-      status.textContent = 'コピーしました';
-    } catch (e) {
-      inp.focus();
-      inp.select();
-      status.textContent = 'コピーできませんでした。URLを選択したので、長押し（またはCtrl+C）でコピーしてください';
-    }
+/* ---- 作り直す（同じ報告書） ---- */
+async function onShareRemake(btn, rep, name) {
+  setMsg('shr-list-err', '');
+  return withBusy(btn, async () => {
+    try { await ReportsApi.createShare(rep, name); }
+    catch (e) { setMsg('shr-list-err', 'URLを作り直せませんでした: ' + errText(e)); return; }
+    shrFocus = rep.id;
+    try { await refreshShares(); }
+    catch (e) { setMsg('shr-list-err', '表示を更新できませんでした: ' + errText(e)); }
   });
-  copy.id = 'shr-copy';
-  line.append(inp, copy);
-  wrap.append(line, status);
-
-  const acts = mk('div', 'rep-acts');
-  acts.style.marginTop = '8px';
-  const orgName = (ctx && ctx.org && ctx.org.name) || '';
-  const msg = orgName + 'です。' + (shrSummary ? shrSummary.name : '') + 'の作業報告書の入力をお願いします' + (due ? '（' + due + 'まで）' : '') + '\n' + url;
-  const a = mk('a', 'shr-line', 'LINEで送る');
-  a.id = 'shr-line';
-  a.href = 'https://line.me/R/msg/text/?' + encodeURIComponent(msg);
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  acts.appendChild(a);
-  wrap.appendChild(acts);
-  wrap.appendChild(mk('div', 'shr-warn', 'このURLは今だけ表示されます。閉じる前にコピーしてください'));
-  box.replaceChildren(wrap);
 }
 
-/* ---- 発行済み一覧 ---- */
-// [表示, pill の class, 有効か]
-function shareState(sh, rep) {
-  if (sh.submitted_at) return ['提出済み', 'p-ok', false];
-  if (sh.revoked_at) return ['無効', 'p-red', false];
-  if (sh.expires_at && !(Date.parse(sh.expires_at) > Date.now())) return ['期限切れ', 'p-draft', false];
-  if (rep && rep.status !== 'draft') return ['使用不可（報告書は提出済み）', 'p-draft', false];
-  return [sh.expires_at ? '有効・' + shrMD(sh.expires_at) + 'まで' : '有効（提出まで）', 'p-wait', true];
-}
-
+/* ---- URL を渡した報告書（報告書ごとにいちばん新しい URL） ---- */
 function renderShareList() {
   const box = $('shr-list');
   if (!box) return;
-  // 期限なしのURLは出しっぱなしになりやすいので、今も使えるURLの件数を見せる
-  const cnt = $('shr-active-count');
-  if (cnt) {
-    const n = shrShares.filter(sh => shareState(sh, shrReports.find(r => r.id === sh.report_id))[2]).length;
-    cnt.textContent = '今も使えるURL: ' + n + '件';
-  }
-  if (shrShares.length === 0) { box.replaceChildren(mk('div', 'rep-sub', 'まだ発行していません')); return; }
-  box.replaceChildren(...shrShares.map(sh => {
-    const rep = shrReports.find(r => r.id === sh.report_id);
-    const [label, pill, active] = shareState(sh, rep);
-    const row = mk('div', 'rep-row');
-    row.dataset.id = sh.id;
+  const reps = shrReports.filter(r => ReportsApi.latestShare(shrShares, r.id));
+  if (reps.length === 0) { box.replaceChildren(); return; }
+  box.replaceChildren(...reps.map(rep => {
+    const sh = ReportsApi.latestShare(shrShares, rep.id);
+    const card = mk('div', 'rep-card shr-item');
+    card.dataset.reportId = rep.id;
+    const php = rep.phase_id ? (shrSummary.phases || []).find(p => p.id === rep.phase_id) : null;
+    const wt = ReportLogic.WORK_TYPE_LABEL[rep.work_type] || rep.work_type;
     const top = mk('div', 'rep-between');
-    top.append(mk('b', null, sh.vendor_name + ' 様'), mk('span', 'rep-pill ' + pill, label));
-    row.appendChild(top);
-    const wt = rep ? (ReportLogic.WORK_TYPE_LABEL[rep.work_type] || rep.work_type) : '（報告書なし）';
-    const php = rep && rep.phase_id && shrSummary ? (shrSummary.phases || []).find(p => p.id === rep.phase_id) : null;
-    row.appendChild(mk('div', 'rep-sub', (php ? PhaseLogic.phaseTitle(php) + ' ・ ' : '') + wt + ' ・ 発行 ' + repStamp(sh.created_at) +
-      (sh.submitted_at ? ' ・ 提出 ' + repStamp(sh.submitted_at) : '')));
-    if (active) {
-      const acts = mk('div', 'rep-acts');
-      acts.style.marginTop = '6px';
-      acts.appendChild(dBtn('無効にする', 'btn sm ghost inline danger', () => onShareRevoke(sh)));
-      row.appendChild(acts);
+    top.appendChild(mk('b', null, (php ? PhaseLogic.phaseTitle(php) + ' ・ ' : '') + wt + 'の報告書'));
+    top.appendChild(dBtn('報告書を開く', 'btn sm ghost inline shr-open', () => { location.hash = '#report/' + rep.id; }));
+    card.appendChild(top);
+    const submittedAt = sh.submitted_at || (rep.status !== 'draft' ? rep.submitted_at : null);
+    if (rep.status !== 'draft' || sh.submitted_at) {
+      card.appendChild(mk('div', 'rep-sub', shrWho(sh.vendor_name) + 'あて ・ 発行 ' + shrMD(sh.created_at)));
+      card.appendChild(mk('span', 'rep-pill p-ok shr-done', '提出済み' + (submittedAt ? '（' + shrMD(submittedAt) + '）' : '')));
+      return card;
     }
-    return row;
+    const url = ReportsApi.shareActive(sh) ? ReportsApi.shareUrl(sh) : '';
+    const remake = b => onShareRemake(b, rep, sh.vendor_name);
+    if (url) {
+      card.appendChild(shareUrlBox({
+        url, name: sh.vendor_name, askHost: card, onRemake: remake,
+        text: PhaseLogic.shareRequestText({ phase: php, caseRow: shrSummary, org: ctx && ctx.org, url })
+      }));
+    } else {
+      // 044 より前に発行した URL（表示できない）・期限切れ・無効になった URL
+      card.appendChild(mk('div', 'rep-sub', ReportsApi.shareActive(sh)
+        ? shrWho(sh.vendor_name) + 'あてに ' + shrMD(sh.created_at) + ' に渡したURLは、ここに表示できません。分からなくなったら作り直してください'
+        : 'このURLはもう使えません。渡し直すときは作り直してください'));
+      const acts = mk('div', 'rep-acts');
+      acts.appendChild(shrRemakeBtn(card, remake));
+      card.appendChild(acts);
+    }
+    return card;
   }));
-  box.querySelectorAll('button').forEach(b => { b.disabled = shrBusy; });
-}
-
-async function onShareRevoke(sh) {
-  if (shrBusy) return;
-  if (!confirm('「' + sh.vendor_name + '」様あてのURLを無効にしますか？\n無効にすると、このURLでは入力・提出できなくなります（元に戻せません）。')) return;
-  shrBusy = true;
-  renderShareList();
-  setMsg('shr-list-err', '');
-  let msg = '';
-  try { await ReportsApi.revokeShare(sh.id); }
-  catch (e) { msg = '無効にできませんでした: ' + errText(e); }
-  try { await refreshShares(); }
-  catch (e) { msg = msg || '一覧を更新できませんでした: ' + errText(e); }
-  shrBusy = false;
-  renderShareList();
-  if (msg) setMsg('shr-list-err', msg);
+  if (shrFocus) {
+    const el = box.querySelector('.shr-item[data-report-id="' + shrFocus + '"]');
+    shrFocus = null;
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
 }

@@ -181,41 +181,7 @@ function edBuild(s) {
   els.val.setAttribute('role', 'alert');
   nodes.push(els.val);
 
-  if (s.lock) {
-    const d = s.lock.expires_at ? new Date(s.lock.expires_at) : null; // 期限なしは null
-    const box = mk('div', 'rep-ro', '');
-    box.id = 'rp-lock';
-    box.appendChild(mk('b', null, s.lock.vendor_name + '様（協力業者）がこの報告書を入力中です' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '')));
-    box.appendChild(mk('div', null, '協力業者に渡したURLが有効なあいだは、入力が重ならないようにここでは編集できません。協力業者が提出すると編集できるようになります。'));
-    // URLの取り消しは管理者の操作（Task 23 I6）。現場用では出さない
-    const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
-    if (field) box.appendChild(mk('div', null, '自分で入力したいときは、管理者に連絡してください。'));
-    else box.appendChild(mk('div', null, '自分で入力する場合は、URLを取り消してください（協力業者はそのURLで続きを入力できなくなります）。'));
-    const act = mk('div', 'rep-lock-act');
-    const rv = mk('button', 'btn sm', 'URLを取り消して自分で入力する');
-    rv.type = 'button'; rv.id = 'rp-lock-revoke';
-    const a = mk('a', null, '協力業者URLの管理へ');
-    a.href = '#case/' + s.report.case_id + '/share';
-    act.appendChild(rv); act.appendChild(a);
-    if (!field) box.appendChild(act);
-    rv.addEventListener('click', () => {
-      // 画面内の確認（confirm() は使わない）
-      act.replaceChildren();
-      act.appendChild(mk('span', null, s.lock.vendor_name + '様のURLを取り消します。よろしいですか？'));
-      const ok = mk('button', 'btn sm', '取り消して編集する'); ok.type = 'button'; ok.id = 'rp-lock-revoke-ok';
-      const no = mk('button', 'btn sm ghost', 'やめる'); no.type = 'button';
-      act.appendChild(ok); act.appendChild(no);
-      no.addEventListener('click', () => { act.replaceChildren(rv, a); });
-      ok.addEventListener('click', async () => {
-        ok.disabled = true; no.disabled = true;
-        try { await ReportsApi.revokeShare(s.lock.id); }
-        catch (e) { ok.disabled = false; no.disabled = false; act.appendChild(mk('div', 'err', 'URLを取り消せませんでした: ' + errText(e))); return; }
-        if (!s.alive()) return;
-        openReport(s.id); // 取り消し後は読み込み直して編集できる状態に（端末に退避した入力があれば復元される）
-      });
-    });
-    nodes.push(box);
-  } else if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via) + '」のため、内容は変更できません（読み取り専用）'));
+  if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via) + '」のため、内容は変更できません（読み取り専用）'));
 
   const info = s.info;
   nodes.push(...rfBuildForm(s, {
@@ -225,13 +191,13 @@ function edBuild(s) {
     fixedLabel: s.fixed ? L.WORK_TYPE_LABEL[s.f.work_type] : '',
     fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
     infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
-    // 作業者: メンバー or 協力業者（名前を入力）
+    // 作業者: メンバー or その他（名前を入力。URL で入力する社外の担当者など）
     afterRoom(g2, basic) {
       const known = s.members.some(m => m.user_id === s.f.worker_id);
       const wopts = [['', '— 選択してください —']];
       s.members.forEach(m => wopts.push([m.user_id, (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '')]));
       if (s.f.worker_id && !known) wopts.push([s.f.worker_id, '（不明なメンバー）']);
-      wopts.push([ED_VENDOR, '協力業者（名前を入力）']);
+      wopts.push([ED_VENDOR, 'その他（名前を入力）']);
       const wval = s.f.worker_id ? s.f.worker_id : (String(s.f.worker_name || '').trim() ? ED_VENDOR : '');
       els.worker = edSelect('rp-worker', wopts, wval, v => {
         if (v === ED_VENDOR) { s.f.worker_id = null; s.f.worker_name = els.vendor.value; }
@@ -241,8 +207,8 @@ function edBuild(s) {
         if (v === ED_VENDOR) els.vendor.focus();
       });
       g2.appendChild(edField('作業担当者 *', els.worker));
-      els.vendor = edInput('rp-vendor', 'text', s.f.worker_name, v => { s.f.worker_name = v; edMarkDirty(s); }, { placeholder: '協力業者名', autocomplete: 'off' });
-      els.vendorWrap = edField('協力業者名', els.vendor);
+      els.vendor = edInput('rp-vendor', 'text', s.f.worker_name, v => { s.f.worker_name = v; edMarkDirty(s); }, { placeholder: '担当者名', autocomplete: 'off' });
+      els.vendorWrap = edField('担当者名', els.vendor);
       const syncVendor = () => { els.vendorWrap.hidden = els.worker.value !== ED_VENDOR; };
       basic.appendChild(els.vendorWrap);
       syncVendor();
@@ -458,14 +424,13 @@ async function openReport(id) {
   if (seq !== edSeq) return;
   ed = null;
 
-  let r, info, members, shares;
+  let r, info, members;
   try {
     r = await ReportsApi.get(id);
     if (r) {
-      [info, members, shares] = await Promise.all([
+      [info, members] = await Promise.all([
         currentCase && currentCase.id === r.case_id ? currentCase : CasesApi.getSummary(r.case_id),
-        CasesApi.listMembers(),
-        r.status === 'draft' ? ReportsApi.listShares(r.id) : Promise.resolve([])
+        CasesApi.listMembers()
       ]);
     }
   } catch (e) {
@@ -476,11 +441,10 @@ async function openReport(id) {
   if (seq !== edSeq) return;
   if (!r) { edMessage('報告書が見つかりません', false); return; }
 
-  // 協力業者が入力中（有効なURLがある）下書きは読み取り専用（DB もトリガーで社内の更新を拒否する: migration 011）
-  const lock = (shares || []).find(ReportsApi.shareActive) || null;
+  // Task 24: 担当者URLが有効でも社内は編集できる（入力中ロックは廃止。migration 044。同時に編集したら、あとから保存した内容が残る）
   const s = {
     id: r.id, gen: seq, report: r, info: info || { name: '（案件情報を取得できません）' }, members: members || [],
-    f: edFromRow(r), ro: r.status !== 'draft' || !!lock, lock,
+    f: edFromRow(r), ro: r.status !== 'draft',
     dirty: false, photosDirty: false, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null,
     photoBusy: false, submitting: false, submitted: false, urls: new Map(), els: {},
     onDirty: edMarkDirty, alive: () => ed === s
@@ -490,7 +454,7 @@ async function openReport(id) {
   // 端末に退避した入力の復元（下書きのときだけ）。端末の時計は使わず、退避した時点のサーバー updated_at（base）と
   // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）ときだけ戻す。違えばサーバー優先で退避を捨てる
   let restored = false;
-  if (s.ro) { if (!lock) edLsDel(s.id); } // 入力中ロックの間は退避を残す（URLを無効にしたら復元できる）
+  if (s.ro) edLsDel(s.id);
   else {
     const ls = edLsGet(s.id);
     if (ls) {

@@ -18,7 +18,7 @@ let repSummary = null;    // case_summaries の1行
 let repReports = [];
 let repMembers = [];      // [{user_id, display_name}]
 let repDrafts = [];       // mail_drafts（案件内の全部）
-let repShares = [];       // report_shares（案件内の報告書の分。協力業者が入力中かの判定）
+let repShares = [];       // report_shares（案件内の報告書の分。URL が使えるか＝調査報告待ちの判定）
 let repBusy = false;      // 確認・下書き作成の実行中（二重実行を防ぐ）
 const REP_VENDOR = '__vendor__';
 
@@ -30,7 +30,7 @@ function repMemberName(id) {
 // 作業者の表示名: worker_id があればメンバー名、なければ worker_name（協力業者）
 function repWorkerText(r) {
   const base = r.worker_id ? repMemberName(r.worker_id) : (r.worker_name || '未設定');
-  return r.submitted_via === 'share' ? base + '（協力業者・URL経由で提出）' : base;
+  return r.submitted_via === 'share' ? base + '（URLから提出）' : base;
 }
 
 function repStamp(iso) {
@@ -129,7 +129,7 @@ function buildReports() {
   const acts = mk('div', 'rep-acts rep-top-acts');
   acts.appendChild(dBtn('＋ 報告書を作成', 'btn inline', () => toggleRepForm()));
   if (typeof openShareScreen === 'function' && !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin())) { // 現場用では出さない
-    acts.appendChild(dBtn('🔗 協力業者に作成を依頼', 'btn inline ghost', () => openShareScreen(repCaseId)));
+    acts.appendChild(dBtn('🔗 担当者へURLを渡す', 'btn inline ghost', () => openShareScreen(repCaseId)));
   }
 
   const formBox = mk('div');
@@ -170,14 +170,14 @@ function toggleRepForm() {
 
   const type = dSelect(Object.entries(ReportLogic.WORK_TYPE_LABEL), 'investigate');
   const workerOpts = repMembers.map(m => [m.user_id, (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '')]);
-  workerOpts.push([REP_VENDOR, '協力業者（名前を入力）']);
+  workerOpts.push([REP_VENDOR, 'その他（名前を入力）']);
   const worker = dSelect(workerOpts, repMembers.some(m => m.user_id === ctx.user.id) ? ctx.user.id : REP_VENDOR);
   const vendor = document.createElement('input');
   vendor.type = 'text';
   vendor.autocomplete = 'off';
   vendor.maxLength = 60;
-  vendor.placeholder = '協力業者名';
-  const vendorField = dField('協力業者名', vendor);
+  vendor.placeholder = '担当者名';
+  const vendorField = dField('担当者名', vendor);
   vendorField.className = 'span-all';
   const syncVendor = () => { vendorField.hidden = worker.value !== REP_VENDOR; };
   worker.addEventListener('change', () => { syncVendor(); if (!vendorField.hidden) vendor.focus(); });
@@ -194,7 +194,7 @@ function toggleRepForm() {
   acts.appendChild(dBtn('作成して入力へ', 'btn sm inline', b => {
     const isVendor = worker.value === REP_VENDOR;
     const vname = vendor.value.trim();
-    if (isVendor && !vname) { setMsg('rep-form-err', '協力業者名を入力してください'); vendor.focus(); return; }
+    if (isVendor && !vname) { setMsg('rep-form-err', '担当者名を入力してください'); vendor.focus(); return; }
     const caseId = repCaseId;
     return withBusy(b, async () => {
       setMsg('rep-form-err', '');
@@ -251,16 +251,15 @@ function repRowEl(r) {
 
   const acts = mk('div', 'rep-acts');
   acts.style.marginTop = '6px';
-  const vendorLock = r.status === 'draft' && repShares.some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
-  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin(); // 現場用（Task 18）: 確認・送付・協力業者URLは管理者側
-  if (vendorLock && field) {
-    acts.appendChild(mk('span', 'rep-sub', '協力業者が入力中'));
-  } else if (field && r.status !== 'draft') {
+  // Task 24: URL を渡した下書きも社内で続きを書ける（入力中ロックは廃止）。「調査報告待ち」は表示だけ
+  const waiting = r.status === 'draft' && repShares.some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin(); // 現場用（Task 18）: 確認・送付・担当者URLは管理者側
+  if (field && r.status !== 'draft') {
     acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
-  } else if (vendorLock) {
-    acts.appendChild(dBtn('協力業者が入力中', 'btn sm ghost inline', () => openShareScreen(repCaseId)));
   } else if (r.status === 'draft') {
+    if (waiting) acts.appendChild(mk('span', 'rep-pill p-wait rep-waiting', '調査報告待ち'));
     acts.appendChild(dBtn('続きを書く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
+    if (waiting && !field && typeof openShareScreen === 'function') acts.appendChild(dBtn('URLを見る', 'btn sm ghost inline rep-share-url', () => openShareScreen(repCaseId, r.id)));
   } else if (r.status === 'submitted') {
     // 協力業者URLからの提出は「確認する」、社内の提出は確認を飛ばして「報告書を送る」（Task 23）
     acts.appendChild(dBtn(r.submitted_via === 'share' ? '確認する' : '報告書を送る', 'btn sm inline', () => onRepConfirm(r)));

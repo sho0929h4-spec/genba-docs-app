@@ -8,8 +8,8 @@ const ReportsApi = (() => {
   // status / submitted_* / confirmed_* / sent_at は submit・confirm・markSent だけが触る
   const REPORT_COLS = ['work_type', 'room', 'work_date', 'time_start', 'time_end', 'worker_id', 'worker_name', 'data', 'photos'];
   const MAIL_COLS = ['to_email', 'cc', 'subject', 'body', 'recipients']; // recipients: 宛先の種類（元請・物件オーナー・入居者。020）
-  const SHARE_COLS = 'id, report_id, vendor_name, expires_at, revoked_at, submitted_at, created_by, created_at'; // token_hash は返さない
-  const SHARE_DAYS = [null, 7, 14, 30]; // null = 期限なし（提出・無効化まで有効。migration 012）
+  // token（平文）は自社だけ読める（migration 044。044 より前に発行した行は空）。token_hash は返さない
+  const SHARE_COLS = 'id, report_id, token, vendor_name, expires_at, revoked_at, submitted_at, created_by, created_at';
   const VENDOR_MAX = 60; // DB: report_shares_vendor_len（migration 011）
   // 送付PDFは公開バケット public-pdfs の {org}/{乱数uuid}/report.pdf（期限のない公開URL。migration 012）。
   // 以前の送付（files バケットの {org}/cases/... の署名URL）と区別する
@@ -222,37 +222,38 @@ const ReportsApi = (() => {
       return must(await sb.from('mail_drafts').insert(ins).select().single());
     },
 
-    /* ===== 協力業者URL ===== */
-    // token はDBに保存しない。戻り値の url / token は発行直後にだけ表示する
-    async createShare(report, vendorName, days) {
+    /* ===== 担当者URL（報告書1件につき1本。Task 24 / migration 044） ===== */
+    // 名前は任意（URLの宛名）。期限なし。同じ報告書に発行し直すと、DB のトリガーが古い URL を自動で無効にする。
+    // token は平文で保存し、あとからいつでも同じ URL を表示できる（shareUrl）。token_hash は DB が token から作る
+    async createShare(report, vendorName) {
       const name = String(vendorName == null ? '' : vendorName).trim();
-      if (!name) throw new Error('協力業者名を入力してください');
-      if (Array.from(name).length > VENDOR_MAX) throw new Error(`協力業者名は${VENDOR_MAX}文字以内で入力してください`);
-      if (days === undefined || !SHARE_DAYS.includes(days)) throw new Error('有効期限は「期限なし」・7日・14日・30日から選んでください');
+      if (Array.from(name).length > VENDOR_MAX) throw new Error(`担当者名は${VENDOR_MAX}文字以内で入力してください`);
       if (report.status && report.status !== 'draft') throw new Error('提出済みの報告書にはURLを発行できません');
       const token = newToken();
-      const token_hash = await hashToken(token);
-      const expires_at = days === null ? null : new Date(Date.now() + days * 86400000).toISOString();
       const share = must(await sb.from('report_shares')
-        .insert({ report_id: report.id, token_hash, vendor_name: name, expires_at }).select(SHARE_COLS).single());
-      // index.html と同じ場所の r.html（サブパス配信でも動くように、今のページ基準で組み立てる）
-      return { share, token, url: new URL('r.html', location.origin + location.pathname).href + '#' + token };
+        .insert({ report_id: report.id, token, vendor_name: name }).select(SHARE_COLS).single());
+      return { share, token, url: api.shareUrl(share) };
+    },
+    // index.html と同じ場所の r.html（サブパス配信でも動くように、今のページ基準で組み立てる）。token の無い旧い行は ''
+    shareUrl(share) {
+      if (!share || !share.token) return '';
+      return new URL('r.html', location.origin + location.pathname).href + '#' + share.token;
     },
     async listShares(reportId) {
       return must(await sb.from('report_shares').select(SHARE_COLS).eq('report_id', reportId).order('created_at', { ascending: false }));
     },
-    // 案件内の報告書のURLをまとめて取る（⑦ の発行済み一覧）
+    // 案件内の報告書のURLをまとめて取る（新しい順）
     async listSharesByReports(reportIds) {
       if (!reportIds || reportIds.length === 0) return [];
       return must(await sb.from('report_shares').select(SHARE_COLS).in('report_id', reportIds).order('created_at', { ascending: false }));
     },
-    async revokeShare(id) {
-      const rows = must(await sb.from('report_shares').update({ revoked_at: now() })
-        .eq('id', id).is('revoked_at', null).select('id'));
-      if (!rows || rows.length === 0) throw new Error('無効にできませんでした（すでに無効の可能性があります）');
+    // その報告書の URL: 使える URL（DB のトリガーで1本だけ）があればそれ、無ければいちばん新しいもの（shares は新しい順）
+    latestShare(shares, reportId) {
+      const list = (shares || []).filter(sh => sh.report_id === reportId);
+      return list.find(api.shareActive) || list[0] || null;
     },
     hashToken,
-    // 協力業者が入力中（無効化・提出・期限切れのどれでもない）か。入力中の報告書は社内から更新できない（migration 011 のトリガー）
+    // URL が使える（無効化・提出・期限切れのどれでもない）か。使える下書きは「調査報告待ち」（社内も編集できる。044 でロックは廃止）
     shareActive: sh => !!sh && !sh.revoked_at && !sh.submitted_at && (!sh.expires_at || Date.parse(sh.expires_at) > Date.now()),
 
     /* ===== 送付メール ===== */

@@ -155,7 +155,7 @@
     const nodes = [];
     const head = el('div', 'rep-card');
     const top = el('div', 'rep-between');
-    const vname = el('b', null, (info.vendor_name || '') + ' 様');
+    const vname = el('b', null, (String(info.vendor_name || '').trim() || '担当者') + ' 様'); // 名前は任意（空なら「担当者 様」。Task 24）
     vname.id = 'v-vendor';
     top.appendChild(vname);
     if (info.expires_at) { // 期限なし（null）のURLは期限を出さない

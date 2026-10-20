@@ -155,7 +155,7 @@
     return best;
   }
   // 工事の「完了報告必要」の括弧の補足（報告書の状態）
-  const WORK_REPORT_NOTE = { draft: '（報告書 下書き）', waiting: '（協力業者が入力中）', submitted: '（報告書 提出済み・確認する）', confirmed: '（報告書 送付する）' };
+  const WORK_REPORT_NOTE = { draft: '（報告書 下書き）', waiting: '（調査報告待ち）', submitted: '（報告書 提出済み・確認する）', confirmed: '（報告書 送付する）' };
   // 送付済みで承諾されていない見積（最新の版が sent）。日付は一番新しい送付日
   function pendingApproval(estimates) {
     const pend = liveEstimates(estimates).filter(e => e.status === 'sent');
@@ -1441,7 +1441,7 @@
       if (report.state === 'none' || rank[s] > rank[report.state]) {
         report = { state: s, date, text: s === 'viewed' ? `確認 ${fmtMD(date)}` : s === 'shared' ? `共有${date ? ' ' + fmtMD(date) : ''}`
           : s === 'confirmed' ? '確認済み（未送付）' : s === 'ready' ? '提出済み（未送付）' : s === 'submitted' ? '提出済み・確認待ち'
-            : s === 'waiting' ? (str(r.share_name) ? `${str(r.share_name)}様が入力中` : '協力業者が入力中') : '下書き' };
+            : s === 'waiting' ? '調査報告待ち' : '下書き' };
       }
     }
     // 見積: 最新の版（承諾があればそれ）
@@ -1599,9 +1599,9 @@
     let report = { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 };
     if (r) {
       const photos = listOf(r.photos).length;
-      // Task 23 I6: 協力業者URLで入力中（share_active）は「○○様が入力中」（現場用・案件ページのツールとも）
+      // Task 23 I6 → Task 24: 担当者URLが使える（share_active）は「調査報告待ち」（現場用・案件ページのツールとも。社内も開いて編集できる）
       if (r.status === 'draft' && r.share_active) {
-        report = { state: 'waiting', text: more(reports.length, `${str(r.share_name) ? str(r.share_name) + '様' : '協力業者'}が入力中`) + ' ・ 開く', open: r, count: reports.length };
+        report = { state: 'waiting', text: more(reports.length, '調査報告待ち') + ' ・ 開く', open: r, count: reports.length };
       } else report = r.status === 'draft'
         ? { state: 'draft', text: more(reports.length, `下書きあり（写真 ${photos}枚）`) + ' ・ 続きを書く', open: r, count: reports.length }
         : { state: 'done', text: more(reports.length, '提出済み') + ' ・ 開く', open: r, count: reports.length };

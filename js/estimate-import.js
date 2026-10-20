@@ -131,7 +131,7 @@ const EstimateImport = (() => {
     try {
       const path = await EstimatesApi.uploadSourcePdf(s.row, file);
       if (s.imp === st && !s.left) { hooks.source(path, file.name); setSrc(s, path); }
-    } catch (e) { console.warn('業者PDFの保存に失敗', e); if (s.imp === st) setSrc(s, '', '元のPDFは保存できませんでした（' + errOf(e) + '）'); }
+    } catch (e) { console.warn('仕入先PDFの保存に失敗', e); if (s.imp === st) setSrc(s, '', '元のPDFは保存できませんでした（' + errOf(e) + '）'); }
   }
 
   /* ---------- 画面 ---------- */
@@ -164,7 +164,7 @@ const EstimateImport = (() => {
     st.src.hidden = !path && !note;
     if (note) { st.src.appendChild(mk('span', 'rep-sub', note)); return; }
     if (!path) return;
-    st.src.appendChild(mk('span', 'rep-sub', '📎 読み込んだ業者のPDF'));
+    st.src.appendChild(mk('span', 'rep-sub', '📎 読み込んだ仕入先のPDF'));
     const open = dBtn('開く', 'linkbtn', async b => {
       b.disabled = true;
       try { window.open(await AppStorage.getUrl(path, 600), '_blank', 'noopener'); }
@@ -194,7 +194,7 @@ const EstimateImport = (() => {
     const drop = mk('label', 'eu-imp-drop');
     drop.id = 'eu-import-drop';
     drop.htmlFor = input.id;
-    drop.appendChild(mk('b', null, '📄 業者の見積PDFを読み込む'));
+    drop.appendChild(mk('b', null, '📄 仕入先の見積PDFを読み込む'));
     drop.appendChild(mk('span', 'eu-imp-hint', 'ここにドラッグ＆ドロップ、またはタップして選ぶ（PDFのみ・20MBまで）。明細は「原価」として入ります'));
     const over = on => drop.classList.toggle('over', on);
     drop.addEventListener('dragenter', e => { e.preventDefault(); over(true); });

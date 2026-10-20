@@ -52,7 +52,7 @@ const phYmd = iso => phToInput(iso).slice(0, 10);
 function phState(root, phaseId) {
   return { gen: caseGen, caseId: currentCase.id, phaseId: phaseId || null, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(),
     dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null,
-    shareForm: new Set(), issued: new Map() }; // Task 16: 作業員にURLを渡す欄が開いているフェーズ・発行したURL（この画面にいる間だけ）
+    shareForm: new Set() }; // Task 16: 担当者へURLを渡す欄が開いているフェーズ
 }
 // 案件ページ（対応フェーズの表）
 function renderPhases(root) {
@@ -94,14 +94,14 @@ async function phLoad() {
   const [phases, series, reports] = res;
   const notices = res[3];
   let drafts = res[4];
-  // 協力業者URL（作業員が入力中か = share_active。case_summaries の reports と同じ形にそろえる）
+  // 担当者URL（URL が使える＝調査報告待ちか = share_active。case_summaries の reports と同じ形にそろえる）
   let shares = [];
   try { shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id)); }
-  catch (e) { console.warn('協力業者URLの読み込みに失敗', e); }
+  catch (e) { console.warn('担当者URLの読み込みに失敗', e); }
   (reports || []).forEach(r => {
     const act = (shares || []).find(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
     r.share_active = !!act;
-    r.share_name = act ? act.vendor_name || '' : ''; // 「○○様が入力中」（Task 23）
+    r.share_name = act ? act.vendor_name || '' : '';
   });
   // 時刻を過ぎたリマインドの下書きを作る・古い未送信のリマインドを消す（案件一覧と同じ。二重作成は DB の unique で防ぐ）
   try {
@@ -188,8 +188,8 @@ function phDraw() {
   const keep = ae && s.root.contains(ae) && ae.closest && ae.closest('.ph-result, .ph-brief')
     ? { el: ae, a: ae.selectionStart, b: ae.selectionEnd } : null;
   if (s.phaseId) { phDrawDetail(s, keep); return; }
-  // 編集欄の入力中の値は描き直しても残す（保存に失敗して読み込み直したとき等）
-  const kept = [...s.root.querySelectorAll('.ph-panel input')].map(i => ({ id: i.closest('[data-phase-id]').dataset.phaseId, cls: i.className, v: i.value }));
+  // 編集欄の入力中の値は描き直しても残す（保存に失敗して読み込み直したとき等）。表示だけの欄（readonly: 担当者URL）は読み直した値
+  const kept = [...s.root.querySelectorAll('.ph-panel input:not([readonly])')].map(i => ({ id: i.closest('[data-phase-id]').dataset.phaseId, cls: i.className, v: i.value }));
   const head = mk('div', 'taio-head ph-head');
   head.appendChild(mk('b', null, '対応フェーズ'));
   head.appendChild(mk('span', 'ph-hint', 'フェーズ名を押すと詳細、各欄を押すとその場で変えられます'));
@@ -430,7 +430,7 @@ function phTableRow(p, multi) {
   // 報告書（無ければ その場の欄で2択＝作業員にURLを渡す／自社で作る。あれば一覧へ）
   const rep = row.report;
   cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : rep.state === 'waiting' ? 'wait' : '',
-    rep.state === 'none' ? '協力業者にURLを渡すか自社で作る' : 'このフェーズの報告書を開く',
+    rep.state === 'none' ? '担当者へURLを渡すか自社で作る' : 'このフェーズの報告書を開く',
     // Task 23 M5: このフェーズの報告書（一番新しいもの）を開く（案件全体の一覧ではなく）
     () => {
       if (rep.state === 'none') return phOpenCell(p, 'report');
@@ -901,9 +901,9 @@ function phStatusBody(p, st, docs, errId) {
 }
 
 // 報告書の流れ（このフェーズの報告書の状態に合わせて出す）
-//   報告書なし → 2択「作業員にURLを渡す」「自社で作る」
-//   下書き（URLなし）→ 開いて書く／作業員にURLを渡す（この下書きに URL を発行）
-//   作業員が入力中（URLあり）→ 🟡 ○○ 様が入力中。発行した直後なら URL と送る文面のコピー
+//   報告書なし → 2択「担当者へURLを渡す」「自社で作る」
+//   下書き（URLなし）→ 開いて書く／担当者へURLを渡す（この下書きに URL を発行）
+//   URLを渡した下書き → 🟡 調査報告待ち。URL・送る文面のコピー・LINE・作り直す（Task 24: いつでも同じ URL を出せる）と、開いて書く（社内も編集できる）
 //   提出済み・確認済み → 開く（contact = true なら 報告連絡 の行も。詳細ページは下の「報告書」の段に出る）
 function phReportFlow(p, docs, errId, contact) {
   const s = ph;
@@ -911,14 +911,12 @@ function phReportFlow(p, docs, errId, contact) {
   const box = mk('div', 'ph-flow');
   box.dataset.phaseId = p.id;
   const reps = docs.reports;
-  const issued = s.issued.get(p.id);
   const sent = reps.find(r => r.status === 'sent');
   const confirmed = reps.find(r => r.status === 'confirmed');
   const submitted = reps.find(r => r.status === 'submitted');
   const waiting = reps.find(r => r.status === 'draft' && r.share_active);
   const draft = reps.find(r => r.status === 'draft' && !r.share_active);
   const open = (r, label) => dBtn(label, 'btn sm ghost inline ph-flow-open', () => { location.hash = '#report/' + r.id; });
-  if (issued) box.appendChild(phIssuedEl(p, issued));
   const done = sent || confirmed || submitted;
   if (done) {
     box.dataset.state = done.status;
@@ -935,21 +933,29 @@ function phReportFlow(p, docs, errId, contact) {
     } else if (done.status !== 'sent') box.appendChild(mk('div', 'ph-sub', '下の「報告書」の段から確認して報告連絡できます'));
   } else if (waiting) {
     box.dataset.state = 'waiting';
-    const sh = (s.data.shares || []).find(x => x.report_id === waiting.id && ReportsApi.shareActive(x));
-    const who = (sh && sh.vendor_name) || waiting.worker_name || '協力業者';
+    const sh = ReportsApi.latestShare(s.data.shares, waiting.id);
     const line = mk('div', 'ph-row');
-    line.appendChild(mk('span', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + who + ' 様が入力中です（調査報告待ち・URL発行 ' + (sh ? PhaseLogic.fmtMD(sh.created_at) : '') + '）'));
+    line.appendChild(mk('span', 'ph-flow-wait', PhaseLogic.MARK.them + ' 調査報告待ち（' + (sh && String(sh.vendor_name || '').trim() ? String(sh.vendor_name).trim() + ' 様・' : '') + 'URL ' + (sh ? PhaseLogic.fmtMD(sh.created_at) : '') + '）'));
+    line.appendChild(open(waiting, '報告書を開いて書く'));
     box.appendChild(line);
-    if (!issued) {
-      box.appendChild(mk('div', 'ph-sub', 'URLは発行した直後にしか表示できません。分からなくなったら「協力業者URLの一覧」で無効にして、もう一度渡してください'));
-      box.appendChild(dBtn('協力業者URLの一覧', 'linkbtn ph-flow-shares', () => { location.hash = '#case/' + s.caseId + '/share'; }));
+    const url = ReportsApi.shareUrl(sh);
+    const remake = b => phRemakeShare(b, p, waiting, sh ? sh.vendor_name : '', errId);
+    if (url) {
+      box.appendChild(shareUrlBox({ url, name: sh.vendor_name, askHost: box, onRemake: remake,
+        text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url }) }));
+    } else {
+      // 044 より前に発行した URL は表示できない
+      box.appendChild(mk('div', 'ph-sub', '前に渡したURLはここに表示できません。分からなくなったら作り直してください'));
+      const acts = mk('div', 'ph-flow-acts');
+      acts.appendChild(shrRemakeBtn(box, remake));
+      box.appendChild(acts);
     }
   } else if (draft) {
     box.dataset.state = 'draft';
     box.appendChild(mk('div', 'ph-sub', '報告書の下書きがあります（提出すると次へ進みます）'));
     const acts = mk('div', 'ph-flow-acts');
     acts.appendChild(open(draft, '報告書を開いて書く'));
-    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('協力業者にURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
+    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('担当者へURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
     box.appendChild(acts);
     if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, draft, errId));
   } else {
@@ -957,8 +963,8 @@ function phReportFlow(p, docs, errId, contact) {
     if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, null, errId));
     else {
       const acts = mk('div', 'ph-flow-acts ph-flow-choice');
-      const a = dBtn('協力業者にURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
-      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。協力業者がスマホで入力・提出します'));
+      const a = dBtn('担当者へURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
+      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。担当者がスマホで入力・提出します'));
       const b = dBtn('自社で作る', 'ph-choice ph-flow-self', btn => phMakeReport(btn, p, errId));
       b.appendChild(mk('span', 'ph-choice-sub', '報告書を作って編集画面を開きます'));
       acts.append(a, b);
@@ -977,12 +983,12 @@ function phShareOpen(p) {
   const el = s.root.querySelector('.ph-flow[data-phase-id="' + p.id + '"] .ph-share-name');
   if (el) { if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); el.focus({ preventScroll: true }); }
 }
-// 作業員の名前（URLの宛名）を入れて発行。入力のある欄なので × とキャンセルでだけ閉じる
+// 担当者の名前（URLの宛名・任意）を入れて発行。入力のある欄なので × とキャンセルでだけ閉じる
 function phShareForm(p, existing, errId) {
   const s = ph;
   const form = mk('div', 'ph-form ph-share-form');
   const id = 'ph-share-name-' + p.id;
-  const lb = mk('label', 'ph-lbl', '協力業者の名前（URLの宛名）');
+  const lb = mk('label', 'ph-lbl', '担当者名（URLの宛名・任意）');
   lb.htmlFor = id;
   const inp = document.createElement('input');
   inp.type = 'text';
@@ -994,91 +1000,38 @@ function phShareForm(p, existing, errId) {
   const m = phMembers().find(x => x.user_id === p.worker_id);
   inp.value = (m && m.display_name) || '';
   form.append(lb, inp);
-  form.appendChild(mk('div', 'ph-sub', 'URLを開いた人は、この報告書の入力・写真の追加・提出だけができます（ログイン不要・期限なし。提出するとURLは使えなくなります）'));
+  form.appendChild(mk('div', 'ph-sub', 'URLを開いた人は、この報告書の入力・写真の追加・提出だけができます（ログイン不要・期限なし。提出するとURLは使えなくなります）。社内でも同じ報告書を編集できます'));
   const acts = mk('div', 'ph-acts');
   acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline ph-share-cancel', () => { s.shareForm.delete(p.id); phMsg(errId, ''); phDraw(); }));
-  acts.appendChild(dBtn('URLを発行する', 'btn sm inline ph-share-issue', b => phIssueShare(b, p, existing, inp, errId)));
+  acts.appendChild(dBtn('URLを発行', 'btn sm inline ph-share-issue', b => phIssueShare(b, p, existing, inp, errId)));
   form.appendChild(acts);
   return form;
 }
 function phIssueShare(btn, p, existing, nameEl, errId) {
   const s = ph;
   const name = String(nameEl.value || '').trim();
-  if (!name) { phMsg(errId, '協力業者の名前を入れてください'); nameEl.focus(); return; }
   return phRun(btn, errId, 'URLの発行', async () => {
     let report = existing;
     let made = false;
     if (!report) {
-      // Task 23: 号室・作業日の初期値（PhaseLogic.reportFields）。名前は協力業者URLの名前（メンバーと一致すれば提出時に DB が作業担当者を残す）
+      // Task 23: 号室・作業日の初期値（PhaseLogic.reportFields）。名前は URL の名前（メンバーと一致すれば提出時に DB が作業担当者を残す）
       const f = PhaseLogic.reportFields(p, currentCase, { title: phTitle(p), workerName: name });
       if (p.kind === 'survey') { await phResSettle(); f.init = PhaseLogic.reportInit(phResultOf(p)); }
       report = await ReportsApi.create(s.caseId, f);
       made = true;
     }
-    let res;
-    try { res = await ReportsApi.createShare(report, name, null); }
+    try { await ReportsApi.createShare(report, name); }
     catch (e) {
       if (made) { try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ } }
       throw e;
     }
     if (!phAlive(s)) return;
-    s.shareForm.delete(p.id);
-    s.issued.set(p.id, { url: res.url, vendor: name,
-      text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url: res.url }) });
+    s.shareForm.delete(p.id); // phRun が読み直して、URL の欄（shareUrlBox）を出す
   });
 }
-// 発行した直後の URL（この画面にいる間だけ。token は DB に無いので後からは出せない）
-function phIssuedEl(p, info) {
-  const s = ph;
-  const box = mk('div', 'ph-issued');
-  const hd = mk('div', 'ph-row');
-  hd.appendChild(mk('b', null, info.vendor + ' 様あてのURL'));
-  hd.appendChild(mk('span', 'ph-sp'));
-  hd.appendChild(dBtn('閉じる', 'linkbtn ph-issued-close', () => { s.issued.delete(p.id); phDraw(); }));
-  box.appendChild(hd);
-  const line = mk('div', 'shr-link');
-  const inp = document.createElement('input');
-  inp.type = 'text';
-  inp.readOnly = true;
-  inp.className = 'ph-share-url';
-  inp.value = info.url;
-  inp.setAttribute('aria-label', '発行したURL');
-  inp.addEventListener('focus', () => inp.select());
-  line.appendChild(inp);
-  box.appendChild(line);
-  const status = mk('div', 'shr-ok ph-copy-msg');
-  status.setAttribute('role', 'status');
-  const acts = mk('div', 'ph-flow-acts');
-  acts.appendChild(phCopyBtn('URLをコピー', 'ph-share-copy', info.url, status, () => { inp.focus(); inp.select(); }));
-  acts.appendChild(phCopyBtn('送る文面をコピー', 'ph-share-text', info.text, status, () => {
-    let ta = box.querySelector('.ph-share-msg');
-    if (!ta) {
-      ta = document.createElement('textarea');
-      ta.className = 'ph-share-msg';
-      ta.readOnly = true;
-      ta.rows = 5;
-      ta.value = info.text;
-      ta.setAttribute('aria-label', '送る文面');
-      box.appendChild(ta);
-    }
-    ta.focus();
-    ta.select();
-  }));
-  box.append(acts, status);
-  box.appendChild(mk('div', 'shr-warn', 'このURLは今だけ表示されます。ほかの画面に移る前にコピーして、LINE などで協力業者に送ってください'));
-  return box;
-}
-function phCopyBtn(label, cls, text, status, fallback) {
-  return dBtn(label, 'btn sm inline ' + cls, async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard');
-      await navigator.clipboard.writeText(text);
-      status.textContent = label.replace('をコピー', '') + 'をコピーしました';
-    } catch (e) {
-      fallback();
-      status.textContent = 'コピーできませんでした。選択したので、長押し（またはCtrl+C）でコピーしてください';
-    }
-  });
+// 「URLを作り直す」（同じ報告書に発行し直す。古い URL は DB が無効にする。migration 044）
+function phRemakeShare(btn, p, report, name, errId) {
+  return phRun(btn, errId, 'URLの作り直し', async () => { await ReportsApi.createShare(report, name); });
 }
 
 /* ---- 調査した → 依頼元へ報告連絡（「調査結果のご報告」purpose survey_result の下書き。Task 5b の仕組み） ---- */
@@ -1182,7 +1135,7 @@ function phReportsBody(p, docs, errId) {
   });
   // 報告書が無いときは「調査した」（工事は「完了報告」）の段の2択から作る。あるときだけ追加の「＋ 報告書を作る」
   if (!docs.reports.length) {
-    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、協力業者にURLを渡すか自社で作ってください'));
+    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、担当者へURLを渡すか自社で作ってください'));
     return out;
   }
   const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => phMakeReport(btn, p, errId));
