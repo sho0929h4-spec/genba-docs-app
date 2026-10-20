@@ -74,10 +74,10 @@ const ReportsApi = (() => {
       return must(await sb.from('reports').select('*').eq('id', id).maybeSingle());
     },
     // f: { work_type, worker_id, worker_name, phase_id, init }（協力業者用は worker_name だけ入れる。phase_id は対応フェーズのカードから作るとき）
-    //   init: 作成時の初期値（調査カードの調査結果 → 原因 f2 / 原因と判断した理由 reason / 次の対応方針 f4。文字列のキーだけ）
+    //   init: 作成時の初期値（調査カードの調査結果 → 原因 / 原因と判断した理由 / 次の対応方針。ReportLogic.applyInit）
     async create(caseId, f = {}) {
-      const data = RL().emptyData();
-      for (const k of ['f2', 'reason', 'f4']) if (f.init && typeof f.init[k] === 'string' && f.init[k]) data[k] = f.init[k];
+      // Task 20: 調査結果の初期値は選択式の形へ（原因 → 原因「その他」の自由記載・次の対応方針 → 「その他」の自由記載）
+      const data = RL().applyInit(RL().emptyData(), f.init);
       const row = {
         case_id: caseId, status: 'draft', work_type: f.work_type || 'investigate',
         worker_id: f.worker_id || null, worker_name: f.worker_name || null, data
@@ -167,6 +167,8 @@ const ReportsApi = (() => {
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
       await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を提出した`);
+      // Task 20: 調査の「次の対応方針」が原因元工事（＋見積書提案期日）なら、原因元工事フェーズの作成・estimate_due・タイムラインの記録は
+      // DB のトリガー（migration 037 reports_next_action）が同じ更新の中で行う（share_submit と同じ処理。期日が無ければ DB も提出を拒否する）
       // 次やること（case_actions）への「報告書を確認する」の追加はやめた（対応フェーズ。確認待ちは報告書の状態 submitted で分かる）
       return row;
     },

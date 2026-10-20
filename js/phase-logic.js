@@ -4,7 +4,7 @@
 // （getHours 等のローカル関数は使わず、+9時間ずらした値を getUTC* で読む）。
 // フェーズの形は case_summaries.phases（migration 021）の要素:
 //   { id, kind, seq, scheduled_at, scheduled_end, done_at, bill_to_type, bill_to_name, billing_mode, billing_month,
-//     billed_at, paid_at, amount_override, estimates: [...], reports: [...] }
+//     billed_at, paid_at, amount_override, estimate_due（037。見積書提案期日 YYYY-MM-DD）, estimates: [...], reports: [...] }
 //   estimates の要素 { id, series_id, version, status, total, accepted, sent_at, accepted_at, sent_version, sent_total }
 //   reports の要素   { id, work_type, status, sent, sent_at, submitted_at, submitted_via, share_active }
 //     （034: share_active = 協力業者URLが使える＝作業員が入力中。035: submitted_via = member（社内）/ share（協力業者URL））
@@ -219,8 +219,13 @@
       if (!liveEstimates(estimates).some(isAccepted)) {
         const pend = pendingApproval(estimates);
         if (pend) return mkStage('approval', '発注待ち', 'them', pend.date);
-        if (liveEstimates(estimates).some(e => e.status === 'issued')) return mkStage('issued', '見積書提出済み（送付する）', 'us', null);
-        return mkStage('estimate', '見積書作成必要', 'us', null);
+        // Task 20: 調査報告の「次の対応方針 = 原因元工事」で見積書提案期日（estimate_due）が入る → 「（期日 M/D）」・過ぎたら late
+        const due = p.estimate_due ? String(p.estimate_due).slice(0, 10) : '';
+        const dueExtra = due ? { due, late: due < jstYmd(nowAt) } : {};
+        if (liveEstimates(estimates).some(e => e.status === 'issued')) {
+          return mkStage('issued', due ? `見積書提出済み（送付する・期日 ${fmtYmdMD(due)}）` : '見積書提出済み（送付する）', 'us', due || null, dueExtra);
+        }
+        return mkStage('estimate', due ? `見積書作成必要（期日 ${fmtYmdMD(due)}）` : '見積書作成必要', 'us', due || null, dueExtra);
       }
       if (!p.scheduled_at) return mkStage('schedule', '受注後日程調整必要', 'us', null);
       // 工事日（終わりの日があればその日）の当日までは 工事待ち、過ぎたら 完了報告必要
@@ -373,7 +378,7 @@
         all.push({
           group, action: def.action, caseId: c.id || null, caseName: str(c.name), room: str(c.room),
           phaseId: p.id || null, kind: p.kind, title: row.title, key: st.key, label: st.label, text: nextText(row),
-          date: st.date || null, late: !!st.late, who, whoName,
+          date: st.date || null, late: !!st.late, due: st.due || null, who, whoName,
           mine: !!me && (c.assignee_id === me || workerId === me),
           reportId: rs.report ? rs.report.id || null : null, reportStatus: rs.report ? rs.report.status || null : null, reportState: rs.state,
           estimateId: est ? est.id || null : null,

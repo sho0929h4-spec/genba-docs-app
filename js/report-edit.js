@@ -194,6 +194,10 @@ function edBuild(s) {
   const info = s.info;
   nodes.push(...rfBuildForm(s, {
     infoTitle: '案件情報（自動で入ります）',
+    // Task 20: 対応フェーズの報告書は作業区分が決まっている（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。切替を出さない）
+    fixedMode: !!s.fixed,
+    fixedLabel: s.fixed ? L.WORK_TYPE_LABEL[s.f.work_type] : '',
+    fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
     infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請け', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
     // 作業者: メンバー or 協力業者（名前を入力）
     afterRoom(g2, basic) {
@@ -477,6 +481,10 @@ async function openReport(id) {
   // 作業日の既定: 新規作成直後（何も入力されていない下書き）は今日（旧ツールどおり）
   const fresh = !s.ro && !restored && edIsUntouched(r, s.f);
   if (fresh) s.f.work_date = CaseLogic.todayStr();
+  // Task 20: フェーズ付きの報告書は作業区分をフェーズの種類で固定（違っていたら直して保存する）
+  s.fixed = edFixedOf(r, s.info);
+  const retype = !!s.fixed && s.fixed.type !== s.f.work_type;
+  if (s.fixed) s.f.work_type = s.fixed.type;
 
   ed = s;
   edBuild(s);
@@ -495,8 +503,18 @@ async function openReport(id) {
   $('rep-confirm').onclick = () => edConfirm(s);
   edSetBarBusy(s, false);
 
-  if (fresh) edMarkDirty(s);          // 既定の作業日をサーバーにも保存する
+  if (fresh || (retype && !restored)) edMarkDirty(s); // 既定の作業日・固定した作業区分をサーバーにも保存する
   else if (restored) edFlush(s);
+}
+
+// フェーズ付きの報告書 → { type: 作業区分, title: '調査 1回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）
+function edFixedOf(r, info) {
+  if (!r.phase_id) return null;
+  const phases = info && Array.isArray(info.phases) ? info.phases : [];
+  const p = phases.find(x => x.id === r.phase_id) || null;
+  const type = (p && ReportLogic.WORK_TYPE_OF_PHASE[p.kind]) || (ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate');
+  const title = p && typeof PhaseLogic !== 'undefined' ? PhaseLogic.phaseTitle(p, p.seq) : '';
+  return { type, title };
 }
 
 /* ---------- 復元の補助 ---------- */

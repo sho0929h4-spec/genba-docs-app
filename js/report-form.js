@@ -77,6 +77,24 @@ function edChip(text, on, disabled, onToggle) {
   });
   return b;
 }
+// 押すと☑になる行（Task 20: チェックリスト・原因）。左に四角のチェック（空 → ☑）、押した行は塗り。radio = 丸（1つだけ選ぶ）
+function edCheck(text, on, disabled, onToggle, radio) {
+  const b = rfMk('button', 'rep-check' + (radio ? ' radio' : '') + (on ? ' on' : ''));
+  b.type = 'button';
+  b.disabled = disabled;
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const box = rfMk('span', 'rep-check-box');
+  box.setAttribute('aria-hidden', 'true');
+  b.append(box, rfMk('span', 'rep-check-t', text));
+  b.addEventListener('click', () => {
+    const now = !b.classList.contains('on');
+    b.classList.toggle('on', now);
+    b.setAttribute('aria-pressed', now ? 'true' : 'false');
+    onToggle(now, b);
+  });
+  return b;
+}
+const edSetOn = (b, on) => { b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); };
 // data[field] の配列に値を入れる/抜く
 function edToggleIn(s, field, value, on) {
   const cur = Array.isArray(s.f.data[field]) ? s.f.data[field] : [];
@@ -151,8 +169,16 @@ function rfBuildForm(s, opts) {
   basic.appendChild(g2);
   if (o.afterRoom) o.afterRoom(g2, basic);
 
-  // 作業区分（セグメント）
+  // 作業区分（セグメント）。fixedLabel: フェーズ付きの報告書は区分が決まっている（表示だけ。Task 20）
   els.seg = null;
+  if (o.fixedMode && o.fixedLabel) {
+    const fx = rfMk('div', 'rep-fixed', o.fixedLabel);
+    fx.id = 'rp-fixed-type';
+    const fxField = rfMk('div', 'rep-ff');
+    fxField.append(rfMk('label', null, '作業区分'), fx);
+    if (o.fixedHint) fxField.appendChild(rfMk('span', 'rep-hint rep-fixed-hint', o.fixedHint));
+    basic.appendChild(fxField);
+  }
   if (!o.fixedMode) {
     els.seg = rfMk('div', 'rep-seg');
     els.seg.id = 'rp-seg';
@@ -210,6 +236,13 @@ function rfBuildForm(s, opts) {
     card.dataset.mode = k;
     card.appendChild(rfMk('h3', null, cfg.checkCardTitle));
     cfg.checkGroups.forEach(g => card.appendChild(edGroup(s, g)));
+    // 古い報告書の項目（旧ツールの12項目。入力はできないが PDF には出る）
+    const legacy = L.legacyChips({ work_type: k, data: d });
+    if (legacy.length) {
+      const lg = rfMk('div', 'rep-legacy', T.legacyItems + '（PDFにも出ます）: ' + legacy.join('、'));
+      lg.dataset.legacy = 'items';
+      card.appendChild(lg);
+    }
     els.chipCards[k] = card;
     nodes.push(card);
   });
@@ -267,9 +300,13 @@ function rfBuildForm(s, opts) {
     els[wrapKey] = f;
     content.appendChild(f);
   };
-  longField('rp-f2', 'f2', T.f2Label, T.f2Hint, 'f2Wrap');
+  // 調査の原因・次の対応方針は選択式（Task 20）。古い報告書の自由記載（f2 / f4）は、値があるときだけ「以前の書き方の記載」として残す
+  s.legacy = { f2: !!String(d.f2 || '').trim(), f4: !!String(d.f4 || '').trim() };
+  edCausePicker(s, content);
+  longField('rp-f2', 'f2', T.legacyF2, T.f2Hint, 'f2Wrap');
   longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap');
-  longField('rp-f4', 'f4', T.f4Label, T.f4Hint, 'f4Wrap');
+  edNextPicker(s, content);
+  longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
   nodes.push(content);
 
   // ---- 写真（枠だけ。一覧の中身は rfRenderPhotos、追加の処理は呼び出し側が els.photoInput の change で行う） ----
@@ -302,13 +339,14 @@ function rfBuildForm(s, opts) {
   const cl = rfMk('div', 'rep-card');
   cl.appendChild(rfMk('h3', null, T.checklistTitle));
   cl.appendChild(rfMk('div', 'rep-group-ttl', T.workChecklistTitle));
-  els.workChips = rfMk('div', 'rep-chips');
+  els.workChips = rfMk('div', 'rep-checks');
   els.workChips.id = 'rp-work-chips';
   cl.appendChild(els.workChips);
   cl.appendChild(rfMk('div', 'rep-group-ttl', T.keyChecklistTitle));
-  const kc = rfMk('div', 'rep-chips');
+  const kc = rfMk('div', 'rep-checks');
+  kc.id = 'rp-key-checks';
   const keySel = Array.isArray(d.keyChecklist) ? d.keyChecklist : [];
-  L.KEY_CHECKLIST.forEach(t => kc.appendChild(edChip(t, keySel.includes(t), ro, on => edToggleIn(s, 'keyChecklist', t, on))));
+  L.KEY_CHECKLIST.forEach(t => kc.appendChild(edCheck(t, keySel.includes(t), ro, on => edToggleIn(s, 'keyChecklist', t, on))));
   cl.appendChild(kc);
   els.keyReturn = edInput('rp-keyreturn', 'text', d.keyReturn, v => { d.keyReturn = v; rfDirty(s); }, { placeholder: T.keyReturnPlaceholder, autocomplete: 'off' });
   const kr = edField(T.keyReturnLabel, els.keyReturn);
@@ -329,13 +367,16 @@ function edGroup(s, g) {
   g.items.forEach(it => chips.appendChild(edChip(it, sel.includes(it), s.ro, on => edToggleIn(s, g.field, it, on))));
   let free = null;
   if (g.free) {
+    const fc = g.freeChip || L.FREE_CHIP; // 調査の7項目は「その他」（Task 20）
     free = rfMk('div', 'rep-free');
-    const inp = edInput('rp-free-' + g.freeField, 'text', d[g.freeField], v => { d[g.freeField] = v; rfDirty(s); }, { placeholder: T.freePlaceholder, autocomplete: 'off' });
+    const inp = edInput('rp-free-' + g.freeField, 'text', d[g.freeField], v => { d[g.freeField] = v; rfDirty(s); },
+      { placeholder: g.freeChip ? T.workItemOtherPlaceholder : T.freePlaceholder, autocomplete: 'off', maxLength: 1000 });
+    inp.setAttribute('aria-label', g.freePrefix + '（自由記載）');
     free.appendChild(inp);
-    free.hidden = !sel.includes(L.FREE_CHIP);
-    chips.appendChild(edChip(L.FREE_CHIP, sel.includes(L.FREE_CHIP), s.ro, on => {
+    free.hidden = !sel.includes(fc);
+    chips.appendChild(edChip(fc, sel.includes(fc), s.ro, on => {
       free.hidden = !on;
-      edToggleIn(s, g.field, L.FREE_CHIP, on);
+      edToggleIn(s, g.field, fc, on);
       if (on) inp.focus();
     }));
   }
@@ -344,11 +385,125 @@ function edGroup(s, g) {
   return box;
 }
 
+/* ---------- 原因（複数選択・押すと☑。Task 20） ---------- */
+// 選んだ項目のうち「詳細」「理由」「自由記載」のある項目だけ、下に1行の入力欄を出す（定義順）
+function edCausePicker(s, parent) {
+  const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
+  els.causeWrap = rfMk('div', 'rep-ff');
+  els.causeWrap.id = 'rp-cause-wrap';
+  const ttl = rfMk('div', 'rep-lbl-row');
+  ttl.appendChild(rfMk('label', null, T.f2Label));
+  els.causeWrap.append(ttl, rfMk('span', 'rep-hint', T.f2Pick + '。' + T.f2Hint));
+  const grid = rfMk('div', 'rep-checks grid');
+  grid.id = 'rp-causes';
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', T.f2Label);
+  s.causeKeep = s.causeKeep || {}; // 外した項目の詳細（もう一度押したら戻す）
+  L.CAUSES.forEach(c => {
+    const on = d.causes.some(x => x.key === c.key);
+    const b = edCheck(c.label, on, s.ro, now => {
+      const cur = L.normalizeCauses(d.causes);
+      if (now) {
+        if (!cur.some(x => x.key === c.key)) cur.push({ key: c.key, detail: c.input === 'detail' ? (s.causeKeep[c.key] || '') : '' });
+      } else {
+        const was = cur.find(x => x.key === c.key);
+        if (was && was.detail) s.causeKeep[c.key] = was.detail;
+      }
+      d.causes = now ? cur : cur.filter(x => x.key !== c.key);
+      edRenderCauseInputs(s);
+      rfDirty(s);
+      if (now && c.input) { const inp = els.causeInputs.querySelector('[data-cause="' + c.key + '"]'); if (inp) inp.focus(); }
+    });
+    b.dataset.cause = c.key;
+    grid.appendChild(b);
+  });
+  els.causeInputs = rfMk('div', 'rep-sub-fields');
+  els.causeInputs.id = 'rp-cause-inputs';
+  els.causeWrap.append(grid, els.causeInputs);
+  parent.appendChild(els.causeWrap);
+  edRenderCauseInputs(s);
+}
+function edRenderCauseInputs(s) {
+  const L = ReportLogic, T = L.TEXT, d = s.f.data;
+  const rows = [];
+  L.CAUSES.forEach(c => {
+    const sel = d.causes.find(x => x.key === c.key);
+    if (!sel || !c.input) return;
+    let label, value, set, ph;
+    if (c.input === 'tenant') { label = T.tenantReasonLabel; value = d.causeTenantReason; set = v => { d.causeTenantReason = v; }; ph = T.tenantReasonPlaceholder; }
+    else if (c.input === 'other') { label = T.causeOtherLabel; value = d.causeOther; set = v => { d.causeOther = v; }; ph = T.freePlaceholder; }
+    else {
+      label = c.label + 'の詳細'; value = sel.detail; ph = T.detailPlaceholder;
+      set = v => { const x = d.causes.find(y => y.key === c.key); if (x) x.detail = v; };
+    }
+    const inp = edInput('rp-cause-' + c.key, 'text', value, v => { set(v); rfDirty(s); }, { placeholder: ph, autocomplete: 'off', maxLength: c.input === 'detail' ? 200 : 1000 });
+    inp.dataset.cause = c.key;
+    inp.disabled = s.ro;
+    rows.push(edField(label, inp, null, 'rep-ff-sub'));
+  });
+  s.els.causeInputs.replaceChildren(...rows);
+  s.els.causeInputs.hidden = rows.length === 0;
+}
+
+/* ---------- 次の対応方針（1つ選ぶ。Task 20） ---------- */
+// 原因元工事 → 見積書提案期日（必須）／再調査 → 理由・再調査の内容（必須）／その他 → 自由記載。選んだものをもう一度押すと選ばない状態に
+function edNextPicker(s, parent) {
+  const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
+  const n = d.nextAction;
+  els.nextWrap = rfMk('div', 'rep-ff');
+  els.nextWrap.id = 'rp-next-wrap';
+  const ttl = rfMk('div', 'rep-lbl-row');
+  ttl.appendChild(rfMk('label', null, T.f4Label));
+  els.nextWrap.append(ttl, rfMk('span', 'rep-hint', T.f4Pick + '。' + T.f4Hint));
+  const grid = rfMk('div', 'rep-checks grid3');
+  grid.id = 'rp-next';
+  grid.setAttribute('role', 'radiogroup');
+  grid.setAttribute('aria-label', T.f4Label);
+  const btns = {};
+  L.NEXT_ACTIONS.forEach(a => {
+    const b = edCheck(a.label, n.type === a.key, s.ro, now => {
+      n.type = now ? a.key : '';
+      Object.keys(btns).forEach(k => edSetOn(btns[k], n.type === k));
+      edApplyNext(s);
+      rfDirty(s);
+      const first = now && els.nextFields[a.key] && els.nextFields[a.key].querySelector('input,textarea');
+      if (first) first.focus();
+    }, true);
+    b.dataset.next = a.key;
+    b.setAttribute('role', 'radio');
+    btns[a.key] = b;
+    grid.appendChild(b);
+  });
+  els.nextWrap.appendChild(grid);
+  // 選んだときだけ出る欄
+  const sub = (key, ...fields) => { const w = rfMk('div', 'rep-sub-fields'); w.dataset.next = key; w.append(...fields); els.nextWrap.appendChild(w); return w; };
+  const ta = (id, key, ph) => {
+    const t = edTextarea(id, n[key], true, ph, v => { n[key] = v; rfDirty(s); });
+    t.maxLength = 1000;
+    return t;
+  };
+  els.nextFields = {};
+  els.nextDue = edInput('rp-next-due', 'date', n.estimateDue, v => { n.estimateDue = v; rfDirty(s); });
+  els.nextFields.cause = sub('cause', edField(T.estimateDueLabel + ' *', els.nextDue, T.estimateDueHint, 'rep-ff-sub'));
+  els.nextReason = ta('rp-next-reason', 'reason', '例：天井裏まで確認できなかった');
+  els.nextDetail = ta('rp-next-detail', 'detail', '例：点検口を開けて給水管の継手を確認する');
+  els.nextFields.resurvey = sub('resurvey', edField(T.resurveyReasonLabel + ' *', els.nextReason, null, 'rep-ff-sub'),
+    edField(T.resurveyDetailLabel + ' *', els.nextDetail, null, 'rep-ff-sub'));
+  els.nextOther = ta('rp-next-other', 'other', T.freePlaceholder);
+  els.nextFields.other = sub('other', edField(T.nextOtherLabel, els.nextOther, null, 'rep-ff-sub'));
+  parent.appendChild(els.nextWrap);
+  edApplyNext(s);
+}
+function edApplyNext(s) {
+  const t = s.f.data.nextAction.type;
+  Object.keys(s.els.nextFields).forEach(k => { s.els.nextFields[k].hidden = k !== t; });
+}
+
 function edRenderWorkChips(s) {
   const L = ReportLogic, d = s.f.data;
   const sel = Array.isArray(d.workChecklist) ? d.workChecklist : [];
   const list = L.WORK_CHECKLISTS[s.f.work_type] || [];
-  s.els.workChips.replaceChildren(...list.map(t => edChip(t, sel.includes(t), s.ro, on => edToggleIn(s, 'workChecklist', t, on))));
+  s.els.workChips.replaceChildren(...list.map(t => edCheck(t, sel.includes(t), s.ro, on => edToggleIn(s, 'workChecklist', t, on))));
 }
 
 // 漏水の対応・元栓の号室の表示条件（旧 onLeakChange 620–622行 / onLeakActionChange 623–626行）
@@ -377,9 +532,11 @@ function edApplyMode(s) {
   e.f1.placeholder = cfg.f1ph;
   edApplyLeak(s);
   e.afterWrap.hidden = !cfg.showAfter;
-  e.f2Wrap.hidden = !cfg.showF2;
+  e.causeWrap.hidden = !cfg.pickCause;
+  e.nextWrap.hidden = !cfg.pickNext;
+  e.f2Wrap.hidden = !cfg.showF2 || (cfg.pickCause && !s.legacy.f2);
   e.reasonWrap.hidden = !cfg.showReason;
-  e.f4Wrap.hidden = !cfg.showF4;
+  e.f4Wrap.hidden = !cfg.showF4 || (cfg.pickNext && !s.legacy.f4);
   e.photoAdd.textContent = '📷 ' + cfg.ctxPhotoLabel + 'を追加';
   edRenderWorkChips(s);
 }

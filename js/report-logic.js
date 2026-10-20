@@ -3,7 +3,35 @@
 // 選択肢・文言は旧ツール（claude code/report-tool/index.html）から写したもの。行番号はコメントに記載
 (function (root) {
   /* ---- 旧ツール 432–435行 ---- */
+  // INV_ITEMS は旧ツールの作業実施項目（古い報告書 data.items の表示用だけ。新しい入力では使わない。Task 20）
   const INV_ITEMS = ['目視確認', '耐圧テスト（給水管）', '耐圧テスト（給湯管）', 'スコープカメラ調査', '開口調査', '排水テスト', '給湯管更新・交換', '給水管更新・交換', '配管修繕', '水栓交換', '開口補修・復旧', '防水工事'];
+  /* ---- Task 20（2026-10-20 ユーザー指示）: 調査の作業実施項目は次の7つだけ（その他 = 自由記載の欄。data.workItems / workItemOther） ---- */
+  const WORK_ITEM_OTHER = 'その他';
+  const INV_WORK_ITEMS = ['目視確認', '排水テスト', '耐圧テスト', '養生対応', 'PS内漏れ確認', '開口調査', WORK_ITEM_OTHER];
+  // 原因（複数選択。data.causes = [{ key, detail }]）。input: detail = 選んだときだけ出る1行の「詳細」、
+  //   tenant = 入居者やらかしの「理由」（data.causeTenantReason）、other = 自由記載（data.causeOther）
+  const CAUSES = [
+    { key: 'tenant', label: '入居者やらかし', input: 'tenant' },
+    { key: 'hot_pipe', label: '給湯管' },
+    { key: 'water_pipe', label: '給水管' },
+    { key: 'washer', label: '洗濯機', input: 'detail' },
+    { key: 'toilet', label: 'トイレ', input: 'detail' },
+    { key: 'kitchen', label: 'キッチン', input: 'detail' },
+    { key: 'washroom', label: '洗面所', input: 'detail' },
+    { key: 'bath', label: '浴室', input: 'detail' },
+    { key: 'balcony', label: 'ベランダ', input: 'detail' },
+    { key: 'other', label: 'その他', input: 'other' }
+  ];
+  const CAUSE_KEYS = CAUSES.map(c => c.key);
+  // 次の対応方針（1つ選ぶ。data.nextAction = { type, estimateDue, reason, detail, other }）
+  const NEXT_ACTIONS = [
+    { key: 'cause', label: '原因元工事' },
+    { key: 'resurvey', label: '再調査' },
+    { key: 'other', label: 'その他' }
+  ];
+  const NEXT_KEYS = NEXT_ACTIONS.map(n => n.key);
+  // 報告書の作業区分はフェーズの種類で決まる（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。Task 20）
+  const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'restore' };
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
   const RESTORE_PARTS = ['天井', '壁', '床', 'ダウンライト'];
   const AFTER_STATUS = ['正常に復旧', '様子見（経過観察）', '一部未完了（再訪予定）', '要追加工事'];
@@ -69,6 +97,21 @@
     reasonHint: 'そう判断した根拠・確認した事実など（自由記載）',
     f4Label: '次の対応方針',
     f4Hint: '原因不明時や追加工事が必要な場合の方針',
+    f2Pick: '当てはまるものを押してください（複数可）',
+    f4Pick: '1つ選んでください',
+    legacyF2: '原因（以前の書き方の記載）',
+    legacyF4: '次の対応方針（以前の書き方の記載）',
+    legacyItems: '以前の項目',
+    detailPlaceholder: '詳細（例：排水ホースの外れ）',
+    tenantReasonLabel: '入居者やらかしの理由',
+    tenantReasonPlaceholder: '例：洗濯機の排水ホースを外したまま使用',
+    causeOtherLabel: '原因（その他）',
+    workItemOtherPlaceholder: 'その他の作業（自由記載）',
+    estimateDueLabel: '見積書提案期日',
+    estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
+    resurveyReasonLabel: '再調査の理由',
+    resurveyDetailLabel: '再調査の内容',
+    nextOtherLabel: '次の対応方針（その他）',
     ctxPhotoHint: 'ここで追加した写真は下の「作業写真」にまとまります',
     selectPlaceholder: '— 選択してください —',
     freePlaceholder: '自由記載',
@@ -86,9 +129,12 @@
     investigate: {
       label: '調査',
       checkCardTitle: '作業実施項目', contentCardTitle: '作業内容',
-      checkGroups: [{ title: null, items: INV_ITEMS, free: true, freePrefix: 'その他', field: 'items', freeField: 'itemsFree' }],
+      // Task 20: 7つの項目。「その他」は自由記載の欄を出すチップ（freeChip）
+      checkGroups: [{ title: null, items: INV_WORK_ITEMS.filter(x => x !== WORK_ITEM_OTHER), free: true, freeChip: WORK_ITEM_OTHER, freePrefix: 'その他', field: 'workItems', freeField: 'workItemOther' }],
+      // 古い報告書（旧ツールの12項目 data.items / itemsFree）。表示と PDF のためだけ
+      legacyGroups: [{ title: null, items: INV_ITEMS, free: true, freePrefix: 'その他', field: 'items', freeField: 'itemsFree' }],
       f1Label: '作業実施内容', f1Req: true,
-      showLeak: true, showAfter: false, showF2: true, showReason: true, showF4: true,
+      showLeak: true, showAfter: false, showF2: true, showReason: true, showF4: true, pickCause: true, pickNext: true,
       f1ph: '例：605号室キッチン脇のダウンライトまわりから漏水を確認。給水管の耐圧テストを実施。',
       ctxPhotoLabel: '原因箇所の写真',
       rSection: '調査結果',
@@ -140,16 +186,91 @@
   const trim = v => str(v).trim();
   const arr = v => (Array.isArray(v) ? v : []);
 
+  const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '' });
   function emptyData() {
     return {
       items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakRoom: '', reason: '', f2: '', f4: '',
       afterSel: '', afterNote: '', scopePlaces: [], scopePlaceFree: '', scopeParts: [], scopePartFree: '',
-      workChecklist: [], keyChecklist: [], keyReturn: ''
+      workChecklist: [], keyChecklist: [], keyReturn: '',
+      // Task 20: 調査の選択式
+      workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext()
     };
+  }
+  // 原因の選択 → [{ key, detail }]（知らないキー・重複は落とす。detail は「詳細」がある項目だけ）
+  function normalizeCauses(v) {
+    const seen = new Set(), out = [];
+    arr(v).forEach(c => {
+      const key = c && typeof c === 'object' ? str(c.key) : typeof c === 'string' ? c : '';
+      if (!CAUSE_KEYS.includes(key) || seen.has(key)) return;
+      seen.add(key);
+      const def = CAUSES.find(x => x.key === key);
+      out.push({ key, detail: def.input === 'detail' && c && typeof c === 'object' ? str(c.detail) : '' });
+    });
+    return out;
+  }
+  function normalizeNext(v) {
+    const n = Object.assign(emptyNext(), v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+    ['type', 'estimateDue', 'reason', 'detail', 'other'].forEach(k => { n[k] = str(n[k]); });
+    if (!NEXT_KEYS.includes(n.type)) n.type = '';
+    return { type: n.type, estimateDue: n.estimateDue, reason: n.reason, detail: n.detail, other: n.other };
   }
   // 欠けたキーを初期値で補う（古い下書きや協力業者の提出でも落ちないように）
   function normalizeData(data) {
-    return Object.assign(emptyData(), data && typeof data === 'object' ? data : {});
+    const d = Object.assign(emptyData(), data && typeof data === 'object' && !Array.isArray(data) ? data : {});
+    d.workItems = arr(d.workItems).map(str).filter(Boolean);
+    d.causes = normalizeCauses(d.causes);
+    d.nextAction = normalizeNext(d.nextAction);
+    return d;
+  }
+
+  /* ---- Task 20: 原因・次の対応方針の文章化（PDF・メール） ---- */
+  const isYmd = v => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trim(v));
+    if (!m) return false;
+    const dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return dt.getUTCFullYear() === +m[1] && dt.getUTCMonth() === +m[2] - 1 && dt.getUTCDate() === +m[3];
+  };
+  const mdOf = ymd => { const p = parseYmd(ymd); return p ? `${p.m}/${p.d}` : ''; };
+  const hasCause = (d, key) => normalizeCauses(d.causes).some(c => c.key === key);
+  // 選んだ原因を定義順に「洗濯機（排水ホースの外れ）、浴室（…）」の形で連結。古い自由記載（f2）は改行して後ろに
+  function causeText(data) {
+    const d = normalizeData(data);
+    const parts = [];
+    CAUSES.forEach(def => {
+      const c = d.causes.find(x => x.key === def.key);
+      if (!c) return;
+      if (def.input === 'other') { parts.push(trim(d.causeOther) || def.label); return; }
+      const extra = def.input === 'tenant' ? trim(d.causeTenantReason) : def.input === 'detail' ? trim(c.detail) : '';
+      parts.push(extra ? `${def.label}（${extra}）` : def.label);
+    });
+    return [parts.join('、'), trim(d.f2)].filter(Boolean).join('\n');
+  }
+  // 次の対応方針を文に: 「原因元工事（見積書 10/25 までにご提案）」「再調査: 内容（理由: …）」「その他の自由記載」。古い自由記載（f4）は改行して後ろに
+  function nextActionText(data) {
+    const d = normalizeData(data);
+    const n = d.nextAction;
+    let t = '';
+    if (n.type === 'cause') t = isYmd(n.estimateDue) ? `原因元工事（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '原因元工事';
+    else if (n.type === 'resurvey') {
+      const body = [trim(n.detail), trim(n.reason) ? `（理由: ${trim(n.reason)}）` : ''].join('');
+      t = body ? `再調査: ${body}` : '再調査';
+    } else if (n.type === 'other') t = trim(n.other) || 'その他';
+    return [t, trim(d.f4)].filter(Boolean).join('\n');
+  }
+  // 調査カードの調査結果（Task 5b）→ 報告書の初期値（原因 = その他の自由記載・原因と判断した理由・次の対応方針 = その他の自由記載）
+  //   init: { f2, reason, f4 }（旧の形）も { causes, causeOther, causeTenantReason, reason, nextAction }（新しい形）も受ける
+  function applyInit(data, init) {
+    const d = normalizeData(data);
+    const i = init && typeof init === 'object' ? init : {};
+    const s = k => (typeof i[k] === 'string' ? i[k] : '');
+    if (s('reason')) d.reason = s('reason');
+    if (Array.isArray(i.causes)) d.causes = normalizeCauses(i.causes);
+    if (s('causeOther')) d.causeOther = s('causeOther');
+    if (s('causeTenantReason')) d.causeTenantReason = s('causeTenantReason');
+    if (s('f2') && !d.causes.length) { d.causes = [{ key: 'other', detail: '' }]; d.causeOther = s('f2'); }
+    if (i.nextAction && typeof i.nextAction === 'object') d.nextAction = normalizeNext(i.nextAction);
+    if (s('f4') && !d.nextAction.type) d.nextAction = Object.assign(emptyNext(), { type: 'other', other: s('f4') });
+    return d;
   }
 
   // 旧 getLeakAction（629–633行）。「漏れている〜」以外では対応は出さない（旧 onLeakChange 620–622行で空にしていた）
@@ -166,20 +287,36 @@
   const afterStatusText = d => [trim(d.afterSel), trim(d.afterNote)].filter(Boolean).join('　');
 
   // 旧 getCheckedItems（667–677行）: グループ順・定義順、自由記載は最後に `接頭辞: 本文`（本文なしは接頭辞だけ）
+  //   freeChip: 自由記載の欄を出すチップの文字（既定「自由記載」。調査の7項目は「その他」）
+  //   legacyGroups（調査の旧12項目）は値があるときだけ後ろに足す（古い報告書を壊さない）
+  function groupChips(d, g) {
+    const out = [];
+    const fc = g.freeChip || FREE_CHIP;
+    const sel = arr(d[g.field]);
+    g.items.forEach(it => { if (sel.includes(it)) out.push(it); });
+    sel.forEach(v => { if (v !== fc && !g.items.includes(v) && trim(v)) out.push(v); }); // 定義外の値も落とさない
+    if (g.free) {
+      const t = trim(d[g.freeField]);
+      if (t) out.push(`${g.freePrefix}: ${t}`);
+      else if (sel.includes(fc)) out.push(g.freePrefix);
+    }
+    return out;
+  }
   function chipsForPdf(report) {
     const cfg = modeOf(report.work_type);
     const d = normalizeData(report.data);
     const out = [];
-    cfg.checkGroups.forEach(g => {
-      const sel = arr(d[g.field]);
-      g.items.forEach(it => { if (sel.includes(it)) out.push(it); });
-      sel.forEach(v => { if (v !== FREE_CHIP && !g.items.includes(v) && trim(v)) out.push(v); }); // 定義外の値も落とさない
-      if (g.free) {
-        const t = trim(d[g.freeField]);
-        if (t) out.push(`${g.freePrefix}: ${t}`);
-        else if (sel.includes(FREE_CHIP)) out.push(g.freePrefix);
-      }
+    cfg.checkGroups.concat(cfg.legacyGroups || []).forEach(g => {
+      groupChips(d, g).forEach(x => { if (!out.includes(x)) out.push(x); });
     });
+    return out;
+  }
+  // 古い報告書の項目（入力画面に「以前の項目」として出す）
+  function legacyChips(report) {
+    const cfg = modeOf(report.work_type);
+    const d = normalizeData(report.data);
+    const out = [];
+    (cfg.legacyGroups || []).forEach(g => out.push(...groupChips(d, g)));
     return out;
   }
 
@@ -192,6 +329,13 @@
     if (!trim(report.work_date)) errors.push('作業日が未入力です');
     if (cfg.f1Req && !trim(d.f1)) errors.push(`「${cfg.f1Label}」が未入力です`);
     if (cfg.checkGroups.length > 0 && chipsForPdf(report).length === 0) warnings.push(`${cfg.checkCardTitle}が1件も選択されていません`);
+    // Task 20: 次の対応方針（原因元工事は見積書提案期日が必須・再調査は理由と内容が必須）
+    if (cfg.pickNext) {
+      const n = d.nextAction;
+      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書提案期日を入れてください');
+      if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
+      if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
+    }
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
     const ts = trim(report.time_start), te = trim(report.time_end);
     if (!ts) warnings.push('作業開始時刻が未入力です');
@@ -204,7 +348,7 @@
     const cfg = modeOf(report.work_type);
     const d = normalizeData(report.data);
     const vals = {
-      f1: trim(d.f1), f2: trim(d.f2), f4: trim(d.f4), reason: trim(d.reason),
+      f1: trim(d.f1), f2: cfg.pickCause ? causeText(d) : trim(d.f2), f4: cfg.pickNext ? nextActionText(d) : trim(d.f4), reason: trim(d.reason),
       leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d)
     };
     return cfg.rRows
@@ -263,8 +407,9 @@
       const time = ts ? `${ts}〜${te}` : '';
       facts.push(`■ 作業日　${p.m}月${p.d}日（${p.wd}）${time}`);
     }
-    if (cfg.showF2 && oneLine(d.f2)) facts.push(`■ 原因　　${oneLine(d.f2)}`);
-    if (cfg.showF4 && oneLine(d.f4)) facts.push(`■ 次の対応　${oneLine(d.f4)}`);
+    const f2 = cfg.pickCause ? causeText(d) : d.f2, f4 = cfg.pickNext ? nextActionText(d) : d.f4;
+    if (cfg.showF2 && oneLine(f2)) facts.push(`■ 原因　　${oneLine(f2)}`);
+    if (cfg.showF4 && oneLine(f4)) facts.push(`■ 次の対応　${oneLine(f4)}`);
 
     const sign = [orgName, [t(org.address), t(org.tel)].filter(Boolean).join(' ／ '), t(org.email)].filter(Boolean);
 
@@ -325,6 +470,8 @@
   const statusLabel = s => STATUS_LABEL[s] || str(s);
 
   const api = {
+    INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
+    normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, WORK_CHECKLISTS, KEY_CHECKLIST, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,

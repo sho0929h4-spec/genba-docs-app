@@ -81,7 +81,9 @@ function tkGroupEl(gr) {
   const late = gr.items.filter(x => x.late).length;
   if (late) {
     sub.appendChild(document.createTextNode('・'));
-    sub.appendChild(mk('span', 'hot', '予定を過ぎた ' + late));
+    // 見積書提案期日だけが過ぎているグループは「期日を過ぎた」（Task 20）
+    const word = gr.items.some(x => x.late && !x.due) ? '予定を過ぎた ' : '期日を過ぎた ';
+    sub.appendChild(mk('span', 'hot', word + late));
   }
   h.appendChild(sub);
   card.appendChild(h);
@@ -101,7 +103,8 @@ function tkRowEl(it) {
   row.appendChild(l);
 
   const r = mk('div', 'mt-r');
-  if (it.late) r.appendChild(mk('span', 'nx-due near', '予定を過ぎています'));
+  // 見積書提案期日（Task 20）・入金期限は「期日を過ぎています」、予定日は「予定を過ぎています」
+  if (it.late) r.appendChild(mk('span', 'nx-due near', it.due ? '期日を過ぎています' : '予定を過ぎています'));
   const act = tkActionBtn(it);
   if (act) r.appendChild(act);
   const open = mk('button', 'poke tk-open', '開く');
