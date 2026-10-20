@@ -30,6 +30,10 @@
     { key: 'other', label: 'その他' }
   ];
   const NEXT_KEYS = NEXT_ACTIONS.map(n => n.key);
+  // お部屋の状況（Task 21 追加。任意。data.roomStatus = { luggage: 'many'|'few'|null, pet: true|false|null, residents: 0〜20|null }）
+  const ROOM_LUGGAGE = [{ key: 'many', label: '多い' }, { key: 'few', label: '少ない' }];
+  const ROOM_PET = [{ key: true, label: 'あり' }, { key: false, label: 'なし' }];
+  const RESIDENTS_MAX = 20;
   // 報告書の作業区分はフェーズの種類で決まる（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。Task 20）
   const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'restore' };
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
@@ -42,9 +46,12 @@
     { value: '養生対応済み', label: '養生対応済み' },
     { value: 'すでに養生対応済み', label: 'すでに養生対応済み' },
     { value: '入居者希望により養生せず', label: '入居者希望により養生せず' },
-    { value: '元栓閉め', label: '元栓を閉めた' }
+    { value: '元栓閉め', label: '元栓を閉めた' },
+    // Task 21: その他（選ぶと1行の自由記載 data.leakActionOther。PDF にはその文を出す）
+    { value: 'その他', label: 'その他（自由記載）' }
   ];
   const LEAK_ACTION_MAIN_VALVE = '元栓閉め';
+  const LEAK_ACTION_OTHER = 'その他';
 
   /* ---- 旧ツール 438–468行 ---- */
   const WORK_CHECKLISTS = {
@@ -72,15 +79,24 @@
       '写真の手ブレがないか確認した'
     ]
   };
+  // 旧ツールの鍵の3項目（古い報告書 data.keyChecklist の読み替え用だけ。新しい入力は data.keyBorrowed / keyReturned。Task 21）
   const KEY_CHECKLIST = [
     '鍵を借りた（借りていない場合はチェック不要）',
     '鍵を返却した',
     '返却時の写真をアップロードした'
   ];
+  // Task 21: 鍵の取り扱いは「鍵を借りた」を押したときだけ、返却のチェック・返却時の写真（区分「鍵返却」）・コメントを出す
+  const KEY_TEXT = { borrowed: '鍵を借りた（借りた場合だけ）', borrowedPdf: '鍵を借りた', returned: '鍵を返却した' };
 
-  /* ---- 旧ツール 521–522行 ---- */
-  const PHASES = { '': '— フェーズ —', before: '対応前', investigating: '対応中', done: '対応後', wbefore: '作業前', wduring: '作業中', wafter: '作業後', yojo: '養生' };
-  const PHASE_COLORS = { before: '#2563eb', investigating: '#ea580c', done: '#0d9488', wbefore: '#2563eb', wduring: '#ea580c', wafter: '#0d9488', yojo: '#7c3aed' };
+  /* ---- 写真の区分（Task 21: 作業前／作業中／作業後／鍵返却／自由記載 の5つだけ。自由記載は photo.phaseNote に文字） ---- */
+  const PHOTO_FREE = 'free';
+  const PHOTO_KEY = 'key';
+  const PHASES = { '': '— 区分 —', wbefore: '作業前', wduring: '作業中', wafter: '作業後', key: '鍵返却', free: '自由記載' };
+  const PHASE_COLORS = { wbefore: '#2563eb', wduring: '#ea580c', wafter: '#0d9488', key: '#7c3aed', free: '#64748b' };
+  // 旧区分の読み替え（表示だけ。データは変えない）: 対応前→作業前、対応中→作業中、対応後→作業後、養生→作業前
+  const LEGACY_PHASES = { before: 'wbefore', investigating: 'wduring', done: 'wafter', yojo: 'wbefore' };
+  const LEGACY_PHASE_LABELS = { '対応前': 'wbefore', '対応中': 'wduring', '対応後': 'wafter', '養生': 'wbefore' };
+  const PHASE_NOTE_MAX = 30;
 
   /* ---- 旧ツールの入力欄の文言（289–359行・655行） ---- */
   const FREE_CHIP = '自由記載'; // 自由記載チップ。data の配列に入っていれば ON
@@ -89,6 +105,7 @@
     leakLabel: '漏水の状況',
     leakActionLabel: '漏水時の対応',
     leakRoomPlaceholder: '号室（例：605）',
+    leakOtherPlaceholder: '漏水時の対応（自由記載）',
     afterLabel: '対応後の状況',
     afterNotePlaceholder: '補足（任意・自由記載）',
     f2Label: '原因',
@@ -109,17 +126,22 @@
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
     estimateDueLabel: '見積書提案期日',
     estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
+    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業者のやることに「見積書を作る（期限）」が入ります',
     resurveyReasonLabel: '再調査の理由',
     resurveyDetailLabel: '再調査の内容',
     nextOtherLabel: '次の対応方針（その他）',
-    ctxPhotoHint: 'ここで追加した写真は下の「作業写真」にまとまります',
     selectPlaceholder: '— 選択してください —',
     freePlaceholder: '自由記載',
     checklistTitle: 'チェックリスト',
     workChecklistTitle: '作業チェックリスト',
-    keyChecklistTitle: '鍵の取り扱い（借りた場合のみ）',
+    keyChecklistTitle: '鍵の取り扱い',
     keyReturnLabel: '鍵の返却方法',
-    keyReturnPlaceholder: '例：管理会社へ手渡し／ポスト投函　※返却がない場合は空欄',
+    keyReturnPlaceholder: '例：管理会社へ手渡し／ポスト投函',
+    keyPhotoLabel: '返却時の写真',
+    keyPhotoAdd: '鍵返却の写真を追加',
+    photoAdd: '現場写真を追加',
+    photoAddHint: 'カメラで撮るか、アルバムから選べます。写真は自動で圧縮して保存します',
+    phaseNotePlaceholder: '区分（自由記載）',
     photoCaptionPlaceholder: 'キャプション（例：玄関から居室方向を撮影）',
     noData: '記録なし'
   };
@@ -136,7 +158,6 @@
       f1Label: '作業実施内容', f1Req: true,
       showLeak: true, showAfter: false, showF2: true, showReason: true, showF4: true, pickCause: true, pickNext: true,
       f1ph: '例：605号室キッチン脇のダウンライトまわりから漏水を確認。給水管の耐圧テストを実施。',
-      ctxPhotoLabel: '原因箇所の写真',
       rSection: '調査結果',
       rRows: [
         { label: '作業実施内容', field: 'f1' },
@@ -144,7 +165,8 @@
         { label: '漏水時の対応', field: 'leakAction' },
         { label: '原　因', field: 'f2' },
         { label: '原因と判断した理由', field: 'reason' },
-        { label: '次の対応方針', field: 'f4', next: true }
+        { label: '次の対応方針', field: 'f4', next: true },
+        { label: 'お部屋の状況', field: 'roomStatus' }
       ]
     },
     repair: {
@@ -154,7 +176,6 @@
       f1Label: '作業実施内容', f1Req: true,
       showLeak: false, showAfter: true, showF2: false, showReason: false, showF4: false,
       f1ph: '例：既存給湯管を撤去し新規樹脂管（16mm）に更新。接続部の防水処理を実施。通水確認済み。漏水なし。',
-      ctxPhotoLabel: '年式・型番が分かる写真',
       rSection: '作業結果',
       rRows: [
         { label: '作業実施内容', field: 'f1' },
@@ -171,7 +192,6 @@
       f1Label: '申し送り', f1Req: false,
       showLeak: false, showAfter: false, showF2: false, showReason: false, showF4: false,
       f1ph: '入居者からの伝達事項・引き継ぎ事項などがあれば記載',
-      ctxPhotoLabel: '作業前・作業中・作業後・養生の写真',
       rSection: '作業結果',
       rRows: [
         { label: '申し送り', field: 'f1' }
@@ -186,14 +206,35 @@
   const trim = v => str(v).trim();
   const arr = v => (Array.isArray(v) ? v : []);
 
+  const emptyRoom = () => ({ luggage: null, pet: null, residents: null });
+  // お部屋の状況の正規化（知らない値は null。入居者数は 0〜20 の整数だけ）
+  function normalizeRoom(v) {
+    const r = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    const n = typeof r.residents === 'number' ? r.residents : (typeof r.residents === 'string' && /^\d{1,2}$/.test(r.residents.trim()) ? +r.residents.trim() : NaN);
+    return {
+      luggage: r.luggage === 'many' || r.luggage === 'few' ? r.luggage : null,
+      pet: typeof r.pet === 'boolean' ? r.pet : null,
+      residents: Number.isInteger(n) && n >= 0 && n <= RESIDENTS_MAX ? n : null
+    };
+  }
+  // 「荷物量 多い・ペット あり・入居者 2人」（未入力の項目は省く。全部空なら ''）
+  function roomStatusText(data) {
+    const r = normalizeRoom(data && data.roomStatus);
+    const out = [];
+    if (r.luggage) out.push('荷物量 ' + ROOM_LUGGAGE.find(x => x.key === r.luggage).label);
+    if (r.pet !== null) out.push('ペット ' + (r.pet ? 'あり' : 'なし'));
+    if (r.residents !== null) out.push('入居者 ' + r.residents + '人');
+    return out.join('・');
+  }
   const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '' });
   function emptyData() {
     return {
-      items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakRoom: '', reason: '', f2: '', f4: '',
+      items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakActionOther: '', leakRoom: '', reason: '', f2: '', f4: '',
       afterSel: '', afterNote: '', scopePlaces: [], scopePlaceFree: '', scopeParts: [], scopePartFree: '',
-      workChecklist: [], keyChecklist: [], keyReturn: '',
+      workChecklist: [], keyChecklist: [], keyReturn: '', keyBorrowed: false, keyReturned: false,
       // Task 20: 調査の選択式
-      workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext()
+      workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext(),
+      roomStatus: emptyRoom()
     };
   }
   // 原因の選択 → [{ key, detail }]（知らないキー・重複は落とす。detail は「詳細」がある項目だけ）
@@ -215,13 +256,69 @@
     return { type: n.type, estimateDue: n.estimateDue, reason: n.reason, detail: n.detail, other: n.other };
   }
   // 欠けたキーを初期値で補う（古い下書きや協力業者の提出でも落ちないように）
+  //   鍵（Task 21）: keyBorrowed / keyReturned が無い古い報告書は keyChecklist（旧3項目）と返却方法から読み替える
   function normalizeData(data) {
-    const d = Object.assign(emptyData(), data && typeof data === 'object' && !Array.isArray(data) ? data : {});
+    const raw = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    const d = Object.assign(emptyData(), raw);
     d.workItems = arr(d.workItems).map(str).filter(Boolean);
     d.causes = normalizeCauses(d.causes);
     d.nextAction = normalizeNext(d.nextAction);
+    d.roomStatus = normalizeRoom(d.roomStatus);
+    const oldKey = arr(raw.keyChecklist).map(str);
+    if (typeof raw.keyBorrowed !== 'boolean') d.keyBorrowed = oldKey.some(x => KEY_CHECKLIST.includes(x)) || !!trim(raw.keyReturn);
+    if (typeof raw.keyReturned !== 'boolean') d.keyReturned = oldKey.includes(KEY_CHECKLIST[1]);
+    d.keyChecklist = oldKey;
     return d;
   }
+  // 鍵の取り扱い（PDF・入力画面）→ { borrowed, returned, comment }。借りていなければ返却・コメントは出さない
+  function keyInfo(data) {
+    const d = normalizeData(data);
+    return { borrowed: !!d.keyBorrowed, returned: !!d.keyBorrowed && !!d.keyReturned, comment: d.keyBorrowed ? trim(d.keyReturn) : '' };
+  }
+  // PDF のチェックリストの行 → [{ on, text, key? }]（作業チェックリスト → 鍵を借りたときだけ 借りた・返却）
+  function checklistLines(data) {
+    const d = normalizeData(data);
+    const out = arr(d.workChecklist).map(trim).filter(Boolean).map(text => ({ on: true, text }));
+    const k = keyInfo(d);
+    if (k.borrowed) {
+      out.push({ on: true, text: KEY_TEXT.borrowedPdf, key: true });
+      out.push({ on: k.returned, text: KEY_TEXT.returned, key: true });
+    }
+    return out;
+  }
+
+  /* ---- 写真の区分（Task 21） ---- */
+  // 保存値（キー・旧キー・旧ラベル）→ 今の区分のキー。空は ''。どれでもない文字は自由記載扱い
+  function photoPhaseKey(v) {
+    const x = trim(v);
+    if (!x) return '';
+    if (Object.prototype.hasOwnProperty.call(PHASES, x)) return x;
+    if (LEGACY_PHASES[x]) return LEGACY_PHASES[x];
+    if (LEGACY_PHASE_LABELS[x]) return LEGACY_PHASE_LABELS[x];
+    const k = Object.keys(PHASES).find(y => y && PHASES[y] === x);
+    return k || PHOTO_FREE;
+  }
+  // 写真 { phase, phaseNote } → { key, label, color } | null（自由記載は phaseNote。定義外の古い文字はその文字）
+  function photoPhase(photo) {
+    const p = photo || {};
+    const key = photoPhaseKey(p.phase);
+    if (!key) return null;
+    let label = PHASES[key];
+    if (key === PHOTO_FREE) {
+      const raw = trim(p.phase);
+      label = trim(p.phaseNote) || (raw && raw !== PHOTO_FREE && raw !== PHASES.free ? raw : PHASES.free);
+    }
+    return { key, label, color: PHASE_COLORS[key] || '#64748b' };
+  }
+  // 提出・保存する写真の区分を今の5つ（＋空）にそろえる（協力業者の提出。古い下書きの旧区分も読み替える）
+  function photoPhaseOut(photo) {
+    const p = photo || {};
+    const key = photoPhaseKey(p.phase);
+    const raw = trim(p.phase);
+    const note = key === PHOTO_FREE ? (trim(p.phaseNote) || (raw && raw !== PHOTO_FREE && raw !== PHASES.free ? raw : '')).slice(0, PHASE_NOTE_MAX) : '';
+    return { phase: key, phaseNote: note };
+  }
+  const keyPhotoCount = photos => arr(photos).filter(p => photoPhaseKey(p && p.phase) === PHOTO_KEY).length;
 
   /* ---- Task 20: 原因・次の対応方針の文章化（PDF・メール） ---- */
   const isYmd = v => {
@@ -252,8 +349,10 @@
     let t = '';
     if (n.type === 'cause') t = isYmd(n.estimateDue) ? `原因元工事（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '原因元工事';
     else if (n.type === 'resurvey') {
+      // Task 21: 再調査にも見積書提案期日 → 「再調査（見積書 M/D までにご提案）: 内容（理由: …）」
+      const head = isYmd(n.estimateDue) ? `再調査（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '再調査';
       const body = [trim(n.detail), trim(n.reason) ? `（理由: ${trim(n.reason)}）` : ''].join('');
-      t = body ? `再調査: ${body}` : '再調査';
+      t = body ? `${head}: ${body}` : head;
     } else if (n.type === 'other') t = trim(n.other) || 'その他';
     return [t, trim(d.f4)].filter(Boolean).join('\n');
   }
@@ -281,6 +380,7 @@
       const rm = trim(d.leakRoom).replace(/号室$/, '');
       v = (rm ? rm + '号室' : '') + LEAK_ACTION_MAIN_VALVE;
     }
+    if (v === LEAK_ACTION_OTHER) v = trim(d.leakActionOther) || LEAK_ACTION_OTHER; // Task 21
     return v;
   }
   // 旧 getAfterStatus（803–807行）
@@ -333,10 +433,14 @@
     if (cfg.pickNext) {
       const n = d.nextAction;
       if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書提案期日を入れてください');
+      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書提案期日を入れてください'); // Task 21
       if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
       if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
     }
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
+    // Task 21: 鍵を借りたときだけ、返却のチェックと返却時の写真
+    if (d.keyBorrowed && !d.keyReturned) warnings.push('「鍵を返却した」にチェックがありません');
+    if (d.keyBorrowed && keyPhotoCount(report.photos) === 0) warnings.push('鍵返却の写真がありません（写真の区分「鍵返却」）');
     const ts = trim(report.time_start), te = trim(report.time_end);
     if (!ts) warnings.push('作業開始時刻が未入力です');
     if (ts && te && te < ts) errors.push('作業終了時間が開始時間より前になっています');
@@ -349,7 +453,7 @@
     const d = normalizeData(report.data);
     const vals = {
       f1: trim(d.f1), f2: cfg.pickCause ? causeText(d) : trim(d.f2), f4: cfg.pickNext ? nextActionText(d) : trim(d.f4), reason: trim(d.reason),
-      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d)
+      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d), roomStatus: roomStatusText(d)
     };
     return cfg.rRows
       .map(r => ({ label: r.label, value: vals[r.field] || '', next: !!r.next }))
@@ -473,7 +577,9 @@
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS,
-    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, WORK_CHECKLISTS, KEY_CHECKLIST, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
+    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
+    ROOM_LUGGAGE, ROOM_PET, RESIDENTS_MAX, normalizeRoom, roomStatusText,
+    LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
     buildMail, mailtoUrl, buildMailto, statusLabel
   };

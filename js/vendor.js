@@ -116,7 +116,7 @@
     lsSet(s.key, {
       t: Date.now(),
       f: { room: f.room, work_date: f.work_date, time_start: f.time_start, time_end: f.time_end, data: f.data },
-      photos: s.report.photos.map(p => ({ path: p.path, name: p.name, caption: p.caption || '', phase: p.phase || '', marks: PhotoMarks.normalize(p.marks) }))
+      photos: s.report.photos.map(p => ({ path: p.path, name: p.name, caption: p.caption || '', phase: p.phase || '', phaseNote: p.phaseNote || '', marks: PhotoMarks.normalize(p.marks) }))
     });
   }
   // 壊れた値・他の share の写真は捨てる
@@ -136,7 +136,8 @@
       path: p.path,
       name: typeof p.name === 'string' ? p.name.slice(0, 120) : '',
       caption: typeof p.caption === 'string' ? p.caption.slice(0, 200) : '',
-      phase: typeof p.phase === 'string' && Object.prototype.hasOwnProperty.call(ReportLogic.PHASES, p.phase) ? p.phase : '',
+      // Task 21: 区分は今の5つにそろえる（古い下書きの旧区分も読み替え。自由記載は phaseNote）
+      ...ReportLogic.photoPhaseOut({ phase: typeof p.phase === 'string' ? p.phase : '', phaseNote: typeof p.phaseNote === 'string' ? p.phaseNote : '' }),
       marks: PhotoMarks.normalize(p.marks)
     }));
     return true;
@@ -185,12 +186,13 @@
     nodes.push(...rfBuildForm(s, {
       infoTitle: '号室・作業日・時間',
       fixedMode: true,
-      photoHint: L.TEXT.ctxPhotoHint + '。写真は自動で圧縮して、選んだ時点で送信します'
+      photoHint: 'カメラで撮るか、アルバムから選べます。写真は自動で圧縮して、選んだ時点で送信します'
     }));
     s.els.photoInput.addEventListener('change', () => {
       const files = Array.from(s.els.photoInput.files || []);
       s.els.photoInput.value = '';
-      if (files.length) addPhotos(files);
+      const phase = rfTakePhase(s); // 「鍵返却の写真を追加」から開いたときは区分 key
+      if (files.length) addPhotos(files, phase);
     });
     $('v-root').replaceChildren(...nodes);
     edApplyMode(s);
@@ -266,7 +268,7 @@
     s.els.photoMsg.classList.toggle('err-on', !!isErr);
   }
 
-  async function addPhotos(files) {
+  async function addPhotos(files, phase) {
     if (s.photoBusy || s.submitting) return;
     s.photoBusy = true;
     renderPhotos();
@@ -284,7 +286,7 @@
         const { error } = await client.storage.from('files').upload(path, p.blob, { contentType: 'image/jpeg', upsert: false });
         if (error) throw new Error('送信できませんでした（URLの期限切れ・無効、または写真が多すぎる可能性があります）');
         s.blobs.set(path, URL.createObjectURL(p.blob));
-        s.report.photos.push({ path, name: String(p.name || '').slice(0, 120), caption: '', phase: '' });
+        s.report.photos.push({ path, name: String(p.name || '').slice(0, 120), caption: '', phase: phase || '' });
         added++;
         saveLocal();
         renderPhotos();
@@ -303,7 +305,8 @@
     if (!s || s.photoBusy || s.submitting || s.done) return;
     const f = s.f;
     const photos = s.report.photos.map(p => {
-      const o = { path: p.path, name: p.name || '', caption: p.caption || '', phase: p.phase || '' };
+      const o = Object.assign({ path: p.path, name: p.name || '', caption: p.caption || '' }, ReportLogic.photoPhaseOut(p));
+      if (!o.phaseNote) delete o.phaseNote;
       const marks = PhotoMarks.normalize(p.marks);
       if (marks.length) o.marks = marks;
       return o;

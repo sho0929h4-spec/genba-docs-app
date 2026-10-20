@@ -7,7 +7,7 @@
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert は使わない（画面内に出す）。
 // mk() は case-list.js、dBtn / errText / currentCase は case-detail.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
 // 計算・文言は EstimateLogic、DB は EstimatesApi（版管理・送付・承諾は Task 5 でこの画面に足す）、紙面は EstimatePdf。
-// 「よく使う明細」（定型・Task 11）は js/estimate-presets.js（クイック追加の下のボタン列・行の「…」→ 登録・編集シート）。
+// 「よく使う明細」（定型・Task 11 / Task 22）は js/estimate-presets.js（明細の下のボタン列＝唯一の追加候補・行の「…」→ 登録・編集シート）。
 //
 // 編集は draft のみ。提出済み以降（issued/sent/accepted/superseded）は読み取り専用で表示する。
 // 画面の並び（PC 1100px以上=上のバー＋左 入力／右 紙面、未満=1段＋紙面の折りたたみ）は js/estimate-layout.js（Task 15）。
@@ -476,7 +476,7 @@ function eueBuild(s) {
   els.manager = eueInput('eu-manager', 'text', d.manager, v => set(x => { x.manager = v; }), { placeholder: '例：山田' });
   c1.appendChild(eueField('担当者', els.manager));
 
-  /* ----- 明細（旧ツールと同じ並び: 表 → ＋ 行を追加 → クイック追加・税込合計を00に → よく使う明細） ----- */
+  /* ----- 明細（並び: 表 → ＋ 行を追加 → よく使う明細 → 税込合計を00に。固定のクイック追加は Task 22 で廃止） ----- */
   const c2 = mk('div', 'rep-card eu-lines-card');
   const c2h = mk('div', 'rep-between');
   c2h.appendChild(mk('h3', null, '明細'));
@@ -516,35 +516,18 @@ function eueBuild(s) {
   add.id = 'eu-add-line';
   c2.appendChild(add);
 
-  const qttl = mk('div', 'rep-group-ttl', 'クイック追加');
-  c2.appendChild(qttl);
-  const q = mk('div', 'eu-quick');
-  const qBtn = (id, label, sub, fn) => {
-    const b = dBtn('', 'btn sm ghost inline eu-q-btn', fn);
-    b.id = id;
-    b.append(mk('span', null, label), mk('span', 'eu-q-sub', sub));
-    return b;
-  };
-  const qk = qBtn('eu-q-kanri', '＋ 現場管理費', euYen(EstimateLogic.QUICK.kanri.unitPrice) + '/日', () => eueQuick(s, 'kanri'));
-  const qt = qBtn('eu-q-kotsu', '＋ 交通費', euYen(EstimateLogic.QUICK.kotsu.unitPrice) + '/台', () => eueQuick(s, 'kotsu'));
-  const shk = mk('span', 'eu-q-shokehi');
-  const qs = dBtn('＋ 諸経費', 'btn sm ghost inline', () => eueShokehi(s));
-  qs.id = 'eu-q-shokehi';
-  const pctWrap = mk('span', 'eu-pct');
-  els.qPct = eueInput('eu-q-pct', 'text', String(EstimateLogic.QUICK.shokehiPct), () => {}, { inputMode: 'decimal' });
-  els.qPct.setAttribute('aria-label', '諸経費の%（合計×%）');
-  pctWrap.append(mk('span', 'eu-q-sub', '合計×'), els.qPct, mk('span', null, '%'));
-  shk.append(qs, pctWrap);
+  // よく使う明細（定型・Task 11 / Task 22）: 明細の下の唯一の追加候補（見積のフェーズの種類＋共通のボタン）。読み取り専用では出さない。
+  // 固定のクイック追加（現場管理費・交通費・諸経費）は Task 22 で廃止（EstimateLogic.QUICK は残す。既存の諸経費の自動行は表示・再計算だけ続ける）
+  if (!ro) c2.appendChild(EstimatePresets.section(s, { add: (p, amount) => eueAddPreset(s, p, amount) }));
+  const q = mk('div', 'eu-quick eu-adj-row');
   els.adj = eueCheck('eu-adjust', '税込合計を00に', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
   els.adj.classList.add('eu-adj-chk');
   els.adj.title = '税込合計の下2桁が00になるよう、端数を値引きの行で調整します（明細を変えると取り直します）';
-  q.append(qk, qt, shk, els.adj);
+  q.append(els.adj);
   c2.appendChild(q);
   els.qMsg = mk('div', 'err');
   els.qMsg.id = 'eu-q-msg';
   c2.appendChild(els.qMsg);
-  // よく使う明細（定型・Task 11）: 見積のフェーズの種類＋共通のボタン。読み取り専用では出さない
-  if (!ro) c2.appendChild(EstimatePresets.section(s, { add: p => eueAddPreset(s, p) }));
 
   /* ----- 備考（固定の1行目「必須」→ 工期・工事時間・荷物の移動 → 自由記入） ----- */
   const c3 = mk('div', 'rep-card');
@@ -600,7 +583,6 @@ function eueBuild(s) {
     });
     add.hidden = true;
     q.hidden = true;
-    qttl.hidden = true;
     left.querySelectorAll('input[placeholder], textarea[placeholder]').forEach(e => { e.removeAttribute('placeholder'); });
   }
   // 読み取り専用: 入力欄は値の表示だけ（枠を薄く）・編集ボタンは出さない
@@ -979,10 +961,11 @@ function eueMoreMenu(s, id, row) {
   if (btn) btn.setAttribute('aria-expanded', 'true');
   reg.focus({ preventScroll: true });
 }
-// よく使う明細のボタン: 定型の行を末尾に足す（空の行は除く＝クイック追加と同じ）。金額が0なら金額の欄へ（入力待ち）
-function eueAddPreset(s, preset) {
+// よく使う明細のボタン: 定型の行を末尾に足す（空の行は除く）。amount は「−」「＋」で変えた金額（刻みのある候補だけ）。
+// 金額が0なら金額の欄へ（入力待ち）
+function eueAddPreset(s, preset, amount) {
   if (s.readOnly) return;
-  const l = EstimateLogic.presetToLine(preset);
+  const l = EstimateLogic.presetToLine(preset, amount);
   s.lines = s.lines.filter(x => EstimateLogic.isRealLine(x) || x.isAutoShokehi || eueIsAdj(x)).concat([l]);
   s.els.qMsg.textContent = '';
   eueLinesRebuilt(s);
@@ -997,23 +980,6 @@ function eueAddLine(s) {
   eueLinesRebuilt(s);
   const el = s.els.lines.querySelector('[data-id="' + l.id + '"] .eu-desc');
   if (el) el.focus({ preventScroll: false });
-}
-function eueQuick(s, key) {
-  if (s.readOnly) return;
-  const r = EstimateLogic.addQuick(s.lines.filter(l => EstimateLogic.isRealLine(l) || l.isAutoShokehi || eueIsAdj(l)), key);
-  if (!r) return;
-  s.lines = r;
-  s.els.qMsg.textContent = '';
-  eueLinesRebuilt(s);
-}
-function eueShokehi(s) {
-  if (s.readOnly) return;
-  const pct = euParsePct(s.els.qPct.value);
-  const r = Number.isFinite(pct) ? EstimateLogic.addShokehi(s.lines.filter(l => EstimateLogic.isRealLine(l) || l.isAutoShokehi || eueIsAdj(l)), pct) : null;
-  if (!r) { s.els.qMsg.textContent = '諸経費の%を正しく入力してください（例：10）'; return; }
-  s.els.qMsg.textContent = '';
-  s.lines = r;
-  eueLinesRebuilt(s);
 }
 // focusCls: 動かした後にフォーカスを戻すボタン（既定は押した ↑/↓。⠿ の↑↓キーなら eu-drag）
 function eueMove(s, id, dir, focusCls) {

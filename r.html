@@ -82,6 +82,17 @@
   .rep-check:disabled{opacity:.65;cursor:default;}
   .rep-sub-fields{margin-top:8px;padding:8px 10px;background:#f4f7fb;border-radius:10px;}
   .rep-sub-fields .rep-ff-sub{margin-bottom:8px;}
+  /* Task 21: お部屋の状況・鍵の取り扱い・写真の区分（自由記載） */
+  .rep-checks.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+  .rep-room-row{margin-top:8px;}
+  .rep-room-row .rep-group-ttl{display:block;}
+  .rep-room-n{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .rep-room-n input{width:96px;flex:0 0 96px;min-height:44px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .rep-room-err{color:#b91c1c;font-size:13px;}
+  .rep-key-box{margin-top:8px;}
+  .rep-key-box .rep-checks{margin-bottom:8px;}
+  .rep-key-ph{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .rep-key-ph .btn{min-height:40px;}
   .rep-fixed{padding:11px 12px;border-radius:10px;background:#f4f7fb;border:1.5px solid var(--border);font-size:15px;font-weight:700;color:var(--navy);}
   .rep-fixed-hint{margin:5px 0 0;}
   .rep-legacy{font-size:12px;color:var(--muted);background:#f7faff;border:1px dashed #b9cde6;border-radius:8px;padding:7px 10px;margin-top:8px;overflow-wrap:anywhere;}
@@ -116,13 +127,13 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=952cbf8"></script>
-<script src="js/supabase-config.js?v=952cbf8"></script>
-<script src="js/image.js?v=952cbf8"></script>
-<script src="js/report-logic.js?v=952cbf8"></script>
-<script src="js/photo-marks.js?v=952cbf8"></script>
-<script src="js/photo-mark-editor.js?v=952cbf8"></script>
-<script src="js/report-form.js?v=952cbf8"></script>
-<script src="js/vendor.js?v=952cbf8"></script>
+<script src="js/crypto-util.js?v=ee91420"></script>
+<script src="js/supabase-config.js?v=ee91420"></script>
+<script src="js/image.js?v=ee91420"></script>
+<script src="js/report-logic.js?v=ee91420"></script>
+<script src="js/photo-marks.js?v=ee91420"></script>
+<script src="js/photo-mark-editor.js?v=ee91420"></script>
+<script src="js/report-form.js?v=ee91420"></script>
+<script src="js/vendor.js?v=ee91420"></script>
 </body>
 </html>

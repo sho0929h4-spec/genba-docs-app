@@ -1,13 +1,13 @@
 // js/estimate-presets-api.js — 見積の「よく使う明細」（定型）の DB アクセス（migration 029 estimate_presets）
 // DB の決まり: insert / update できる列は kind / label / line / sort だけ（org_id・created_by は DB の既定値）。
-//   RLS は会社一致。line は {description, detail?, quantity, unit, amount, unitPrice?, postTax?:false}（029 の check）
+//   RLS は会社一致。line は {description, detail?, quantity, unit, amount, unitPrice?, postTax?:false, step?}（029 の check・step は 039）
 // 送る前に EstimateLogic.validatePreset で DB と同じ判定をする（平易な文言で止める）。
 // 依存: sb, window.EstimateLogic
 const EstimatePresetsApi = (() => {
   const EL = () => window.EstimateLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const COLS = ['kind', 'label', 'line', 'sort'];      // 列 grant と同じ allowlist
-  const LINE_KEYS = ['description', 'detail', 'quantity', 'unit', 'amount', 'unitPrice', 'postTax'];
+  const LINE_KEYS = ['description', 'detail', 'quantity', 'unit', 'amount', 'unitPrice', 'postTax', 'step'];
   const pick = (o, keys) => { const r = {}; keys.forEach(k => { if (o && o[k] !== undefined) r[k] = o[k]; }); return r; };
   function clean(p) {
     const row = pick(p, COLS);
@@ -16,6 +16,7 @@ const EstimatePresetsApi = (() => {
       row.line = pick(row.line, LINE_KEYS);
       row.line.postTax = false;
       if (row.line.detail != null && !String(row.line.detail).trim()) delete row.line.detail;
+      if (row.line.step == null) delete row.line.step;   // 刻み無し＝キーごと持たない
     }
     return row;
   }

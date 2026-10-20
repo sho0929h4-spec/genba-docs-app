@@ -45,7 +45,7 @@ async function siLoad(seq) {
 
 function siItemEl(it) {
   const p = it.phase;
-  const row = mk('div', 'si-item' + (it.type === 'tomorrow' ? ' tomorrow' : ''));
+  const row = mk('div', 'si-item' + (it.type === 'tomorrow' ? ' tomorrow' : '') + (it.type === 'estimate' ? ' estimate' + (it.late ? ' late' : '') : ''));
   row.dataset.phaseId = p.id;
   row.dataset.type = it.type;
   const top = mk('div', 'si-top');
@@ -53,16 +53,20 @@ function siItemEl(it) {
   top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
   top.appendChild(mk('span', 'ob-ph', it.title));
   row.appendChild(top);
-  row.appendChild(mk('div', 'si-label', (it.type === 'tomorrow' ? '⏰ ' : '') + it.label));
+  row.appendChild(mk('div', 'si-label', (it.type === 'tomorrow' ? '⏰ ' : it.type === 'estimate' ? '🧾 ' : '') + it.label +
+    (it.type === 'estimate' && it.late ? '（期限を過ぎています）' : '')));
   if (it.type === 'notice') {
     row.appendChild(mk('div', 'rep-sub', [it.from ? it.from + 'さんから' : '', PhaseLogic.fmtMDHM(it.fromAt)].filter(Boolean).join(' ') +
       (it.tomorrow ? ' ・ 明日の予定です' : '')));
+  } else if (it.type === 'estimate') {
+    row.appendChild(mk('div', 'rep-sub', '調査報告の「次の対応方針」で決まった期限です'));
   } else if (it.caseRow.address) {
     row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
   }
   if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
-  const busy = si.busy.has(p.id);
+  const bkey = it.type === 'estimate' ? 'est-' + p.id : p.id;
+  const busy = si.busy.has(bkey);
   const open = si.field
     ? dBtn('案件を開く', 'btn sm inline si-open', () => {
       if (typeof fdSel !== 'undefined') fdSel.set(it.caseRow.id, p.id); // その対応を選んでツールページを開く
@@ -71,6 +75,12 @@ function siItemEl(it) {
     : dBtn('詳しく見る', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
   open.disabled = busy;
   acts.appendChild(open);
+  if (it.type === 'estimate') {
+    // Task 21: 見積を作る（phase_id 付き）→ 見積書の画面へ
+    const mkb = dBtn('見積を作る', 'btn sm inline si-make-est', () => siMakeEstimate(it));
+    mkb.disabled = busy;
+    acts.insertBefore(mkb, open);
+  }
   if (it.type === 'notice') {
     const ack = dBtn('確認した', 'btn sm ghost inline si-ack', () => siAck(it));
     ack.disabled = busy;
@@ -78,7 +88,7 @@ function siItemEl(it) {
   }
   row.appendChild(acts);
   const err = mk('div', 'err');
-  err.id = 'si-err-' + p.id;
+  err.id = 'si-err-' + bkey;
   row.appendChild(err);
   return row;
 }
@@ -88,7 +98,7 @@ function siRender() {
   if (!root || !si) return;
   const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
   if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
-  nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定もここに出ます'));
+  nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定と、期限のある見積書もここに出ます'));
   const msg = mk('div', 'ob-msg', si.msg || '');
   msg.id = 'staff-inbox-msg';
   msg.setAttribute('role', 'status');
@@ -132,6 +142,36 @@ async function siAck(it) {
     const el = document.getElementById('si-err-' + it.phase.id) || $('staff-inbox-msg');
     if (el) el.textContent = err;
   }
+}
+
+// 見積書を作る（Task 21）: そのフェーズの見積を作って見積書の画面へ（やること・現場用ツールの「見積を作る」と同じ初期値）
+async function siMakeEstimate(it) {
+  const s = si;
+  const key = 'est-' + it.phase.id;
+  if (!s || s.busy.has(key)) return;
+  s.busy.add(key);
+  s.msg = '';
+  siRender();
+  let err = '', row = null;
+  try {
+    const c = it.caseRow, p = it.phase;
+    const opts = { phase_id: p.id, phaseTitle: it.title };
+    if (p.kind !== 'survey') {
+      const r = PhaseLogic.latestSurveyResult(c.phases);
+      if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
+    }
+    row = await EstimatesApi.create(c.id, c, opts);
+  } catch (e) { err = '見積書を作れませんでした: ' + errText(e); }
+  s.busy.delete(key);
+  if (si !== s) return;
+  if (row) {
+    if (s.field && typeof fdSel !== 'undefined') fdSel.set(it.caseRow.id, it.phase.id);
+    location.hash = '#estimate/' + row.id;
+    return;
+  }
+  siRender();
+  const el = document.getElementById('si-err-' + key) || $('staff-inbox-msg');
+  if (el) el.textContent = err;
 }
 
 (() => {

@@ -301,11 +301,33 @@
   const PRESET_LABEL_MAX = 40;
   const chars = v => Array.from(String(v == null ? '' : v));
   const finite = v => (v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)));
-  // 定型 → 明細行（新しい id）。unitPrice があれば 金額 = 単価×数量。税対象外・諸経費の自動行にはしない
-  function presetToLine(preset) {
-    const src = preset && preset.line && typeof preset.line === 'object' ? preset.line : (preset || {});
+  const PRESET_STEP = 500;          // 画面で使う刻み（「500円単位で変えられる」。Task 22 / migration 039 の line.step）
+  const PRESET_STEP_MAX = 1000000;
+  const AMOUNT_MAX = 1e12;
+  const presetSrc = preset => (preset && preset.line && typeof preset.line === 'object' ? preset.line : (preset || {}));
+  // 定型の金額（unitPrice があれば 単価×数量・四捨五入）
+  function presetAmount(preset) {
+    const src = presetSrc(preset);
     const q = finite(src.quantity) && Number(src.quantity) >= 0 ? Number(src.quantity) : 1;
-    const amount = finite(src.unitPrice) ? Math.round(Number(src.unitPrice) * q) : Math.round(num(src.amount));
+    return (finite(src.unitPrice) ? Math.round(Number(src.unitPrice) * q) : Math.round(num(src.amount))) || 0;
+  }
+  // 刻み（正の整数）。無い・正しくなければ 0
+  function presetStep(preset) {
+    const v = presetSrc(preset).step;
+    return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= PRESET_STEP_MAX ? v : 0;
+  }
+  // 「−」「＋」: 今の金額を step ずつ（dir = -1 / 1）。下限 0・上限 1兆
+  function stepAmount(amount, step, dir) {
+    const a = Math.round(num(amount)), st = Math.round(num(step));
+    if (!(st > 0)) return a;
+    return Math.min(AMOUNT_MAX, Math.max(0, a + (dir < 0 ? -st : st)));
+  }
+  // 定型 → 明細行（新しい id）。unitPrice があれば 金額 = 単価×数量。税対象外・諸経費の自動行にはしない。
+  // amount を渡すと金額はその値（「−」「＋」で変えた金額）。step は明細行に持たせない
+  function presetToLine(preset, amountOverride) {
+    const src = presetSrc(preset);
+    const q = finite(src.quantity) && Number(src.quantity) >= 0 ? Number(src.quantity) : 1;
+    const amount = finite(amountOverride) ? Math.round(Number(amountOverride)) : presetAmount(preset);
     return newLine({
       description: String(src.description == null ? '' : src.description),
       detail: String(src.detail == null ? '' : src.detail),
@@ -346,6 +368,7 @@
     if (typeof l.quantity !== 'number' || !Number.isFinite(l.quantity) || l.quantity < 0 || l.quantity > 1000000) errors.push('数量が正しくありません');
     if (typeof l.amount !== 'number' || !Number.isInteger(l.amount) || Math.abs(l.amount) > 1e12) errors.push('金額は整数の円で入力してください');
     if (l.postTax) errors.push('税対象外の行は登録できません');
+    if (l.step != null && !(typeof l.step === 'number' && Number.isInteger(l.step) && l.step >= 1 && l.step <= PRESET_STEP_MAX)) errors.push('金額の刻みが正しくありません');
     return { ok: errors.length === 0, errors };
   }
   // 見積のフェーズの種類に合う定型（その種類 → 共通の順。種類の中は sort → 作成順）
@@ -647,7 +670,7 @@
     MARGIN_MAX, IMPORT_MAX_ITEMS, hasCost, normMargin, marginPrice, applyMargin, profitSummary, importItems, importToLines, mergeImported, verifyImport,
     pdfTextLines, parseEstimateText, extractTotals, dedupSummary,
     PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
-    presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
+    PRESET_STEP, presetAmount, presetStep, stepAmount, presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.EstimateLogic = api;

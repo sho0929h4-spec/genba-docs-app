@@ -278,6 +278,12 @@ function rfBuildForm(s, opts) {
   els.leakRoom = edInput('rp-leakroom', 'text', d.leakRoom, v => { d.leakRoom = v; rfDirty(s); }, { placeholder: T.leakRoomPlaceholder, autocomplete: 'off' });
   els.leakRoomWrap.appendChild(els.leakRoom);
   els.leakActionWrap.lastChild.appendChild(els.leakRoomWrap);
+  // Task 21: 漏水時の対応「その他（自由記載）」
+  els.leakOtherWrap = rfMk('div', 'rep-free');
+  els.leakOther = edInput('rp-leakother', 'text', d.leakActionOther, v => { d.leakActionOther = v; rfDirty(s); }, { placeholder: T.leakOtherPlaceholder, autocomplete: 'off', maxLength: 1000 });
+  els.leakOther.setAttribute('aria-label', '漏水時の対応（その他・自由記載）');
+  els.leakOtherWrap.appendChild(els.leakOther);
+  els.leakActionWrap.lastChild.appendChild(els.leakOtherWrap);
   els.leakWrap.appendChild(els.leakActionWrap);
   content.appendChild(els.leakWrap);
 
@@ -307,13 +313,14 @@ function rfBuildForm(s, opts) {
   longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap');
   edNextPicker(s, content);
   longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
+  edRoomPicker(s, content);
   nodes.push(content);
 
   // ---- 写真（枠だけ。一覧の中身は rfRenderPhotos、追加の処理は呼び出し側が els.photoInput の change で行う） ----
   const ph = rfMk('div', 'rep-card');
   const phHead = rfMk('div', 'rep-between');
   els.photoTitle = rfMk('h3', null, '写真');
-  els.photoAdd = rfMk('button', 'btn sm ghost inline', '📷 写真を追加');
+  els.photoAdd = rfMk('button', 'btn sm ghost inline', '📷 ' + T.photoAdd); // Task 21: 「原因箇所の写真を追加」は廃止。現場写真（カメラ／アルバム）だけ
   els.photoAdd.type = 'button';
   els.photoAdd.id = 'rp-photo-add';
   els.photoInput = document.createElement('input');
@@ -322,10 +329,10 @@ function rfBuildForm(s, opts) {
   els.photoInput.accept = 'image/*';
   els.photoInput.multiple = true;
   els.photoInput.hidden = true;
-  els.photoAdd.addEventListener('click', () => { if (!s.photoBusy && !ro) els.photoInput.click(); });
+  els.photoAdd.addEventListener('click', () => { if (!s.photoBusy && !ro) { s.pendingPhase = ''; els.photoInput.click(); } });
   phHead.append(els.photoTitle, els.photoAdd, els.photoInput);
   ph.appendChild(phHead);
-  ph.appendChild(rfMk('div', 'rep-hint', o.photoHint || (T.ctxPhotoHint + '。写真は自動で圧縮して保存します')));
+  ph.appendChild(rfMk('div', 'rep-hint', o.photoHint || T.photoAddHint));
   els.photoMsg = rfMk('div', 'rep-photo-msg');
   els.photoMsg.id = 'rp-photo-msg';
   els.photoMsg.setAttribute('role', 'status');
@@ -343,15 +350,7 @@ function rfBuildForm(s, opts) {
   els.workChips.id = 'rp-work-chips';
   cl.appendChild(els.workChips);
   cl.appendChild(rfMk('div', 'rep-group-ttl', T.keyChecklistTitle));
-  const kc = rfMk('div', 'rep-checks');
-  kc.id = 'rp-key-checks';
-  const keySel = Array.isArray(d.keyChecklist) ? d.keyChecklist : [];
-  L.KEY_CHECKLIST.forEach(t => kc.appendChild(edCheck(t, keySel.includes(t), ro, on => edToggleIn(s, 'keyChecklist', t, on))));
-  cl.appendChild(kc);
-  els.keyReturn = edInput('rp-keyreturn', 'text', d.keyReturn, v => { d.keyReturn = v; rfDirty(s); }, { placeholder: T.keyReturnPlaceholder, autocomplete: 'off' });
-  const kr = edField(T.keyReturnLabel, els.keyReturn);
-  kr.style.marginTop = '10px';
-  cl.appendChild(kr);
+  edKeyBox(s, cl);
   nodes.push(cl);
 
   return nodes;
@@ -466,7 +465,7 @@ function edNextPicker(s, parent) {
       Object.keys(btns).forEach(k => edSetOn(btns[k], n.type === k));
       edApplyNext(s);
       rfDirty(s);
-      const first = now && els.nextFields[a.key] && els.nextFields[a.key].querySelector('input,textarea');
+      const first = now && (a.key === 'cause' || a.key === 'resurvey' ? els.nextDue : els.nextFields[a.key] && els.nextFields[a.key].querySelector('input,textarea'));
       if (first) first.focus();
     }, true);
     b.dataset.next = a.key;
@@ -483,8 +482,16 @@ function edNextPicker(s, parent) {
     return t;
   };
   els.nextFields = {};
+  // 見積書提案期日（原因元工事・再調査のどちらも必須。Task 21）。欄は1つで、選んだ方針で説明だけ変える
   els.nextDue = edInput('rp-next-due', 'date', n.estimateDue, v => { n.estimateDue = v; rfDirty(s); });
-  els.nextFields.cause = sub('cause', edField(T.estimateDueLabel + ' *', els.nextDue, T.estimateDueHint, 'rep-ff-sub'));
+  const dueField = edField(T.estimateDueLabel + ' *', els.nextDue, T.estimateDueHint, 'rep-ff-sub');
+  els.nextDueHint = dueField.querySelector('.rep-hint');
+  els.nextDueWrap = rfMk('div', 'rep-sub-fields');
+  els.nextDueWrap.id = 'rp-next-due-wrap';
+  els.nextDueWrap.appendChild(dueField);
+  els.nextWrap.appendChild(els.nextDueWrap);
+  els.nextFields.cause = sub('cause');
+  els.nextFields.cause.hidden = true;
   els.nextReason = ta('rp-next-reason', 'reason', '例：天井裏まで確認できなかった');
   els.nextDetail = ta('rp-next-detail', 'detail', '例：点検口を開けて給水管の継手を確認する');
   els.nextFields.resurvey = sub('resurvey', edField(T.resurveyReasonLabel + ' *', els.nextReason, null, 'rep-ff-sub'),
@@ -495,8 +502,130 @@ function edNextPicker(s, parent) {
   edApplyNext(s);
 }
 function edApplyNext(s) {
+  const T = ReportLogic.TEXT, e = s.els;
   const t = s.f.data.nextAction.type;
-  Object.keys(s.els.nextFields).forEach(k => { s.els.nextFields[k].hidden = k !== t; });
+  Object.keys(e.nextFields).forEach(k => { e.nextFields[k].hidden = k !== t || k === 'cause'; });
+  const due = t === 'cause' || t === 'resurvey';
+  e.nextDueWrap.hidden = !due;
+  if (due) e.nextDueHint.textContent = t === 'cause' ? T.estimateDueHint : T.resurveyDueHint;
+  // 再調査は 期日 → 理由・内容 の順（期日の欄を再調査の欄の上に）
+  if (due) e.nextWrap.insertBefore(e.nextDueWrap, t === 'resurvey' ? e.nextFields.resurvey : e.nextFields.cause);
+}
+
+/* ---------- お部屋の状況（任意。荷物量・ペットは1つ選ぶ・入居者数は 0〜20。Task 21 追加） ---------- */
+function edRoomPicker(s, parent) {
+  const L = ReportLogic, d = s.f.data, els = s.els;
+  d.roomStatus = L.normalizeRoom(d.roomStatus);
+  const r = d.roomStatus;
+  els.roomWrap = rfMk('div', 'rep-ff');
+  els.roomWrap.id = 'rp-room-wrap';
+  const ttl = rfMk('div', 'rep-lbl-row');
+  ttl.appendChild(rfMk('label', null, 'お部屋の状況'));
+  els.roomWrap.append(ttl, rfMk('span', 'rep-hint', '分かる項目だけ（任意）。選んだものをもう一度押すと外れます'));
+  const pair = (key, label, opts) => {
+    const box = rfMk('div', 'rep-room-row');
+    box.appendChild(rfMk('div', 'rep-group-ttl', label));
+    const grid = rfMk('div', 'rep-checks grid2');
+    grid.id = 'rp-room-' + key;
+    grid.setAttribute('role', 'radiogroup');
+    grid.setAttribute('aria-label', label);
+    const btns = [];
+    opts.forEach(o => {
+      const b = edCheck(o.label, r[key] === o.key, s.ro, now => {
+        r[key] = now ? o.key : null;
+        btns.forEach(x => edSetOn(x.b, r[key] === x.k));
+        rfDirty(s);
+      }, true);
+      b.setAttribute('role', 'radio');
+      b.dataset.room = String(o.key);
+      btns.push({ b, k: o.key });
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
+    return box;
+  };
+  els.roomWrap.append(pair('luggage', '荷物量', L.ROOM_LUGGAGE), pair('pet', 'ペット', L.ROOM_PET));
+  const nBox = rfMk('div', 'rep-room-row');
+  const nl = rfMk('label', 'rep-group-ttl', '入居者数');
+  nl.htmlFor = 'rp-room-residents';
+  const nRow = rfMk('div', 'rep-room-n');
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.id = 'rp-room-residents';
+  inp.min = '0';
+  inp.max = String(L.RESIDENTS_MAX);
+  inp.step = '1';
+  inp.inputMode = 'numeric';
+  inp.placeholder = '例：2';
+  inp.value = r.residents === null ? '' : String(r.residents);
+  inp.disabled = s.ro;
+  const err = rfMk('span', 'rep-room-err');
+  err.id = 'rp-room-residents-err';
+  err.setAttribute('role', 'status');
+  inp.addEventListener('input', () => {
+    const v = inp.value.trim();
+    const ok = /^\d{1,2}$/.test(v) && +v <= L.RESIDENTS_MAX;
+    r.residents = ok ? +v : null;
+    err.textContent = v && !ok ? '0〜' + L.RESIDENTS_MAX + ' の数字で入れてください' : '';
+    rfDirty(s);
+  });
+  nRow.append(inp, rfMk('span', null, '人'), err);
+  nBox.append(nl, nRow);
+  els.roomWrap.appendChild(nBox);
+  parent.appendChild(els.roomWrap);
+}
+
+/* ---------- 鍵の取り扱い（「鍵を借りた」を押したときだけ 返却・写真・コメント。Task 21） ---------- */
+function edKeyBox(s, parent) {
+  const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
+  const kc = rfMk('div', 'rep-checks');
+  kc.id = 'rp-key-checks';
+  els.keyBox = rfMk('div', 'rep-sub-fields rep-key-box');
+  els.keyBox.id = 'rp-key-box';
+  const borrowed = edCheck(L.KEY_TEXT.borrowed, !!d.keyBorrowed, s.ro, on => {
+    d.keyBorrowed = on;
+    d.keyChecklist = []; // 旧3項目は使わない（読み替えは normalizeData）
+    els.keyBox.hidden = !on;
+    rfDirty(s);
+  });
+  borrowed.dataset.key = 'borrowed';
+  kc.appendChild(borrowed);
+  parent.appendChild(kc);
+  const returned = edCheck(L.KEY_TEXT.returned, !!d.keyReturned, s.ro, on => { d.keyReturned = on; d.keyChecklist = []; rfDirty(s); });
+  returned.dataset.key = 'returned';
+  const rc = rfMk('div', 'rep-checks');
+  rc.appendChild(returned);
+  els.keyBox.appendChild(rc);
+  // 返却時の写真（写真の区分「鍵返却」で追加。一覧は下の写真の欄）
+  const ph = rfMk('div', 'rep-ff rep-ff-sub');
+  ph.appendChild(rfMk('label', null, T.keyPhotoLabel));
+  const row = rfMk('div', 'rep-key-ph');
+  els.keyPhotoCount = rfMk('span', 'rep-sub');
+  els.keyPhotoCount.id = 'rp-key-photo-count';
+  els.keyPhotoAdd = rfMk('button', 'btn sm ghost inline', '📷 ' + T.keyPhotoAdd);
+  els.keyPhotoAdd.type = 'button';
+  els.keyPhotoAdd.id = 'rp-key-photo-add';
+  els.keyPhotoAdd.disabled = s.ro;
+  els.keyPhotoAdd.addEventListener('click', () => { if (!s.photoBusy && !s.ro) { s.pendingPhase = L.PHOTO_KEY; els.photoInput.click(); } });
+  row.append(els.keyPhotoAdd, els.keyPhotoCount);
+  ph.appendChild(row);
+  els.keyBox.appendChild(ph);
+  els.keyReturn = edInput('rp-keyreturn', 'text', d.keyReturn, v => { d.keyReturn = v; rfDirty(s); }, { placeholder: T.keyReturnPlaceholder, autocomplete: 'off', maxLength: 1000 });
+  els.keyBox.appendChild(edField(T.keyReturnLabel + '（コメント）', els.keyReturn, null, 'rep-ff-sub'));
+  els.keyBox.hidden = !d.keyBorrowed;
+  parent.appendChild(els.keyBox);
+  edSyncKeyPhotos(s);
+}
+function edSyncKeyPhotos(s) {
+  if (!s.els.keyPhotoCount) return;
+  const n = ReportLogic.keyPhotoCount(s.report.photos);
+  s.els.keyPhotoCount.textContent = n ? '鍵返却の写真 ' + n + '枚（下の写真の欄）' : 'まだありません';
+}
+// 写真の選択（input change）で呼ぶ: 追加する写真の区分（「鍵返却の写真を追加」から開いたときは key）。1回で消す
+function rfTakePhase(s) {
+  const p = s.pendingPhase || '';
+  s.pendingPhase = '';
+  return p;
 }
 
 function edRenderWorkChips(s) {
@@ -514,6 +643,7 @@ function edApplyLeak(s) {
   e.leakWrap.hidden = !cfg.showLeak;
   e.leakActionWrap.hidden = !leaking;
   e.leakRoomWrap.hidden = !(leaking && d.leakAction === L.LEAK_ACTION_MAIN_VALVE);
+  e.leakOtherWrap.hidden = !(leaking && d.leakAction === L.LEAK_ACTION_OTHER);
 }
 
 // 作業区分を切り替えたときの表示（他の区分の入力は消さず、隠すだけ）
@@ -537,7 +667,7 @@ function edApplyMode(s) {
   e.f2Wrap.hidden = !cfg.showF2 || (cfg.pickCause && !s.legacy.f2);
   e.reasonWrap.hidden = !cfg.showReason;
   e.f4Wrap.hidden = !cfg.showF4 || (cfg.pickNext && !s.legacy.f4);
-  e.photoAdd.textContent = '📷 ' + cfg.ctxPhotoLabel + 'を追加';
+  e.roomWrap.hidden = !cfg.pickNext; // お部屋の状況は調査だけ
   edRenderWorkChips(s);
 }
 
@@ -549,6 +679,7 @@ function rfRenderPhotos(s, h) {
   const photos = s.report.photos || [];
   s.els.photoTitle.textContent = '写真 ' + photos.length + '枚';
   s.els.photoAdd.hidden = s.ro;
+  edSyncKeyPhotos(s);
   if (!photos.length) {
     s.els.photoList.replaceChildren(rfMk('div', 'rep-sub rep-ph-empty', '写真はまだありません'));
     if (h.after) h.after();
@@ -583,11 +714,30 @@ function rfRenderPhotos(s, h) {
     cap.placeholder = T.photoCaptionPlaceholder;
     cap.setAttribute('aria-label', 'No.' + (i + 1) + ' キャプション');
     cap.addEventListener('input', () => { p.caption = cap.value; rfDirty(s, true); });
-    const phase = edSelect('', edPhaseOptions(), p.phase || '', v => { p.phase = v; rfDirty(s, true); });
+    // 区分（Task 21: 5つ。旧区分は読み替えて表示・選び直すまでデータは変えない。自由記載は入力欄）
+    const L = ReportLogic;
+    const pp = L.photoPhase(p);
+    const note = document.createElement('input');
+    note.type = 'text';
+    note.className = 'rp-phase-note';
+    note.maxLength = L.PHASE_NOTE_MAX;
+    note.placeholder = T.phaseNotePlaceholder;
+    note.value = pp && pp.key === L.PHOTO_FREE && pp.label !== L.PHASES.free ? pp.label : '';
+    note.setAttribute('aria-label', 'No.' + (i + 1) + ' 区分（自由記載）');
+    note.hidden = !pp || pp.key !== L.PHOTO_FREE;
+    note.addEventListener('input', () => { p.phase = L.PHOTO_FREE; p.phaseNote = note.value; rfDirty(s, true); });
+    const phase = edSelect('', edPhaseOptions(), pp ? pp.key : '', v => {
+      p.phase = v;
+      p.phaseNote = v === L.PHOTO_FREE ? note.value : '';
+      note.hidden = v !== L.PHOTO_FREE;
+      edSyncKeyPhotos(s);
+      rfDirty(s, true);
+      if (v === L.PHOTO_FREE) note.focus();
+    });
     phase.removeAttribute('id');
     phase.className = 'rp-phase';
     phase.setAttribute('aria-label', 'No.' + (i + 1) + ' 区分');
-    f.append(cap, phase);
+    f.append(cap, phase, note);
     row.appendChild(f);
 
     if (!s.ro) {
@@ -610,6 +760,7 @@ function rfRenderPhotos(s, h) {
 // 写真まわりの操作の有効/無効（busy なら全部無効。端の ↑ ↓ は押せない）
 function rfSyncPhotoRows(s, busy) {
   s.els.photoAdd.disabled = busy;
+  if (s.els.keyPhotoAdd) s.els.keyPhotoAdd.disabled = busy;
   const rows = s.els.photoList.querySelectorAll('.rep-ph');
   rows.forEach((row, i) => {
     row.querySelectorAll('input,select,button').forEach(e => { e.disabled = busy; });

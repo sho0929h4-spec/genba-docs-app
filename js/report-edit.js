@@ -25,7 +25,7 @@ function edLsGet(id) {
 }
 function edLsSet(s) {
   try {
-    const photos = (s.report.photos || []).map(p => ({ path: p.path, caption: p.caption || '', phase: p.phase || '', marks: PhotoMarks.normalize(p.marks) }));
+    const photos = (s.report.photos || []).map(p => ({ path: p.path, caption: p.caption || '', phase: p.phase || '', phaseNote: p.phaseNote || '', marks: PhotoMarks.normalize(p.marks) }));
     localStorage.setItem(edKey(s.id), JSON.stringify({ t: Date.now(), base: s.report.updated_at || null, f: edCollect(s), photos }));
   } catch (e) { /* 容量不足など。サーバ保存が本線 */ }
 }
@@ -248,7 +248,8 @@ function edBuild(s) {
   els.photoInput.addEventListener('change', () => {
     const files = Array.from(els.photoInput.files || []);
     els.photoInput.value = '';
-    if (files.length) edAddPhotos(s, files);
+    const phase = rfTakePhase(s); // 「鍵返却の写真を追加」から開いたときは区分 key
+    if (files.length) edAddPhotos(s, files, phase);
   });
 
   $('report-root').replaceChildren(...nodes);
@@ -353,7 +354,7 @@ async function edPhotoOp(s, fn) {
   }
 }
 
-async function edAddPhotos(s, files) {
+async function edAddPhotos(s, files, phase) {
   if (s.photoBusy || s.ro) return;
   const failures = [];
   await edPhotoOp(s, async () => {
@@ -361,7 +362,7 @@ async function edAddPhotos(s, files) {
       if (ed !== s) return;
       edPhotoMsg(s, '写真をアップロード中 ' + (i + 1) + '/' + files.length);
       try {
-        await ReportsApi.addPhoto(s.report, files[i]);
+        await ReportsApi.addPhoto(s.report, files[i], { phase: phase || '' });
         edRenderPhotos(s);
         edSyncPhotoDisabled(s);
       } catch (e) {
@@ -556,7 +557,8 @@ function edApplyPhotoDraft(photos, saved) {
     if (!p) return;
     const cap = typeof sp.caption === 'string' ? sp.caption : (p.caption || '');
     const ph = typeof sp.phase === 'string' ? sp.phase : (p.phase || '');
-    if ((p.caption || '') !== cap || (p.phase || '') !== ph) { p.caption = cap; p.phase = ph; changed = true; }
+    const pn = typeof sp.phaseNote === 'string' ? sp.phaseNote.slice(0, ReportLogic.PHASE_NOTE_MAX) : (p.phaseNote || '');
+    if ((p.caption || '') !== cap || (p.phase || '') !== ph || (p.phaseNote || '') !== pn) { p.caption = cap; p.phase = ph; p.phaseNote = pn; changed = true; }
     if (Array.isArray(sp.marks)) {
       const mk2 = PhotoMarks.normalize(sp.marks);
       if (JSON.stringify(mk2) !== JSON.stringify(PhotoMarks.normalize(p.marks))) { edSetMarks(p, mk2); changed = true; }

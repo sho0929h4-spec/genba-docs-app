@@ -108,14 +108,15 @@ const ReportsApi = (() => {
     },
 
     /* ===== 写真（report.photos も最新に書き換える） ===== */
-    async addPhoto(report, file) {
+    // opts.phase: 写真の区分（「鍵返却の写真を追加」から追加したときは key。Task 21）
+    async addPhoto(report, file, opts) {
       const p = await ImageUtil.prepareFile(file);
       if (p.type !== 'image/jpeg') throw new Error(`「${file.name}」は写真ではありません`);
       const q = await checkQuota(p.size, 0);
       if (!q.ok) throw new Error(q.reason);
       const path = `${reportDir(report.case_id, report.id)}/${CryptoUtil.uuid()}-${safeJpg(p.name)}`;
       await AppStorage.upload(path, p.blob, { contentType: p.type });
-      const photos = [...(report.photos || []), { path, name: p.name, size: p.size, type: p.type, caption: '', phase: '' }];
+      const photos = [...(report.photos || []), { path, name: p.name, size: p.size, type: p.type, caption: '', phase: (opts && opts.phase) || '' }];
       let row;
       try { row = await api.save(report.id, { photos }); }
       catch (e) {

@@ -164,6 +164,18 @@
     return { date: last != null ? new Date(last).toISOString() : null };
   }
 
+  // 見積書を作る期限（Task 21）: 調査報告の「次の対応方針」（原因元工事・再調査）で estimate_due が入り、
+  //   そのフェーズに見積がまだ無い（取り消し済み以外が0件）・請求も入金もまだ → { due: 'YYYY-MM-DD', late }。それ以外は null
+  function estimateTodo(phase, now) {
+    const p = phase || {};
+    const due = p.estimate_due ? String(p.estimate_due).slice(0, 10) : '';
+    if (!due || p.billed_at || p.paid_at) return null;
+    if (isWork(p.kind) && p.done_at) return null;
+    if (liveEstimates(p.estimates).length) return null;
+    const nowAt = toDate(now) || new Date();
+    return { due, late: due < jstYmd(nowAt) };
+  }
+
   /* ---------- 段階 ---------- */
   function mkStage(key, label, ball, date, extra) {
     return Object.assign({ key, label, ball, date: date || null }, extra || {});
@@ -365,6 +377,21 @@
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
         const st = stage(p, null, now);
+        // Task 21: 調査（再調査で作った n回目）に見積書の期限があり見積がまだ → 「見積書作成必要（期日 M/D）」の行も出す
+        const todo = p.kind === 'survey' ? estimateTodo(p, now) : null;
+        if (todo) {
+          const seq0 = p.seq != null ? p.seq : count[p.kind];
+          const w0 = p.worker_id || null, who0 = w0 || c.assignee_id || null;
+          const label0 = `見積書作成必要（期日 ${fmtYmdMD(todo.due)}）`;
+          all.push({
+            group: 'estimate', action: 'make_estimate', caseId: c.id || null, caseName: str(c.name), room: str(c.room),
+            phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, seq0), key: 'estimate', label: label0, text: label0,
+            date: todo.due, late: todo.late, due: todo.due, who: who0,
+            whoName: !who0 ? '' : nameOf.get(who0) || (who0 === w0 ? str(p.worker_name) : str(c.assignee_name)) || '不明',
+            mine: !!me && (c.assignee_id === me || w0 === me),
+            reportId: null, reportStatus: null, reportState: null, estimateId: null, phase: p, caseRow: c
+          });
+        }
         if (st.ball !== 'us') continue;
         const group = taskGroupOf(p.kind, st.key);
         const def = TASK_GROUPS.find(g => g.key === group);
@@ -1012,7 +1039,14 @@
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
-        if (!meId || p.worker_id !== meId || p.done_at) continue;
+        if (!meId || p.worker_id !== meId) continue;
+        // Task 21: 作業担当者が自分・見積書の期限あり・見積なし → 「見積書を作る（期限 M/D）」
+        const todo = estimateTodo(p, now);
+        if (todo) {
+          out.push({ type: 'estimate', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
+            label: `見積書を作る（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
+        }
+        if (p.done_at) continue;
         const isTomorrow = !!p.scheduled_at && jstYmd(p.scheduled_at) === tomorrow;
         const notice = !!p.notified_at && !p.ack_at;
         if (!notice && !isTomorrow) continue;
@@ -1023,8 +1057,11 @@
           label, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan) });
       }
     }
-    const t = x => (x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
-    return out.sort((a, b) => (a.type === b.type ? 0 : a.type === 'notice' ? -1 : 1) || t(a) - t(b));
+    // 並び: 確認依頼 → 見積書を作る（期限を過ぎたもの → 期限の早い順）→ 明日の予定
+    const rank = { notice: 0, estimate: 1, tomorrow: 2 };
+    const t = x => (x.type === 'estimate' ? ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0))
+      : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
+    return out.sort((a, b) => rank[a.type] - rank[b.type] || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
   }
 
   // 工事カードで使う調査結果: この案件の調査のうち、何か入っている一番新しい（並びの最後の）もの。無ければ null
@@ -1459,7 +1496,7 @@
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    phaseTitle, stage, estimateTodo, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     BRIEF_SUSPECTS, BRIEF_PRIORITY, BRIEF_HEADS, normalizeBrief, briefLines, hasBrief, briefSummary, setBriefSection, STAFF_TAILS,

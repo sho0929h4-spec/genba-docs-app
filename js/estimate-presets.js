@@ -1,9 +1,11 @@
-// js/estimate-presets.js — 見積の「よく使う明細」（定型）の画面（対応フェーズ Task 11 / migration 029）
-//   見積画面（⑭ #estimate/{id}）の「クイック追加」の下に置く:
+// js/estimate-presets.js — 見積の「よく使う明細」（定型）の画面（対応フェーズ Task 11 / migration 029、Task 22 / migration 039）
+//   見積画面（⑭ #estimate/{id}）の明細の下に置く（明細の下の唯一の追加候補。固定のクイック追加は Task 22 で廃止）:
 //     - ボタン列: 今の見積のフェーズの種類（estimates.phase_id → case_phases.kind）＋共通。フェーズが無ければ共通だけ。
-//       押すと行を末尾に足す（hooks.add → estimate-ui の eueAddPreset。自動保存・合計・諸経費の自動行の再計算はそちら）
+//       各ボタンは「＋ 名前 ¥金額」。押すと行を末尾に足す（hooks.add → estimate-ui の eueAddPreset。自動保存・合計・諸経費の自動行の再計算はそちら）
+//       刻み（line.step）のある候補は、ボタンの横の「−」「＋」で金額を step 円ずつ変えてから足せる（下限 0。変えた金額はこの画面を開いている間だけ覚える）
 //     - 「よく使う明細に登録」シート（明細行の「…」から）: 名前＝摘要が初期値、種類＝今のフェーズの種類が初期値（共通なども選べる）
-//     - 「よく使う明細を編集」シート: 種類ごとの一覧・名前／摘要／詳細／数量／単位／金額の変更・↑↓・削除（画面内で確かめる）
+//     - 「よく使う明細を編集」シート: 種類ごとの一覧・名前／種類／摘要／詳細／数量／単位／金額／「500円単位で変えられる」（step 500）の変更・
+//       ↑↓・削除（画面内で確かめる）・「＋ 候補を追加」（空の候補。保存で登録。摘要が空なら名前を摘要にする）
 //   シートは入力があるので、外側のクリック・Esc では閉じない（× とキャンセル／閉じるだけ）。
 //   ユーザー入力は createElement + textContent で描く（innerHTML は使わない）。alert / confirm は使わない。
 // 計算・判定は EstimateLogic（presetToLine / lineToPreset / validatePreset / presetsFor / groupPresets / movePreset）、
@@ -66,6 +68,16 @@ const EstimatePresets = (() => {
       : (Number(l.amount) ? yen(l.amount) : '金額は入力待ち');
     return [str(l.description), str(l.quantity) + ' ' + str(l.unit), amt].filter(Boolean).join(' ・ ');
   }
+  function checkbox(cls, label, checked) {
+    const w = mk('label', 'nu-chk ' + cls);
+    const i = document.createElement('input');
+    i.type = 'checkbox';
+    i.id = 'eu-pr-f' + (++uid);
+    i.checked = !!checked;
+    w.htmlFor = i.id;
+    w.append(i, mk('span', null, label));
+    return { w, i };
+  }
   function sheet(id, title) {
     const prev = document.getElementById(id);
     if (prev) prev.remove();
@@ -118,7 +130,7 @@ const EstimatePresets = (() => {
   }
 
   // ── 見積画面のボタン列 ──────────────────────────────────────────────────
-  // s: estimate-ui の編集セッション。hooks: { add(preset) }
+  // s: estimate-ui の編集セッション。hooks: { add(preset, amount) }
   function section(s, hooks) {
     const root = mk('div', 'eu-pr');
     root.id = 'eu-presets';
@@ -127,7 +139,7 @@ const EstimatePresets = (() => {
     const t2 = mk('span', 'eu-pr-kinds', '');
     t2.id = 'eu-presets-kinds';
     ttl.append(t1, t2);
-    const btns = mk('div', 'eu-quick eu-pr-btns');
+    const btns = mk('div', 'eu-pr-btns');
     btns.id = 'eu-presets-btns';
     btns.appendChild(mk('span', 'rep-sub', '読み込み中…'));
     const acts = mk('div', 'eu-pr-acts');
@@ -138,7 +150,8 @@ const EstimatePresets = (() => {
     msg.id = 'eu-presets-msg';
     msg.setAttribute('role', 'status');
     root.append(ttl, btns, acts, msg);
-    const me = { s, hooks, root, btns, msg, kinds: t2, kind: undefined };
+    // adj: 「−」「＋」で変えた金額（preset id → 円）。この画面を開いている間だけ
+    const me = { s, hooks, root, btns, msg, kinds: t2, kind: undefined, adj: new Map() };
     cur = me;
     (async () => {
       me.kind = await phaseKind(s);
@@ -156,6 +169,8 @@ const EstimatePresets = (() => {
     })();
     return root;
   }
+  // 今ボタンに出す金額（「−」「＋」で変えていればその金額）
+  const shownAmount = (me, p) => (EL().presetStep(p) && me.adj.has(p.id) ? me.adj.get(p.id) : EL().presetAmount(p));
   function renderButtons(note) {
     const me = cur;
     if (!me) return;
@@ -164,28 +179,58 @@ const EstimatePresets = (() => {
     if (!list) { me.btns.replaceChildren(mk('span', 'rep-sub', '読み込み中…')); return; }
     const ps = EL().presetsFor(list, me.kind);
     if (!ps.length) {
-      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。明細の「…」→「よく使う明細に登録」で増やせます');
+      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。「よく使う明細を編集」の「＋ 候補を追加」か、明細の「…」→「よく使う明細に登録」で増やせます');
       e.id = 'eu-presets-empty';
       me.btns.replaceChildren(e);
     } else {
+      const focused = document.activeElement && me.btns.contains(document.activeElement)
+        ? { id: document.activeElement.dataset.presetId, cls: document.activeElement.dataset.op } : null;
       me.btns.replaceChildren(...ps.map(p => {
+        const step = EL().presetStep(p);
+        const amt = shownAmount(me, p);
+        const name = str(p.label);
         const b = mk('button', 'btn sm ghost inline eu-pr-btn');
         b.type = 'button';
         b.dataset.presetId = p.id;
-        b.appendChild(mk('span', null, '＋ ' + str(p.label)));
-        const l = p.line || {};
-        const amt = l.unitPrice != null && Number.isFinite(Number(l.unitPrice)) ? Math.round(Number(l.unitPrice) * (Number(l.quantity) || 0)) : Number(l.amount) || 0;
-        if (amt) b.appendChild(mk('span', 'eu-pr-amt', yen(amt)));
-        if (me.kind && p.kind === 'common') b.classList.add('common');
-        b.title = lineText(l) + ' ・ ' + KL(p.kind);
-        b.setAttribute('aria-label', str(p.label) + ' を明細に追加（' + KL(p.kind) + '）');
+        b.dataset.op = 'add';
+        b.appendChild(mk('span', 'eu-pr-name', '＋ ' + name));
+        if (amt || step) b.appendChild(mk('span', 'eu-pr-amt', yen(amt)));
+        b.title = lineText(p.line) + ' ・ ' + KL(p.kind);
+        b.setAttribute('aria-label', name + (amt || step ? ' ' + yen(amt) : '') + ' を明細に追加');
         b.addEventListener('click', () => {
           if (me.s.readOnly) return;
-          me.hooks.add(p);
-          me.msg.textContent = '「' + str(p.label) + '」を明細の最後に足しました';
+          me.hooks.add(p, step ? amt : undefined);
+          me.msg.textContent = '「' + name + '」' + (amt || step ? yen(amt) + ' ' : '') + 'を明細の最後に足しました';
         });
-        return b;
+        if (!step) return b;
+        // 刻みのある候補: ［＋ 交通費 ¥3,500］［−］［＋］
+        const g = mk('span', 'eu-pr-stepper');
+        g.dataset.presetId = p.id;
+        const sb_ = (t, op, dir, label) => {
+          const x = mk('button', 'eu-pr-st ' + op, t);
+          x.type = 'button';
+          x.dataset.presetId = p.id;
+          x.dataset.op = op;
+          x.setAttribute('aria-label', label);
+          x.title = label;
+          x.disabled = dir < 0 && amt <= 0;
+          x.addEventListener('click', () => {
+            if (me.s.readOnly) return;
+            const next = EL().stepAmount(shownAmount(me, p), step, dir);
+            if (next === EL().presetAmount(p)) me.adj.delete(p.id); else me.adj.set(p.id, next);
+            renderButtons();
+          });
+          return x;
+        };
+        g.append(b, sb_('−', 'dn', -1, name + 'の金額を' + EL().fmt(step) + '円下げる'),
+          sb_('＋', 'up', 1, name + 'の金額を' + EL().fmt(step) + '円上げる'));
+        return g;
       }));
+      if (focused && focused.id) {
+        const el = me.btns.querySelector('button[data-preset-id="' + focused.id + '"][data-op="' + focused.cls + '"]');
+        const to = el && !el.disabled ? el : me.btns.querySelector('button[data-preset-id="' + focused.id + '"][data-op="add"]');
+        if (to) to.focus({ preventScroll: true });
+      }
     }
     if (note !== undefined) me.msg.textContent = note;
   }
@@ -261,12 +306,13 @@ const EstimatePresets = (() => {
   }
 
   // ── 編集シート ─────────────────────────────────────────────────────────
-  // drafts: 保存していない入力（描き直しても残す）id → { label, description, detail, quantity, unit, amount, kind }
+  // drafts: 保存していない入力（描き直しても残す）id → { label, description, detail, quantity, unit, amount, kind, step }
+  // news: 「＋ 候補を追加」で足した、まだ保存していない候補の仮の id（'new-1' …）
   function openEditor() {
     const sh = sheet('eu-pr-edit', 'よく使う明細を編集');
     const { dlg, x, close } = sh;
     dlg.classList.add('eu-pr-wide');
-    const st = { drafts: new Map(), busy: new Set(), armDel: null, armClose: false };
+    const st = { drafts: new Map(), busy: new Set(), armDel: null, armClose: false, news: [], newNo: 0 };
     const tryClose = () => {
       if (st.busy.size) return;
       if (st.drafts.size && !st.armClose) {
@@ -285,6 +331,18 @@ const EstimatePresets = (() => {
     body.id = 'eu-pr-list';
     body.appendChild(mk('div', 'rep-sub', '読み込み中…'));
     dlg.appendChild(body);
+    // 空の候補を足す（保存するまで DB には入らない）
+    const addNew = dBtn('＋ 候補を追加', 'btn sm ghost inline eu-pr-add', () => {
+      if (!list) return;
+      const tid = 'new-' + (++st.newNo);
+      st.news.push(tid);
+      render();
+      const f = body.querySelector('[data-preset-id="' + tid + '"] .eu-pr-i-label');
+      if (f) { f.scrollIntoView({ block: 'center' }); f.focus({ preventScroll: true }); }
+      say('新しい候補の名前と金額を入れて「保存」を押してください');
+    });
+    addNew.id = 'eu-pr-add';
+    dlg.appendChild(addNew);
     const foot = mk('div', 'rep-sub eu-pr-foot');
     foot.id = 'eu-pr-edit-msg';
     foot.setAttribute('role', 'status');
@@ -308,15 +366,27 @@ const EstimatePresets = (() => {
         g.items.forEach((p, i) => sec.appendChild(item(p, i, g.items.length)));
         nodes.push(sec);
       });
+      if (st.news.length) {
+        const sec = mk('section', 'eu-pr-grp eu-pr-grp-new');
+        sec.id = 'eu-pr-new';
+        sec.appendChild(mk('div', 'eu-pr-grp-h', '追加する候補（まだ保存していません）'));
+        st.news.forEach(tid => sec.appendChild(item(blank(tid), 0, 1)));
+        nodes.push(sec);
+      }
       body.replaceChildren(...nodes);
     };
+    const blank = tid => ({ id: tid, isNew: true, kind: (cur && cur.kind) || 'common', label: '',
+      line: { description: '', quantity: 1, unit: '式', amount: 0 } });
+    const dropNew = tid => { st.news = st.news.filter(t => t !== tid); st.drafts.delete(tid); };
     const item = (p, i, n) => {
       const d = st.drafts.get(p.id) || {};
       const l = p.line || {};
       const hasUp = l.unitPrice != null && Number.isFinite(Number(l.unitPrice));
       const val = (k, v) => (d[k] !== undefined ? d[k] : v);
-      const box = mk('div', 'eu-pr-item' + (st.drafts.has(p.id) ? ' dirty' : ''));
+      const box = mk('div', 'eu-pr-item' + (st.drafts.has(p.id) ? ' dirty' : '') + (p.isNew ? ' new' : ''));
       box.dataset.presetId = p.id;
+      const stepOn = d.step !== undefined ? d.step : !!EL().presetStep(p);
+      const stepBox = checkbox('eu-pr-i-step', EL().fmt(EL().presetStep(p) || EL().PRESET_STEP) + '円単位で変えられる（ボタンの横に「−」「＋」）', stepOn);
       const f = {
         label: input('eu-pr-i-label', val('label', p.label), { maxLength: EL().PRESET_LABEL_MAX }),
         description: input('eu-pr-i-desc', val('description', l.description), { maxLength: 200 }),
@@ -335,14 +405,19 @@ const EstimatePresets = (() => {
         field('数量', f.quantity, 'g-qty'),
         field('単位', f.unit, 'g-unit'),
         field(hasUp ? '単価（金額＝単価×数量）' : '金額（円）', f.amount, 'g-amt'));
+      const gs = mk('div', 'eu-pr-ff g-step');
+      gs.appendChild(stepBox.w);
+      grid.appendChild(gs);
+      if (p.isNew) f.description.placeholder = '空なら名前と同じ';
       box.appendChild(grid);
       const mark = () => {
         st.drafts.set(p.id, { label: f.label.value, description: f.description.value, detail: f.detail.value,
-          quantity: f.quantity.value, unit: f.unit.value, amount: f.amount.value, kind: f.kind.value });
+          quantity: f.quantity.value, unit: f.unit.value, amount: f.amount.value, kind: f.kind.value, step: stepBox.i.checked });
         box.classList.add('dirty');
         st.armClose = false;
       };
       Object.values(f).forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', mark));
+      stepBox.i.addEventListener('change', mark);
       const err = mk('div', 'err eu-pr-err');
       err.setAttribute('role', 'alert');
       const ops = mk('div', 'eu-pr-ops eu-ops');
@@ -356,18 +431,27 @@ const EstimatePresets = (() => {
         return b;
       };
       const busy = () => st.busy.has(p.id);
-      op('↑', 'up', p.label + ' を上へ', () => move(p, -1), i <= 0);
-      op('↓', 'down', p.label + ' を下へ', () => move(p, 1), i >= n - 1);
-      const sv = op('保存', 'save', p.label + ' を保存', async () => {
+      const nm = p.label || '新しい候補';
+      if (!p.isNew) {
+        op('↑', 'up', nm + ' を上へ', () => move(p, -1), i <= 0);
+        op('↓', 'down', nm + ' を下へ', () => move(p, 1), i >= n - 1);
+      }
+      const sv = op('保存', 'save', nm + ' を保存', async () => {
         if (busy()) return;
         const qty = parseNum(f.quantity.value), amt = parseNum(f.amount.value);
-        const line = { description: f.description.value.trim(), unit: f.unit.value.trim(),
+        const label = f.label.value.trim();
+        // 新しい候補は摘要が空なら名前を摘要にする
+        const description = f.description.value.trim() || (p.isNew ? label : '');
+        const line = { description, unit: f.unit.value.trim(),
           quantity: Number.isFinite(qty) ? qty : NaN, postTax: false };
         if (f.detail.value.trim()) line.detail = f.detail.value.trim();
         if (hasUp) { line.unitPrice = Number.isFinite(amt) ? amt : NaN; line.amount = Math.round(num0(l.amount)); }
         else line.amount = Number.isFinite(amt) ? Math.round(amt) : NaN;
-        const row = { kind: f.kind.value, label: f.label.value.trim(), line };
+        if (stepBox.i.checked) line.step = EL().presetStep(p) || EL().PRESET_STEP;
+        const row = { kind: f.kind.value, label, line };
         const v = EL().validatePreset(row);
+        // 新しい候補で名前も摘要も空: 摘要は名前から作るので「名前を入力」だけ出す
+        if (p.isNew && !description) v.errors = v.errors.filter(e => e !== '摘要を入力してください');
         if (hasUp && !Number.isFinite(line.unitPrice)) v.errors.push('単価が正しくありません');
         if (v.errors.length) { err.textContent = v.errors.join('・'); return; }
         st.busy.add(p.id);
@@ -375,20 +459,24 @@ const EstimatePresets = (() => {
         sv.textContent = '保存中…';
         err.textContent = '';
         let saved = null;
-        try { saved = await EstimatePresetsApi.update(p, Object.assign({}, row, row.kind !== p.kind ? { sort: EL().nextPresetSort(list, row.kind) } : {})); }
-        catch (e) { err.textContent = '保存できませんでした: ' + errText(e); }
+        try {
+          if (p.isNew) saved = await EstimatePresetsApi.create(Object.assign({}, row, { sort: EL().nextPresetSort(list, row.kind) }));
+          else saved = await EstimatePresetsApi.update(p, Object.assign({}, row, row.kind !== p.kind ? { sort: EL().nextPresetSort(list, row.kind) } : {}));
+        } catch (e) { err.textContent = (p.isNew ? '追加' : '保存') + 'できませんでした: ' + errText(e); }
         st.busy.delete(p.id);
         sv.disabled = false;
         sv.textContent = '保存';
         if (!saved) return;
-        st.drafts.delete(p.id);
+        if (p.isNew) dropNew(p.id); else st.drafts.delete(p.id);
         replaceInList(saved);
+        if (cur) cur.adj.delete(saved.id);   // 金額・刻みを変えたら「−」「＋」で変えた金額は捨てる
         render();
         renderButtons();
-        say('「' + saved.label + '」を保存しました');
+        say('「' + saved.label + '」を' + (p.isNew ? '追加' : '保存') + 'しました');
       });
-      const del = op('削除', 'del', p.label + ' を削除', () => {
+      const del = op(p.isNew ? 'やめる' : '削除', 'del', nm + (p.isNew ? ' の追加をやめる' : ' を削除'), () => {
         if (busy()) return;
+        if (p.isNew) { dropNew(p.id); render(); say('追加をやめました'); return; }
         st.armDel = st.armDel === p.id ? null : p.id;
         render();
       });

@@ -35,7 +35,7 @@
 .nt-note{display:block;padding-left:1em;text-indent:-1em;}
 .nt-emph{color:var(--nt-alert);}
 .nt-bold .nt-emph{font-weight:700;}
-.nt-contact{margin-top:1.4em;padding-top:.7em;border-top:1px solid #000;}
+.nt-contact{margin-top:1.4em;padding-top:.7em;border-top:1px solid #000;text-align:right;}
 .nt-contact-title{margin:0 0 .35em;font-weight:700;}
 .nt-contact-line{display:block;white-space:pre-line;overflow-wrap:anywhere;}
 .nt-preview{display:flex;flex-direction:column;align-items:flex-start;padding:16px;background:#d8dfe8;overflow:hidden;}

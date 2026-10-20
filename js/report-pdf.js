@@ -40,6 +40,7 @@
 .rp-rc-next-lbl{background:#fffbe6;color:#b45309;}.rp-rc-next-cell{background:#fffbe6;}
 .rp-cl{border:1px solid #c8d6e5;border-top:none;padding:8px 12px;background:#f7fafc;margin-bottom:5mm;display:flex;flex-direction:column;gap:4px;}
 .rp-cl-item{font-size:9pt;color:#1e293b;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;}
+.rp-cl-off{color:#94a3b8;}
 .rp-cl-key{margin-top:4px;padding-top:6px;border-top:1px dashed #c8d6e5;font-weight:700;color:#1a3a5c;}
 .rp-cover-foot{margin-top:auto;padding-top:4mm;border-top:1px solid #e2e8f0;font-size:8.5pt;color:#64748b;display:flex;justify-content:space-between;align-items:baseline;gap:4mm;}
 .rp-cf-co{font-weight:700;flex-shrink:0;max-width:55mm;overflow-wrap:anywhere;}
@@ -90,14 +91,9 @@
     if (trim(caseRow.case_no)) return trim(caseRow.case_no);
     return trim(caseRow.id).replace(/-/g, '').slice(0, 8).toUpperCase();
   }
-  // 写真の区分: 保存値はキー（before 等）。ラベルで入っていても表示する
-  function phaseOf(v) {
-    const P = RL().PHASES, C = RL().PHASE_COLORS;
-    v = trim(v);
-    if (!v) return null;
-    if (P[v]) return { label: P[v], color: C[v] || '#64748b' };
-    const k = Object.keys(P).find(x => x && P[x] === v);
-    return { label: v, color: (k && C[k]) || '#64748b' };
+  // 写真の区分（Task 21: 作業前／作業中／作業後／鍵返却／自由記載。旧区分は読み替え・自由記載は phaseNote）
+  function phaseOf(ph) {
+    return RL().photoPhase(ph);
   }
   const spaced = s => Array.from(s).join(' '); // 旧の &ensp; 区切り
 
@@ -207,14 +203,13 @@
     res.appendChild(rb);
     page.appendChild(res);
 
-    // チェックリスト（作業＋鍵。どちらも無く鍵の返却方法も空なら出さない）
-    const cl = [...(d.workChecklist || []), ...(d.keyChecklist || [])].map(trim).filter(Boolean);
-    const keyReturn = trim(d.keyReturn);
+    // チェックリスト（作業＋鍵を借りたときだけ 借りた・返却・返却方法。Task 21。どれも無ければ出さない）
+    const cl = RL().checklistLines(d);
+    const keyReturn = RL().keyInfo(d).comment;
     if (cl.length || keyReturn) {
       page.appendChild(el('div', 'rp-sec', RL().TEXT.checklistTitle));
       const box = el('div', 'rp-cl');
-      if (cl.length) cl.forEach(i => box.appendChild(el('div', 'rp-cl-item', '☑ ' + i)));
-      else box.appendChild(el('span', 'rp-nodata', RL().TEXT.noData));
+      cl.forEach(i => box.appendChild(el('div', 'rp-cl-item' + (i.key ? ' rp-cl-keyline' : '') + (i.on ? '' : ' rp-cl-off'), (i.on ? '☑ ' : '☐ ') + i.text)));
       if (keyReturn) box.appendChild(el('div', 'rp-cl-item rp-cl-key', `🔑 ${RL().TEXT.keyReturnLabel}：${keyReturn}`));
       page.appendChild(box);
     }
@@ -250,7 +245,7 @@
       const cell = el('div', 'rp-pcell');
       const ch = el('div', 'rp-chead');
       ch.appendChild(el('span', 'rp-cnum', `No.${num}`));
-      const p = phaseOf(ph.phase);
+      const p = phaseOf(ph);
       if (p) {
         const b = el('span', 'rp-pbadge', p.label);
         b.style.background = p.color;
@@ -397,6 +392,23 @@
       out.push({ y, h: c - y, off: first ? 0 : top });
       y = c;
       first = false;
+    }
+    // フッタ（会社名・ページ番号）だけが次のページに残るときは、最後の見出し（例: チェックリスト）から次のページへ送る（Task 21）
+    if (out.length >= 2) {
+      const last = out[out.length - 1], prev = out[out.length - 2];
+      const foot = page.querySelector('.rp-cover-foot');
+      const body = Array.from(page.children).filter(e => e !== foot)
+        .reduce((m, e) => Math.max(m, e.getBoundingClientRect().bottom - base), 0);
+      if (foot && body <= last.y + 1) {
+        const secs = Array.from(page.querySelectorAll('.rp-sec')).map(e => e.getBoundingClientRect().top - base - 1)
+          .filter(t => t > prev.y + 40 * mm && t < last.y);
+        const cut = secs.length ? secs[secs.length - 1] : null;
+        if (cut != null && H - cut <= pageH - top - bot + 1) {
+          prev.h = cut - prev.y;
+          last.y = cut;
+          last.h = H - cut;
+        }
+      }
     }
     return out;
   }
