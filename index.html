@@ -654,6 +654,21 @@
   .poke:disabled{opacity:.6;cursor:default;}
   .mt-r select{padding:6px 8px;min-height:36px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);max-width:100%;}
   .team-retry{margin-bottom:12px;}
+  /* ===== TASKS（やること #tasks。Task 17） ===== */
+  #screen-tasks [hidden],#case-tasks[hidden]{display:none !important;}
+  .rep-banner.tasks{border-color:#9fd3ad;background:#eaf6ee;color:#166534;}
+  .tk-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .tk-mine{min-height:40px;padding:8px 14px;border:1.5px solid var(--border);border-radius:999px;background:#fff;color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .tk-mine.on{border-color:var(--navy2);background:#eef4fc;color:var(--navy);}
+  .tk-count{font-size:12px;color:var(--muted);}
+  .tk-notice{background:#eaf6ee;border:1px solid #9fd3ad;color:#166534;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:10px;overflow-wrap:anywhere;}
+  .tk-group .member-h b{color:var(--navy);}
+  .tk-row .mt-l{flex:1 1 220px;}
+  .tk-row .mt-r{margin-left:auto;}
+  .tk-row .btn.sm{white-space:nowrap;}
+  .tk-row .tk-bill{flex:1 1 100%;}
+  .tk-row .tk-err{flex:1 1 100%;margin-top:0;}
+  @media(max-width:560px){ .tk-row .mt-r{margin-left:0;width:100%;justify-content:flex-end;} }
   .toolbtn .ct.hot{color:var(--red);font-weight:700;}
   /* ===== REPORTS（⑤ 報告書一覧 / ⑥ 入力 / ⑩ PDFプレビュー。中身は js/report-ui.js が作る） ===== */
   #screen-reports [hidden],#screen-report [hidden],#screen-report-pdf [hidden]{display:none !important;}
@@ -1100,9 +1115,11 @@
     <div class="viewtabs">
       <button class="vt on" type="button" data-view="cases">案件一覧</button>
       <button class="vt" type="button" data-view="team">チーム状況</button>
+      <button class="vt" type="button" data-view="tasks">やること</button>
     </div>
     <button class="rep-banner staff" id="case-staff" type="button" hidden></button>
     <button class="rep-banner" id="case-outbox" type="button" hidden></button>
+    <button class="rep-banner tasks" id="case-tasks" type="button" hidden></button>
     <div class="list-top">
       <input class="search" id="case-search" type="search" placeholder="物件名・現場名・住所・元請けで検索" autocomplete="off">
       <button class="btn inline" id="case-new-btn" type="button">＋ 新規案件</button>
@@ -1179,6 +1196,7 @@
     <div class="viewtabs">
       <button class="vt" type="button" data-view="cases">案件一覧</button>
       <button class="vt on" type="button" data-view="team">チーム状況</button>
+      <button class="vt" type="button" data-view="tasks">やること</button>
     </div>
     <div class="err" id="team-msg"></div>
     <button class="btn sm ghost inline team-retry" id="team-retry" type="button" hidden>再読み込み</button>
@@ -1186,6 +1204,36 @@
     <div id="team-body"></div>
     <div class="empty" id="team-loading" hidden>読み込み中…</div>
     <div class="empty" id="team-empty" hidden>自社の番（🔴）の段階も、相手待ち（🟡）もありません</div>
+  </div>
+</section>
+
+<!-- TASKS (やること: 全案件の 🔴 の段階を種類ごとにまとめる。中身は js/tasks.js が作る。Task 17) -->
+<section class="screen" id="screen-tasks">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="viewtabs">
+      <button class="vt" type="button" data-view="cases">案件一覧</button>
+      <button class="vt" type="button" data-view="team">チーム状況</button>
+      <button class="vt on" type="button" data-view="tasks">やること</button>
+    </div>
+    <div class="tk-top">
+      <button class="tk-mine on" id="tasks-mine" type="button" aria-pressed="true">✓ 自分の分だけ</button>
+      <span class="tk-count" id="tasks-count"></span>
+    </div>
+    <div class="tk-notice" id="tasks-notice" role="status" hidden></div>
+    <div class="err" id="tasks-msg"></div>
+    <button class="btn sm ghost inline team-retry" id="tasks-retry" type="button" hidden>再読み込み</button>
+    <div id="tasks-body"></div>
+    <div class="empty" id="tasks-loading" hidden>読み込み中…</div>
+    <div class="empty" id="tasks-empty" hidden>今やることはありません</div>
   </div>
 </section>
 
@@ -1535,58 +1583,59 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=b2fa09d"></script>
-<script src="js/supabase-config.js?v=b2fa09d"></script>
-<script src="js/supabase.js?v=b2fa09d"></script>
-<script src="js/auth.js?v=b2fa09d"></script>
-<script src="js/storage.js?v=b2fa09d"></script>
-<script src="js/quota.js?v=b2fa09d"></script>
-<script src="js/case-logic.js?v=b2fa09d"></script>
-<script src="js/mail-templates.js?v=b2fa09d"></script>
-<script src="js/phase-logic.js?v=b2fa09d"></script>
-<script src="js/image.js?v=b2fa09d"></script>
-<script src="js/cases-api.js?v=b2fa09d"></script>
-<script src="js/clients-api.js?v=b2fa09d"></script>
-<script src="js/phases-api.js?v=b2fa09d"></script>
+<script src="js/crypto-util.js?v=a6af778"></script>
+<script src="js/supabase-config.js?v=a6af778"></script>
+<script src="js/supabase.js?v=a6af778"></script>
+<script src="js/auth.js?v=a6af778"></script>
+<script src="js/storage.js?v=a6af778"></script>
+<script src="js/quota.js?v=a6af778"></script>
+<script src="js/case-logic.js?v=a6af778"></script>
+<script src="js/mail-templates.js?v=a6af778"></script>
+<script src="js/phase-logic.js?v=a6af778"></script>
+<script src="js/image.js?v=a6af778"></script>
+<script src="js/cases-api.js?v=a6af778"></script>
+<script src="js/clients-api.js?v=a6af778"></script>
+<script src="js/phases-api.js?v=a6af778"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=b2fa09d"></script>
-<script src="js/reports-api.js?v=b2fa09d"></script>
-<script src="js/photo-marks.js?v=b2fa09d"></script>
-<script src="js/report-pdf.js?v=b2fa09d"></script>
-<script src="js/notice-logic.js?v=b2fa09d"></script>
-<script src="js/notices-api.js?v=b2fa09d"></script>
-<script src="js/notice-pdf.js?v=b2fa09d"></script>
-<script src="js/estimate-logic.js?v=b2fa09d"></script>
-<script src="js/estimates-api.js?v=b2fa09d"></script>
-<script src="js/estimate-pdf.js?v=b2fa09d"></script>
-<script src="js/estimate-presets-api.js?v=b2fa09d"></script>
-<script src="js/estimate-presets.js?v=b2fa09d"></script>
-<script src="js/estimate-layout.js?v=b2fa09d"></script>
-<script src="js/case-list.js?v=b2fa09d"></script>
-<script src="js/clients-ui.js?v=b2fa09d"></script>
-<script src="js/case-detail.js?v=b2fa09d"></script>
-<script src="js/case-rooms-api.js?v=b2fa09d"></script>
-<script src="js/case-rooms.js?v=b2fa09d"></script>
-<script src="js/edit-logic.js?v=b2fa09d"></script>
-<script src="js/case-trash.js?v=b2fa09d"></script>
-<script src="js/case-undo.js?v=b2fa09d"></script>
-<script src="js/phase-ui.js?v=b2fa09d"></script>
-<script src="js/phase-detail.js?v=b2fa09d"></script>
-<script src="js/billing-ui.js?v=b2fa09d"></script>
-<script src="js/team.js?v=b2fa09d"></script>
-<script src="js/timeline.js?v=b2fa09d"></script>
-<script src="js/photo-mark-editor.js?v=b2fa09d"></script>
-<script src="js/report-form.js?v=b2fa09d"></script>
-<script src="js/report-ui.js?v=b2fa09d"></script>
-<script src="js/report-share.js?v=b2fa09d"></script>
-<script src="js/report-edit.js?v=b2fa09d"></script>
-<script src="js/mail-ui.js?v=b2fa09d"></script>
-<script src="js/outbox-ui.js?v=b2fa09d"></script>
-<script src="js/staff-inbox.js?v=b2fa09d"></script>
-<script src="js/notice-ui.js?v=b2fa09d"></script>
-<script src="js/notice-edit.js?v=b2fa09d"></script>
-<script src="js/estimate-ui.js?v=b2fa09d"></script>
-<script src="js/app.js?v=b2fa09d"></script>
+<script src="js/report-logic.js?v=a6af778"></script>
+<script src="js/reports-api.js?v=a6af778"></script>
+<script src="js/photo-marks.js?v=a6af778"></script>
+<script src="js/report-pdf.js?v=a6af778"></script>
+<script src="js/notice-logic.js?v=a6af778"></script>
+<script src="js/notices-api.js?v=a6af778"></script>
+<script src="js/notice-pdf.js?v=a6af778"></script>
+<script src="js/estimate-logic.js?v=a6af778"></script>
+<script src="js/estimates-api.js?v=a6af778"></script>
+<script src="js/estimate-pdf.js?v=a6af778"></script>
+<script src="js/estimate-presets-api.js?v=a6af778"></script>
+<script src="js/estimate-presets.js?v=a6af778"></script>
+<script src="js/estimate-layout.js?v=a6af778"></script>
+<script src="js/case-list.js?v=a6af778"></script>
+<script src="js/clients-ui.js?v=a6af778"></script>
+<script src="js/case-detail.js?v=a6af778"></script>
+<script src="js/case-rooms-api.js?v=a6af778"></script>
+<script src="js/case-rooms.js?v=a6af778"></script>
+<script src="js/edit-logic.js?v=a6af778"></script>
+<script src="js/case-trash.js?v=a6af778"></script>
+<script src="js/case-undo.js?v=a6af778"></script>
+<script src="js/phase-ui.js?v=a6af778"></script>
+<script src="js/phase-detail.js?v=a6af778"></script>
+<script src="js/billing-ui.js?v=a6af778"></script>
+<script src="js/team.js?v=a6af778"></script>
+<script src="js/tasks.js?v=a6af778"></script>
+<script src="js/timeline.js?v=a6af778"></script>
+<script src="js/photo-mark-editor.js?v=a6af778"></script>
+<script src="js/report-form.js?v=a6af778"></script>
+<script src="js/report-ui.js?v=a6af778"></script>
+<script src="js/report-share.js?v=a6af778"></script>
+<script src="js/report-edit.js?v=a6af778"></script>
+<script src="js/mail-ui.js?v=a6af778"></script>
+<script src="js/outbox-ui.js?v=a6af778"></script>
+<script src="js/staff-inbox.js?v=a6af778"></script>
+<script src="js/notice-ui.js?v=a6af778"></script>
+<script src="js/notice-edit.js?v=a6af778"></script>
+<script src="js/estimate-ui.js?v=a6af778"></script>
+<script src="js/app.js?v=a6af778"></script>
 </body>
 </html>

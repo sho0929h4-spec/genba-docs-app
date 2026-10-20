@@ -8,6 +8,15 @@
 // mk() は case-list.js、dBtn / errText / currentCase / caseMembers / caseGen / caseDetailId は case-detail.js、showScreen / $ は app.js
 
 let pdSeq = 0; // ページを開くたびに増やす（古い読み込みを捨てる）
+let pdWhenFor = null; // 次に開くときに日時の入力欄を開くフェーズ（やること #tasks の「工事日を決める」「調査日を決める」。Task 17）
+
+// フェーズ詳細ページを開いて、日時（調査日時・工事日）の入力欄を開く
+function pdOpenWhen(caseId, phaseId) {
+  const h = '#case/' + caseId + '/phase/' + phaseId;
+  pdWhenFor = String(phaseId).toLowerCase();
+  if (location.hash.toLowerCase() === h.toLowerCase()) openCasePhase(caseId, phaseId);
+  else location.hash = h;
+}
 
 function pdBackBtn(caseId) {
   const b = dBtn('← 案件に戻る', 'back pd-back', () => { location.hash = '#case/' + caseId; });
@@ -20,6 +29,8 @@ async function openCasePhase(caseId, phaseId) {
   caseId = String(caseId).toLowerCase();
   phaseId = String(phaseId).toLowerCase();
   const seq = ++pdSeq;
+  const openWhen = pdWhenFor === phaseId;
+  pdWhenFor = null;
   showScreen('phase');
   renderHeaders();
   const root = $('phase-detail-root');
@@ -55,7 +66,7 @@ async function openCasePhase(caseId, phaseId) {
   body.id = 'phase-detail-body';
   root.replaceChildren(pdBackBtn(caseId), head, body);
   window.scrollTo(0, 0);
-  return renderPhaseDetail(body, { id: phaseId });
+  return renderPhaseDetail(body, { id: phaseId }, { openWhen });
 }
 
 // 見出し（phase-ui の描画のたびに呼ばれる）

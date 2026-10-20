@@ -79,6 +79,13 @@ function renderCaseList() {
   list.replaceChildren(...rows.map(r => caseRowEl(r, now)));
   $('case-loading').hidden = !caseLoading;
   $('case-empty').hidden = caseLoading || caseLoadFailed || rows.length > 0;
+  // 「✅ やること n件」（自分の分。押すと #tasks。js/tasks.js）
+  const tb = $('case-tasks');
+  if (tb && typeof tasksBannerCount === 'function') {
+    const n = caseLoading || caseLoadFailed ? 0 : tasksBannerCount(caseRows);
+    tb.replaceChildren(mk('span', null, '✅ やること ' + n + '件'), mk('span', 'rep-sub', '自分の分を見る →'));
+    tb.hidden = n === 0;
+  }
 }
 
 function caseRowEl(r, now) {

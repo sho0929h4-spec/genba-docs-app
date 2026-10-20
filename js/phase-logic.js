@@ -315,6 +315,86 @@
     };
   }
 
+  /* ---------- やること（#tasks。Task 17） ---------- */
+  // 🔴（自社）の段階の種類 → グループ。action は行の右のボタン（画面 js/tasks.js が決める操作の種類）
+  const TASK_GROUPS = [
+    { key: 'estimate', label: '見積書作成必要', action: 'make_estimate' },
+    { key: 'send_estimate', label: '見積書を送付', action: 'send_estimate' },
+    { key: 'schedule', label: '日程調整必要', action: 'schedule' },
+    { key: 'visit', label: '調査に行く', action: null },
+    { key: 'write', label: '報告書を書く', action: 'open_report' },
+    { key: 'check', label: '報告書を確認する', action: 'open_report' },
+    { key: 'send_report', label: '報告書を送る', action: 'send_report' },
+    { key: 'work_report', label: '完了報告必要', action: 'work_report' },
+    { key: 'bill', label: '請求する', action: 'bill' },
+    { key: 'other', label: 'その他', action: null }
+  ];
+  const TASK_OF = {
+    survey: { schedule: 'schedule', visit: 'visit', write: 'write', check: 'check', report: 'send_report' },
+    work: { estimate: 'estimate', issued: 'send_estimate', schedule: 'schedule', report: 'work_report', bill: 'bill' }
+  };
+  function taskGroupOf(kind, key) {
+    const m = kind === 'survey' ? TASK_OF.survey : isWork(kind) ? TASK_OF.work : {};
+    return m[key] || 'other';
+  }
+  // 送付する見積（提出済み・未送付の最新）
+  function issuedEstimate(estimates) {
+    const list = liveEstimates(estimates).filter(e => e.status === 'issued');
+    list.sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0) || String(b.id).localeCompare(String(a.id)));
+    return list[0] || null;
+  }
+  // 全案件（進行中・削除されていないもの）の 🔴 の段階を種類ごとにまとめる
+  //   opts: { mine: true（既定。me があるとき）= 自分が案件の担当者か、そのフェーズの作業担当者の分だけ, members: [{user_id, display_name}] }
+  //   → { groups: [{ key, label, action, items }]（件数のあるものだけ・TASK_GROUPS の順）, total, counts: { all, mine } }
+  //   item = { group, action, caseId, caseName, room, phaseId, kind, title, key, label, text, date, late, who, whoName, mine,
+  //            reportId, reportStatus, reportState, estimateId, phase, caseRow }
+  //   並び（グループの中）: 期限・予定を過ぎたもの → 日付の近い順 → 日付なし（同じなら案件名・フェーズ名）
+  function taskGroups(caseRows, me, now, opts) {
+    const o = opts || {};
+    const mineOnly = o.mine !== undefined ? !!o.mine : !!me;
+    const nameOf = new Map(listOf(o.members).map(m => [m.user_id, str(m.display_name) || '(名前なし)']));
+    const all = [];
+    for (const c of listOf(caseRows)) {
+      if (c.status !== 'open' || c.deleted_at) continue;
+      const count = {};
+      for (const p of listOf(c.phases)) {
+        count[p.kind] = (count[p.kind] || 0) + 1;
+        const st = stage(p, null, now);
+        if (st.ball !== 'us') continue;
+        const group = taskGroupOf(p.kind, st.key);
+        const def = TASK_GROUPS.find(g => g.key === group);
+        const seq = p.seq != null ? p.seq : count[p.kind];
+        const workerId = p.worker_id || null;
+        const who = workerId || c.assignee_id || null;
+        const whoName = !who ? '' : nameOf.get(who) || (who === workerId ? str(p.worker_name) : str(c.assignee_name)) || '不明';
+        const rs = reportState(p.reports);
+        const est = group === 'send_estimate' ? issuedEstimate(p.estimates) : null;
+        const row = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, seq), seq, key: st.key, label: st.label, ball: st.ball, date: st.date };
+        all.push({
+          group, action: def.action, caseId: c.id || null, caseName: str(c.name), room: str(c.room),
+          phaseId: p.id || null, kind: p.kind, title: row.title, key: st.key, label: st.label, text: nextText(row),
+          date: st.date || null, late: !!st.late, who, whoName,
+          mine: !!me && (c.assignee_id === me || workerId === me),
+          reportId: rs.report ? rs.report.id || null : null, reportStatus: rs.report ? rs.report.status || null : null, reportState: rs.state,
+          estimateId: est ? est.id || null : null,
+          phase: p, caseRow: c
+        });
+      }
+    }
+    const t = x => (x.date ? ms(x.date) : null);
+    const cmp = (a, b) => {
+      if (a.late !== b.late) return a.late ? -1 : 1;
+      const ta = t(a), tb = t(b);
+      if (ta != null && tb != null && ta !== tb) return ta - tb;
+      if ((ta == null) !== (tb == null)) return ta == null ? 1 : -1;
+      return (a.caseName < b.caseName ? -1 : a.caseName > b.caseName ? 1 : 0) || (a.title < b.title ? -1 : a.title > b.title ? 1 : 0);
+    };
+    const shown = mineOnly ? all.filter(x => x.mine) : all;
+    const groups = TASK_GROUPS.map(g => ({ key: g.key, label: g.label, action: g.action, items: shown.filter(x => x.group === g.key).sort(cmp) }))
+      .filter(g => g.items.length > 0);
+    return { groups, total: shown.length, counts: { all: all.length, mine: all.filter(x => x.mine).length } };
+  }
+
   /* ---------- リマインド ---------- */
   // 予定（scheduledAt）の3日前・前日の 18:00（日本時間）。createdAt（予定を入れた時刻）で既に過ぎている枠は除く
   //   → [{ slot: 'd3'|'d1', label, at: ISO, remind_for: 'YYYY-MM-DD'（予定の日・日本時間） }]
@@ -1257,7 +1337,7 @@
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    phaseTitle, stage, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     BRIEF_SUSPECTS, BRIEF_PRIORITY, BRIEF_HEADS, normalizeBrief, briefLines, hasBrief, briefSummary, setBriefSection, STAFF_TAILS,

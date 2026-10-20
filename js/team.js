@@ -174,10 +174,11 @@ function renderTeam() {
 
 function bindTeam() {
   $('team-retry').addEventListener('click', () => openTeam());
-  // 表示切替タブ（案件一覧 ⇔ チーム状況）。一覧画面とチーム状況画面の両方にある
+  // 表示切替タブ（案件一覧 ⇔ チーム状況 ⇔ やること）。3つの画面それぞれにある
   document.querySelectorAll('.viewtabs .vt').forEach(b => b.addEventListener('click', () => {
     if (b.classList.contains('on')) return;
     if (b.dataset.view === 'team') openTeam();
+    else if (b.dataset.view === 'tasks' && typeof openTasks === 'function') openTasks();
     else openCases();
   }));
 }

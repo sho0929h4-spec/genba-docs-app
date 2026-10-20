@@ -23,11 +23,11 @@ const mlIsStaff = s => !!(s && s.draft && s.draft.purpose === 'staff_notice');
 const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id && !!ML_NOTE_TITLE[s.draft.purpose]);
 const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
-// s.returnTo: 「送るメール」（#outbox）から開いたときはそこへ戻る（openMailDraftFrom）
+// s.returnTo: 「送るメール」（#outbox）・「やること」（#tasks）から開いたときはそこへ戻る（openMailDraftFrom）
 // 日程連絡・リマインド・調査結果・担当者へのメール（フェーズのメール）は、そのフェーズの詳細ページ（Task 9）へ戻る
 const mlPhaseHash = s => (mlIsNote(s) && s.draft.phase_id ? '#case/' + s.draft.case_id + '/phase/' + s.draft.phase_id : null);
 const mlListHash = s => s.returnTo || mlPhaseHash(s) || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
-const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール'
+const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール' : s.returnTo === '#tasks' ? '← やること'
   : mlPhaseHash(s) ? '← ' + (mlPhase(s) ? PhaseLogic.phaseTitle(mlPhase(s)) : 'フェーズ') + 'に戻る'
     : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;

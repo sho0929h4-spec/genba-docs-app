@@ -60,8 +60,10 @@ function renderPhases(root) {
   return phLoad();
 }
 // フェーズ詳細ページの中身（phase: case_phases の行か { id }。currentCase はその案件）
-function renderPhaseDetail(container, phase) {
+//   opts.openWhen: 日時の入力欄を開いた状態で出す（やること #tasks の「工事日を決める」から。Task 17）
+function renderPhaseDetail(container, phase, opts) {
   ph = phState(container, String(phase && phase.id || '').toLowerCase());
+  if (opts && opts.openWhen && ph.phaseId) { ph.editing.add(ph.phaseId); ph.focusWhen = true; }
   phDraw();
   return phLoad();
 }
@@ -113,6 +115,11 @@ async function phLoad() {
     shares: shares || []
   };
   phDraw();
+  if (s.focusWhen) {
+    s.focusWhen = false;
+    const i = s.root.querySelector('.ph-sched-start');
+    if (i) { if (i.scrollIntoView) i.scrollIntoView({ block: 'center' }); i.focus({ preventScroll: true }); }
+  }
   if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
   return '';
 }
