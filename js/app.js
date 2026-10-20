@@ -55,12 +55,13 @@ async function renderSettings() {
   $('set-tel').value = o.tel || '';
   $('set-email').value = o.email || '';
   $('set-reg').value = o.registration_number || '';
+  $('set-margin').value = o.default_margin_pct != null ? String(Number(o.default_margin_pct)) : ''; // 利益率の既定値（migration 036・Task 19）
   $('set-save').disabled = !isOwner;
   $('set-logo-btn').disabled = !isOwner;
   $('invite-btn').disabled = !isOwner;
   $('invite-email').disabled = !isOwner;
   $('card-staff').hidden = !isOwner;
-  ['set-name', 'set-address', 'set-tel', 'set-email', 'set-reg'].forEach(id => { $(id).readOnly = !isOwner; });
+  ['set-name', 'set-address', 'set-tel', 'set-email', 'set-reg', 'set-margin'].forEach(id => { $(id).readOnly = !isOwner; });
   const img = $('set-logo-img');
   if (o.logo_path) {
     try {
@@ -105,10 +106,15 @@ async function saveSettings() {
     throw new Error('登録番号（インボイス）は「T」と13桁の数字で入力してください（例: T1234567890123）');
   }
   if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) throw new Error('メールアドレスの形式が正しくありません');
+  // 利益率の既定値（%）: 全角も読む。空は null（= 0%）
+  const mt = String($('set-margin').value || '').replace(/[０-９．]/g, c => (c === '．' ? '.' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0))).replace(/[%％\s]/g, '');
+  fields.default_margin_pct = mt === '' ? null : EstimateLogic.normMargin(mt);
+  if (mt !== '' && fields.default_margin_pct === null) throw new Error('利益率の既定値は0〜999の数字で入力してください（例: 20）');
   const { error } = await sb.from('orgs').update(fields).eq('id', ctx.org.id);
   if (error) throw error;
   Object.assign(ctx.org, fields);
   $('set-reg').value = fields.registration_number || ''; // 正規化後（半角 T+13桁）の値に表示を更新
+  $('set-margin').value = fields.default_margin_pct != null ? String(fields.default_margin_pct) : '';
   renderHeaders();
 }
 

@@ -62,6 +62,13 @@ function euParsePct(v) {
   return Number(t);
 }
 // 安定した JSON（キー順をそろえる。jsonb はキー順を保たないため、退避と DB の内容を比べるときに使う）
+// 見積の利益率の初期値: 保存済みの値 → 会社設定の既定値（orgs.default_margin_pct）→ 0
+function euMarginOf(row) {
+  const own = row && row.margin_pct != null ? EstimateLogic.normMargin(row.margin_pct) : null;
+  if (own !== null) return own;
+  const def = typeof ctx !== 'undefined' && ctx && ctx.org && ctx.org.default_margin_pct != null ? EstimateLogic.normMargin(ctx.org.default_margin_pct) : null;
+  return def !== null ? def : 0;
+}
 function euStable(v) {
   if (Array.isArray(v)) return '[' + v.map(euStable).join(',') + ']';
   if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + euStable(v[k])).join(',') + '}';
@@ -222,7 +229,7 @@ function eueLsGet(id) {
 // p: 送信中の保存の中身。送信中に入力→タブを閉じると、サーバーの updated_at は base より進むが中身は p と同じ。
 //    次に開いたとき、base が違っても DB の内容が p と同じなら「自分の保存が届いた後の入力」として復元する
 function eueLsSet(s) {
-  try { localStorage.setItem(euKey(s.id), JSON.stringify({ t: Date.now(), base: s.row.updated_at || null, d: s.data, l: s.lines, p: s.inflight || null })); }
+  try { localStorage.setItem(euKey(s.id), JSON.stringify({ t: Date.now(), base: s.row.updated_at || null, d: s.data, l: s.lines, m: s.margin, pdf: s.sourcePdf || null, p: s.inflight || null })); }
   catch (e) { /* 容量不足など。サーバ保存が本線 */ }
 }
 function eueLsDel(id) { try { localStorage.removeItem(euKey(id)); } catch (e) { /* 何もしない */ } }
@@ -321,7 +328,8 @@ async function eueDoSave(s) {
   s.inflight = { d: data, l: lines };
   eueSetSave(s, 'saving');
   try {
-    const row = await EstimatesApi.save(s.id, { data, lines }); // amount 整数・postTax boolean に正規化して合計と送る
+    // amount 整数・postTax boolean・cost 整数に正規化して合計と送る。利益率と業者PDFの保存先も一緒に（Task 19）
+    const row = await EstimatesApi.save(s.id, { data, lines, margin_pct: s.margin, source_pdf_path: s.sourcePdf || null });
     s.inflight = null;
     s.row = Object.assign({}, s.row, row);
     s.lastSaved = new Date();
@@ -472,15 +480,33 @@ function eueBuild(s) {
   const c2 = mk('div', 'rep-card eu-lines-card');
   const c2h = mk('div', 'rep-between');
   c2h.appendChild(mk('h3', null, '明細'));
-  if (!ro) c2h.appendChild(mk('span', 'rep-sub', '金額を入力（単価は 金額÷数量 で自動）'));
+  if (!ro) c2h.appendChild(mk('span', 'rep-sub', '販売金額を入力（単価は 金額÷数量 で自動）'));
   c2.appendChild(c2h);
+  // 業者の見積PDFの読み込み・利益率・粗利の枠（Task 19。js/estimate-import.js）
+  const imp = EstimateImport.box(s, {
+    apply: parsed => {
+      const added = EstimateLogic.importToLines(parsed, s.margin);
+      s.lines = EstimateLogic.mergeImported(s.lines, added);
+      eueLinesRebuilt(s);
+      return added.length;
+    },
+    source: path => { s.sourcePdf = path; eueChanged(s); }
+  });
+  if (imp) c2.appendChild(imp);
+  c2.appendChild(EstimateImport.marginRow(s, n => {
+    s.margin = n;
+    s.lines = EstimateLogic.applyMargin(s.lines, n);
+    eueLinesChanged(s);
+  }));
+  c2.appendChild(EstimateImport.profitBox(s));
   const dl = document.createElement('datalist');
   dl.id = 'eu-units';
   EU_UNITS.forEach(u => { const o = document.createElement('option'); o.value = u; dl.appendChild(o); });
   c2.appendChild(dl);
   const lh = mk('div', 'eu-lines-h' + (ro ? ' ro' : ''));
   lh.setAttribute('aria-hidden', 'true'); // 各欄には見えないラベルがある
-  [['', 'h-hd'], ['摘要 ／ 詳細', 'h-desc'], ['数量', 'r'], ['単位', ''], ['単価', 'r'], ['金額', 'r'], ['', 'h-ops']]
+  // 原価（Task 19）。単価（表示のみ）は2行目の原価の下
+  [['', 'h-hd'], ['摘要 ／ 詳細', 'h-desc'], ['数量', 'r'], ['単位', ''], ['原価', 'r h-cost'], ['単価', 'r h-price'], ['販売金額', 'r'], ['', 'h-ops']]
     .forEach(([t, c]) => lh.appendChild(mk('div', c || null, t)));
   c2.appendChild(lh);
   els.lines = mk('div', 'eu-lines' + (ro ? ' ro' : ''));
@@ -755,7 +781,9 @@ function eueRefreshComputed(s) {
     const pr = row.querySelector('.c-price .v');
     if (pr) pr.textContent = euYen(EstimateLogic.unitPrice(l));
     const amt = row.querySelector('.c-amt input');
-    if (amt && (l.isAutoShokehi || eueIsAdj(l)) && document.activeElement !== amt) amt.value = EstimateLogic.fmt(l.amount);
+    const costed = EstimateLogic.hasCost(l) && !l.priceOverride; // 原価 × 利益率で決まる行
+    if (amt && (l.isAutoShokehi || eueIsAdj(l) || costed) && document.activeElement !== amt) amt.value = EstimateLogic.fmt(l.amount);
+    eueOvrMark(row, l);
   });
 }
 
@@ -767,6 +795,7 @@ function eueTotals(s) {
   $('eu-t-post').textContent = euYen(t.postTax);
   $('eu-t-post-box').hidden = !t.postTax;
   if (s.els.adj) s.els.adj.querySelector('input').checked = s.lines.some(eueIsAdj);
+  EstimateImport.refresh(s); // 粗利の枠
   if (s.els.qMsg && t.subtotal < 0) s.els.qMsg.textContent = '小計がマイナスです。金額を見直してください（このままでは保存されません）';
   else if (s.els.qMsg && s.els.qMsg.textContent.startsWith('小計')) s.els.qMsg.textContent = '';
 }
@@ -850,13 +879,31 @@ function eueLineEl(s, l, i, n, editable) {
   if (adj) unit.readOnly = true;
   row.appendChild(cell('c-unit', '単位', unit, unit.id));
 
+  // 原価（Task 19。任意）。入れると 販売金額 = 原価 × (1 + 利益率/100)（個別に直した行はそのまま）
+  const cost = eueInput(pre + '-cost', 'text', EstimateLogic.hasCost(l) ? EstimateLogic.fmt(l.cost) : '', v => upd(x => {
+    const t = euNormNum(v);
+    if (t === '') { delete x.cost; delete x.priceOverride; return; }
+    x.cost = Math.max(0, euParseAmount(v));
+    if (!x.priceOverride) x.amount = EstimateLogic.marginPrice(x.cost, s.margin);
+  }), { inputMode: 'numeric', placeholder: '原価' });
+  cost.className = 'eu-num eu-cost';
+  if (auto || adj) { cost.readOnly = true; cost.value = ''; cost.placeholder = ''; }
+  else {
+    cost.addEventListener('focus', () => { const ln = eueLine(s, id); if (ln && EstimateLogic.hasCost(ln)) cost.value = String(ln.cost); });
+    cost.addEventListener('blur', () => { const ln = eueLine(s, id); if (ln) cost.value = EstimateLogic.hasCost(ln) ? EstimateLogic.fmt(ln.cost) : ''; });
+  }
+  const costCell = cell('c-cost', '原価（円・任意）', null, cost.id);
+  costCell.append(mk('span', 'eu-l2', '原価 '), cost);
+  row.appendChild(costCell);
+
   // 単価は表示だけ（金額÷数量）
   const price = mk('div', 'c-price');
   price.append(mk('span', 'eu-l2', '単価 '), mk('span', 'v eu-num', euYen(EstimateLogic.unitPrice(l))));
   row.appendChild(price);
 
   // 金額: 入力中は数字のまま、確定（change/blur）で EstimateLogic.commitAmount → 3桁区切り
-  const amt = eueInput(pre + '-amt', 'text', EstimateLogic.fmt(l.amount), v => upd(x => { x.amount = euParseAmount(v); }), { inputMode: 'numeric', placeholder: '金額' });
+  // 原価のある行の販売金額を手で直したら「個別」（利益率を変えても戻らない。「…」から 原価×利益率 に戻せる）
+  const amt = eueInput(pre + '-amt', 'text', EstimateLogic.fmt(l.amount), v => upd(x => { x.amount = euParseAmount(v); if (EstimateLogic.hasCost(x)) x.priceOverride = true; }), { inputMode: 'numeric', placeholder: '金額' });
   amt.className = 'eu-num eu-amt';
   if (auto || adj) amt.readOnly = true;
   else {
@@ -865,11 +912,16 @@ function eueLineEl(s, l, i, n, editable) {
       const ln = eueLine(s, id);
       if (!ln) return;
       const fixed = EstimateLogic.commitAmount(Object.assign({}, ln, { amount: euParseAmount(amt.value) }));
-      upd(x => { x.amount = fixed.amount; });
+      upd(x => { x.amount = fixed.amount; if (EstimateLogic.hasCost(x)) x.priceOverride = true; });
     });
     amt.addEventListener('blur', () => { const ln = eueLine(s, id); if (ln) amt.value = EstimateLogic.fmt(ln.amount); });
   }
-  row.appendChild(cell('c-amt', auto ? '金額（自動計算）' : adj ? '値引き（自動計算）' : '金額（円）', amt, amt.id));
+  const amtCell = cell('c-amt', auto ? '金額（自動計算）' : adj ? '値引き（自動計算）' : '販売金額（円）', amt, amt.id);
+  const ovr = mk('span', 'eu-ovr-tag', '個別');
+  ovr.title = '販売金額を個別に直しています（利益率を変えても変わりません。「…」から 原価×利益率 に戻せます）';
+  amtCell.appendChild(ovr);
+  row.appendChild(amtCell);
+  eueOvrMark(row, l);
 
   // 複製・削除（右端に縦に2つ）／調整行は「外す」
   const ops = mk('div', 'c-ops eu-ops');
@@ -888,6 +940,13 @@ function eueLineEl(s, l, i, n, editable) {
   return row;
 }
 
+// 「個別」の印（原価のある行で販売金額を手で直した）
+function eueOvrMark(row, l) {
+  const on = !!(l && l.priceOverride && EstimateLogic.hasCost(l));
+  row.classList.toggle('ovr', on);
+  const amt = row.querySelector('.c-amt input');
+  if (amt) amt.title = on ? '個別に直した販売金額（利益率を変えても変わりません）' : '';
+}
 // 行の「…」メニュー（入力の無いメニュー。もう一度「…」を押すか、項目を押すと閉じる）
 function eueMoreMenu(s, id, row) {
   const open = row.querySelector('.eu-more-menu');
@@ -903,6 +962,19 @@ function eueMoreMenu(s, id, row) {
     if (ln) EstimatePresets.openRegister(s, ln);
   });
   menu.appendChild(reg);
+  const cur = eueLine(s, id);
+  if (cur && cur.priceOverride && EstimateLogic.hasCost(cur)) {
+    const back = dBtn('↺ 原価×利益率に戻す', 'btn sm ghost inline eu-more-ovr', () => {
+      menu.remove();
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      const ln = eueLine(s, id);
+      if (!ln) return;
+      delete ln.priceOverride;
+      ln.amount = EstimateLogic.marginPrice(ln.cost, s.margin);
+      eueLinesChanged(s);
+    });
+    menu.appendChild(back);
+  }
   row.appendChild(menu);
   if (btn) btn.setAttribute('aria-expanded', 'true');
   reg.focus({ preventScroll: true });
@@ -1142,7 +1214,11 @@ async function openEstimate(id) {
     busy: '', armIssue: false, armTimer: null, left: false, notice: '', els: {}, inflight: null, locked: null,
     latest: !(vers || []).some(v => (Number(v.version) || 0) > (Number(row.version) || 0)),
     seriesNumber: ((vers || []).find(v => v.number) || {}).number || '',
-    linked: linked || []
+    linked: linked || [],
+    // 利益率（%。見積ごと。未設定なら会社設定の既定値、無ければ 0）・読み込んだ業者PDF（Task 19・migration 036）
+    margin: euMarginOf(row),
+    sourcePdf: row.source_pdf_path || null,
+    imp: null
   };
 
   let restored = false;
@@ -1151,6 +1227,8 @@ async function openEstimate(id) {
     if (eueSameStamp(ls.base, row.updated_at) || eueSameContent(ls.p, row)) {
       s.data = eueNormData(ls.d);
       s.lines = eueNormLines(ls.l);
+      if (ls.m !== undefined && EstimateLogic.normMargin(ls.m) !== null) s.margin = EstimateLogic.normMargin(ls.m);
+      if (ls.pdf !== undefined) s.sourcePdf = ls.pdf || null;
       s.dirty = true;
       restored = true;
     } else {

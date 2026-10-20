@@ -1,6 +1,7 @@
 // js/estimates-api.js — 見積書のDBアクセス・版管理・送付（Supabase呼び出しはここに集約）
 // DB（migration 014/015）の決まり:
 //   - lines の amount は整数 Number、postTax は boolean で送る（文字列だとトリガーが拒否）
+//   - lines の cost（原価）は 0 以上の整数 Number、priceOverride は boolean（migration 036）。margin_pct・source_pdf_path は下書きのときだけ
 //   - subtotal/tax/total は明細から DB でも再検算され、不一致なら保存を拒否
 //   - 提出（番号の採番）は rpc('issue_estimate') だけ。提出後は data・lines・合計を変更できない（次の版を作る）
 //   - number は系列で共通の 'EST-0000000001'。表示の「-v2」は displayNumber で付ける
@@ -49,6 +50,9 @@ const EstimatesApi = (() => {
       if (o.isAdjust === true && o.postTax) o.isAdjust = true; else delete o.isAdjust;
       if (o.isAutoShokehi) { o.isAutoShokehi = true; o.shokehiPct = toNum(o.shokehiPct); }
       else { delete o.isAutoShokehi; delete o.shokehiPct; }
+      // 原価（Task 19・migration 036）: 0 以上の整数の円。空・不正は持たない。個別の印は原価のある行だけ true で送る
+      if (EL().hasCost(o) && Number(o.cost) >= 0) o.cost = toInt(o.cost); else delete o.cost;
+      if (o.priceOverride === true && o.cost !== undefined) o.priceOverride = true; else delete o.priceOverride;
       return o;
     });
     ls = EL().recalcShokehi(ls).map(o => Object.assign(o, { amount: toInt(o.amount) || 0 })); // -0 → 0
@@ -167,10 +171,51 @@ const EstimatesApi = (() => {
         patch.data = f.data;
       }
       if (f.lines !== undefined) Object.assign(patch, withTotals(f.lines));
+      // 利益率（%。null = 未設定）・読み込んだ業者PDFの保存先（migration 036）
+      if (f.margin_pct !== undefined) {
+        const m = f.margin_pct === null ? null : EL().normMargin(f.margin_pct);
+        if (f.margin_pct !== null && m === null) throw new Error('利益率は0〜999の数字で入力してください');
+        patch.margin_pct = m;
+      }
+      if (f.source_pdf_path !== undefined) patch.source_pdf_path = f.source_pdf_path || null;
       if (Object.keys(patch).length === 0) throw new Error('保存する項目がありません');
       const rows = must(await sb.from('estimates').update(patch).eq('id', id).eq('status', 'draft').select());
       if (!rows || rows.length === 0) throw new Error('提出済みの見積書は編集できません。新しい版を作ってください');
       return rows[0];
+    },
+    // 業者の見積PDFを AI で読み取る（Edge Function parse-estimate-pdf。Task 19）。→ { items, total, totalEx, subject, notes }
+    // 失敗は日本語のメッセージで throw（関数が無い・APIキー未登録は「AI読み取りの準備ができていません」）。画面は文字抽出に切り替える
+    async parsePdfAi(buf) {
+      if (!sb.functions || typeof sb.functions.invoke !== 'function') throw new Error('AI読み取りの準備ができていません');
+      let res;
+      try {
+        res = await sb.functions.invoke('parse-estimate-pdf', { body: new Blob([buf], { type: 'application/pdf' }), headers: { 'Content-Type': 'application/pdf' } });
+      } catch (e) { throw new Error('AI読み取りにつながりませんでした'); }
+      const { data, error } = res || {};
+      if (error) {
+        let msg = '', status = 0;
+        const ctxRes = error.context;
+        if (ctxRes && typeof ctxRes.json === 'function') {
+          status = Number(ctxRes.status) || 0;
+          try { const j = await ctxRes.json(); msg = j && typeof j.error === 'string' ? j.error : ''; } catch (e) { /* JSON でない */ }
+        }
+        if (!msg && (status === 404 || !status)) msg = 'AI読み取りの準備ができていません（読み取りの関数がまだ公開されていません）';
+        throw new Error(msg || 'AI読み取りに失敗しました（' + status + '）');
+      }
+      if (!data || !Array.isArray(data.items)) throw new Error('AI の返事を読み取れませんでした');
+      return { items: data.items, total: Number(data.total) || 0, totalEx: Number(data.total_ex) || 0, subject: String(data.subject || ''), notes: String(data.notes || '') };
+    },
+    // 読み込んだ業者の見積PDFを非公開フォルダに保存して、保存先を返す（見積の行の source_pdf_path は呼び出し側が保存で書く）。
+    // パスは {org}/cases/{case}/estimates/{見積ID}/src-{乱数}.pdf（DB の check と同じ形）。容量の上限を見て、使用量に足す
+    async uploadSourcePdf(est, blob) {
+      if (!est || !est.id) throw new Error('見積書が見つかりません');
+      const size = blob && blob.size ? blob.size : 0;
+      const q = await checkQuota(size, 0);
+      if (!q.ok) throw new Error(q.reason);
+      const path = `${ctx.org.id}/cases/${est.case_id}/estimates/${est.id}/src-${CryptoUtil.uuid().replace(/-/g, '')}.pdf`;
+      await AppStorage.upload(path, blob, { contentType: 'application/pdf', upsert: false });
+      try { await addUsage(size, 0); } catch (e) { console.warn('使用量の更新に失敗', e); }
+      return path;
     },
     // 提出（採番）。DB の最新内容で検証してから rpc
     async issue(id) {

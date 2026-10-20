@@ -2,7 +2,8 @@
 // 旧「見積書作成ツール」(freee-quote-builder/templates/invoice.html) の計算・文言を写している。
 // 金額は整数円・四捨五入（Math.round）。紙面計算 renderPaper が唯一の正:
 //   subtotal = postTax 以外の amount 合計 / tax = round(subtotal*0.1) / total = subtotal + tax + postTax 合計
-// 明細行の形: { id, description, detail, quantity, unit, amount, isAutoShokehi?, shokehiPct?, postTax?, isAdjust? }
+// 明細行の形: { id, description, detail, quantity, unit, amount, isAutoShokehi?, shokehiPct?, postTax?, isAdjust?, cost?, priceOverride? }
+// cost: 原価（業者の見積PDFから読み込んだ金額。Task 19）。priceOverride: 販売金額 amount を個別に直した印（利益率を変えても戻らない）
 // isAdjust: 「税込合計を00に」で入る値引き調整行の内部フラグ。摘要が「値引き」の postTax 行でも、フラグが無ければ調整行ではない
 // 単価は保存しない（表示用に 金額÷数量 で毎回算出）。
 (function (root) {
@@ -379,6 +380,238 @@
     return list.map((p, k) => ({ id: p.id, sort: k, old: num(p.sort) })).filter(x => x.sort !== x.old).map(x => ({ id: x.id, sort: x.sort }));
   }
 
+
+  // ── 原価・利益率・業者の見積PDFの読み込み（対応フェーズ Task 19。旧 invoice.html applyProfit / updateProfitSummary・
+  //    utils/pdf_parser.py の Strategy 2「pypdf text + regex」を移植）────────────────────────────────
+  // 明細行に cost（原価。整数の円・0 以上。任意）と priceOverride（販売金額を個別に直した印）を持つ。
+  // 販売金額 amount = 原価 × (1 + 利益率/100) を四捨五入。priceOverride の行・原価の無い行・諸経費の自動行・税対象外の行は変えない。
+  // 合計（totals）は今まで通り amount だけ。PDF には amount だけが出る
+  const MARGIN_MAX = 999;
+  const IMPORT_MAX_ITEMS = 300;
+  const hasCost = l => !!l && l.cost !== undefined && l.cost !== null && l.cost !== '' && Number.isFinite(Number(l.cost));
+  // 利益率の入力値 → 数値（0〜999・小数2桁）。空・不正は null
+  function normMargin(v) {
+    if (v === null || v === undefined || String(v).trim() === '') return null;
+    const n = Number(String(v).trim());
+    if (!Number.isFinite(n) || n < 0 || n > MARGIN_MAX) return null;
+    return Math.round(n * 100) / 100;
+  }
+  function marginPrice(cost, pct) {
+    return Math.round(num(cost) * (1 + num(pct) / 100));
+  }
+  function applyMargin(lines, pct) {
+    const ls = (lines || []).map(l => {
+      if (!hasCost(l) || l.priceOverride || l.isAutoShokehi || l.postTax) return l;
+      return Object.assign({}, l, { amount: marginPrice(l.cost, pct) });
+    });
+    return recalcShokehi(ls);
+  }
+  // 原価の合計・販売の合計（税抜の小計）・粗利（額と%。% = 粗利 ÷ 販売 × 100 を小数1桁）。
+  // 原価のある行が1つも無ければ null（枠を出さない）
+  function profitSummary(lines) {
+    const ls = lines || [];
+    const costed = ls.filter(l => hasCost(l) && !l.postTax);
+    if (!costed.length) return null;
+    const cost = costed.reduce((s, l) => s + Math.round(num(l.cost)), 0);
+    const sell = ls.filter(l => !l.postTax).reduce((s, l) => s + num(l.amount), 0);
+    const profit = sell - cost;
+    const pct = sell > 0 ? Math.round(profit / sell * 1000) / 10 : 0;
+    const noCost = ls.filter(l => !l.postTax && !hasCost(l) && isRealLine(l) && !l.isAutoShokehi).length;
+    return { cost, sell, profit, pct, overrides: ls.filter(l => l.priceOverride && hasCost(l)).length, noCost };
+  }
+  // 読み取り結果（AI も文字抽出も同じ形 { items: [{description, detail, quantity, unit, amount, unit_price?}], total, totalEx, subject, notes }）
+  // → 明細行（cost = 読み取った金額。amount = 原価 × 利益率）。摘要も詳細も無い行は捨てる。マイナスの行（値引き）は原価を持たない販売行に
+  function importItems(items) {
+    const out = [];
+    for (const it of Array.isArray(items) ? items : []) {
+      if (!it || typeof it !== 'object') continue;
+      const description = String(it.description == null ? '' : it.description).replace(/\s+/g, ' ').trim().slice(0, 200);
+      const detail = String(it.detail == null ? '' : it.detail).replace(/\s+/g, ' ').trim().slice(0, 300);
+      if (!description && !detail) continue;
+      const toN = v => { const n = Number(String(v == null ? '' : v).replace(/[,，¥￥円()（）\s]/g, '')); return Number.isFinite(n) ? n : 0; };
+      let q = toN(it.quantity);
+      if (!(q > 0)) q = 1;
+      q = Math.round(q * 100) / 100;
+      let amount = Math.round(toN(it.amount));
+      if (!amount && toN(it.unit_price)) amount = Math.round(toN(it.unit_price) * q);
+      if (Math.abs(amount) > 100000000000) continue;
+      const unit = String(it.unit == null || it.unit === '' ? '式' : it.unit).trim().slice(0, 10) || '式';
+      out.push({ description, detail, quantity: q, unit, amount });
+      if (out.length >= IMPORT_MAX_ITEMS) break;
+    }
+    return out;
+  }
+  function importToLines(parsed, pct) {
+    const items = importItems(parsed && parsed.items);
+    return items.map(it => it.amount < 0
+      ? newLine({ description: it.description, detail: it.detail, quantity: it.quantity, unit: it.unit, amount: it.amount })
+      : newLine({ description: it.description, detail: it.detail, quantity: it.quantity, unit: it.unit, cost: it.amount, amount: marginPrice(it.amount, pct) }));
+  }
+  // 今の明細に読み込んだ行を足す: 中身の無い行（新規の空行）だけなら置き換え、あれば末尾に（諸経費の自動行・税対象外の行より前）
+  function mergeImported(lines, added) {
+    const cur = (lines || []).filter(isRealLine);
+    if (!cur.length) return recalcShokehi(added.slice());
+    const tailIdx = (lines || []).findIndex(l => l.isAutoShokehi || l.postTax);
+    const ls = (lines || []).filter(l => isRealLine(l) || l.isAutoShokehi || l.postTax);
+    const cut = tailIdx < 0 ? ls.length : ls.findIndex(l => l.isAutoShokehi || l.postTax);
+    return recalcShokehi(ls.slice(0, cut).concat(added, ls.slice(cut)));
+  }
+  // 読み取った明細の合計と PDF の合計の照合（旧 verifyParse）。{ sum, ref, basis: 'ex'|'inc'|null, ok, gap }
+  function verifyImport(items, total, totalEx) {
+    const its = importItems(items);
+    const sum = its.reduce((s, it) => s + it.amount, 0);
+    const inc = Math.round(num(total)), ex = Math.round(num(totalEx));
+    if (!its.length || (!inc && !ex)) return { sum, ref: 0, basis: null, ok: null, gap: 0 };
+    const withTax = sum + Math.round(sum * TAX_RATE);
+    if (ex && Math.abs(sum - ex) <= 1) return { sum, ref: ex, basis: 'ex', ok: true, gap: 0 };
+    if (inc && Math.abs(sum - inc) <= 1) return { sum, ref: inc, basis: 'ex', ok: true, gap: 0 };
+    if (inc && Math.abs(withTax - inc) <= 1) return { sum, ref: inc, basis: 'inc', ok: true, gap: 0 };
+    const ref = ex || Math.round(inc / (1 + TAX_RATE));
+    return { sum, ref, basis: 'ex', ok: false, gap: ref - sum };
+  }
+
+  // ── ブラウザ側の文字抽出（pdf.js の textContent → 行 → 正規表現）──────────────────
+  // pages: [[{ str, x, y, w? }]]（1ページ = pdf.js の items。x, y は transform[4], transform[5]）。
+  // 同じ高さ（±2.5pt）の文字を左から並べて1行に。離れた文字の間には空白を入れる
+  function pdfTextLines(pages) {
+    const out = [];
+    for (const items of Array.isArray(pages) ? pages : []) {
+      const rows = [];
+      for (const it of Array.isArray(items) ? items : []) {
+        const str = String((it && it.str) || '');
+        if (!str.trim()) continue;
+        const y = num(it.y), x = num(it.x);
+        let row = rows.find(r => Math.abs(r.y - y) <= 2.5);
+        if (!row) { row = { y, parts: [] }; rows.push(row); }
+        row.parts.push({ x, w: num(it.w), str });
+      }
+      rows.sort((a, b) => b.y - a.y); // PDF の y は下から上
+      for (const r of rows) {
+        r.parts.sort((a, b) => a.x - b.x);
+        let line = '', end = null;
+        for (const p of r.parts) {
+          if (line && (end === null || p.x - end > 1.5)) line += ' ';
+          line += p.str;
+          end = p.w ? p.x + p.w : null;
+        }
+        out.push(line.replace(/[ 　\t]+/g, ' ').trim());
+      }
+    }
+    return out.filter(Boolean);
+  }
+  const UNITS_RE = '(?:人工|式|個|台|本|枚|セット|ヶ月|か月|ヵ月|回|人|箇所|ヶ所|件|組|冊|部|m2|m²|㎡|m|ｍ|㎝|cm|脚|面|棟|戸|ヵ所)';
+  const NUM_RE = '\\d{1,3}(?:,\\d{3})*';
+  const SKIP_EXACT = ['計', 'No', 'No.', '現場管理費合計'];
+  const SKIP_SUBSTR = ['小計', '消費税', '請求金額', '見積金額', '合計', '内訳', '単価', '金額', '摘要', '数量', '明細金額', '税抜', '税込',
+    '備考', '商品名', '品名', '総合計', '御見積金額', '請求合計', '税込合計', '税込金額'];
+  const RE_A = new RegExp('^(.+?)\\s+(' + NUM_RE + ')\\s+(' + NUM_RE + ')(\\d+)\\s+(' + UNITS_RE + ')\\s*$'); // 摘要 単価 金額数量 単位（freee 形式）
+  const RE_B = new RegExp('^(.+?)\\s+(\\d+)\\s*(' + UNITS_RE + ')\\s+(' + NUM_RE + ')\\s+(' + NUM_RE + ')\\s*$'); // 摘要 数量 単位 単価 金額
+  const RE_C = new RegExp('^(.+?)\\s+(' + NUM_RE + ')\\s+(' + NUM_RE + ')\\s*$'); // 摘要 単価 金額
+  const RE_D = new RegExp('^(.+?)\\s+\\((' + NUM_RE + ')\\)\\s*$'); // 摘要 (金額)
+  const RE_E = new RegExp('^(.+?)\\s+.+\\s+\\((' + NUM_RE + ')\\)\\s*$'); // 摘要 説明 (金額)
+  const normWord = s => String(s || '').replace(/[ 　]/g, '').trim();
+  function skipDesc(d) {
+    const n = normWord(d);
+    if (!n) return true;
+    if (SKIP_EXACT.includes(n) || n.toLowerCase() === 'no' || n.toLowerCase() === 'no.') return true;
+    return SKIP_SUBSTR.some(k => n.includes(k));
+  }
+  const toInt = s => parseInt(String(s).replace(/,/g, ''), 10) || 0;
+  const row = (description, quantity, unit, unitPrice, amount) => ({ description, detail: '', quantity, unit, unit_price: unitPrice, amount });
+  function regexLine(line) {
+    let m = RE_A.exec(line);
+    if (m) {
+      const d = m[1].trim();
+      if (skipDesc(d)) return null;
+      const amt = toInt(m[3]);
+      return amt > 0 ? row(d, toInt(m[4]), m[5], toInt(m[2]), amt) : null;
+    }
+    m = RE_B.exec(line);
+    if (m) {
+      const d = m[1].trim();
+      if (skipDesc(d)) return null;
+      const amt = toInt(m[5]);
+      return amt > 0 ? row(d, toInt(m[2]), m[3], toInt(m[4]), amt) : null;
+    }
+    m = RE_D.exec(line);
+    if (m) {
+      const d = m[1].trim();
+      if (skipDesc(d) || d.length < 2) return null;
+      const amt = toInt(m[2]);
+      return amt > 0 ? row(d, 1, '式', amt, amt) : null;
+    }
+    m = RE_E.exec(line);
+    if (m) {
+      const d = m[1].trim();
+      if (skipDesc(d) || d.length < 2) return null;
+      const amt = toInt(m[2]);
+      return amt > 0 ? row(d, 1, '式', amt, amt) : null;
+    }
+    m = RE_C.exec(line);
+    if (m) {
+      const d = m[1].trim();
+      if (skipDesc(d) || d.length < 2) return null;
+      const up = toInt(m[2]), amt = toInt(m[3]);
+      return up > 0 && amt > 0 ? row(d, 1, '式', up, amt) : null;
+    }
+    return null;
+  }
+  // サマリー行（直後の4件以上の連続した行の合計と同じ金額の行）を除く（旧 _dedup_summary_items）
+  function dedupSummary(items) {
+    const idx = items.map((it, j) => (it.amount > 0 ? j : -1)).filter(j => j >= 0);
+    if (idx.length < 3) return items;
+    const amounts = idx.map(j => items[j].amount);
+    const rm = new Set();
+    for (let i = 0; i < amounts.length; i++) {
+      let s = 0;
+      for (let end = i + 1; end < amounts.length; end++) {
+        s += amounts[end];
+        if (s === amounts[i] && end - i >= 4) { rm.add(idx[i]); break; }
+        if (s > amounts[i]) break;
+      }
+    }
+    return items.filter((_, j) => !rm.has(j));
+  }
+  // 「本体＋税＝税込」が成り立つ3つ組から (税抜, 税込) を探す（旧 _extract_totals。ラベルは読まない）
+  function extractTotals(text) {
+    const nums = new Set();
+    const re = /\d{1,3}(?:,\d{3})+|\d{4,}/g;
+    let m;
+    while ((m = re.exec(String(text || '')))) {
+      const v = toInt(m[0]);
+      if (v >= 1000 && v <= 1e10) nums.add(v);
+    }
+    let best = { ex: 0, inc: 0 };
+    for (const ex of nums) {
+      for (const rate of [0.10, 0.08]) {
+        for (const tax of new Set([Math.floor(ex * rate), Math.round(ex * rate)])) {
+          const inc = ex + tax;
+          if (nums.has(tax) && nums.has(inc) && inc > best.inc) best = { ex, inc };
+        }
+      }
+    }
+    return best;
+  }
+  const SUBJECT_RE = /(?:件名|工事件名|工事名称|工事名|物件名|案件名|現場名)[ 　：:]?\s*(.+)/;
+  // 行の配列 → { items, total, totalEx, subject }（旧 Strategy 2）
+  function parseEstimateText(lines) {
+    const ls = (Array.isArray(lines) ? lines : String(lines || '').split('\n')).map(l => String(l).trim()).filter(l => l.length >= 2);
+    const items = [], seen = new Set();
+    for (const line of ls) {
+      const it = regexLine(line);
+      if (!it) continue;
+      const key = it.description + '\u0000' + it.amount;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(it);
+    }
+    const text = ls.join('\n');
+    const t = extractTotals(text);
+    let subject = '';
+    for (const l of ls) { const m = SUBJECT_RE.exec(l); if (m && m[1].replace(/^[\s　：:]+/, '').trim()) { subject = m[1].replace(/^[\s　：:]+/, '').trim().slice(0, 100); break; } }
+    return { items: dedupSummary(items).slice(0, IMPORT_MAX_ITEMS), total: t.inc, totalEx: t.ex, subject };
+  }
+
   // ── 検証 ───────────────────────────────────────────────────────────────────
   function validate(est) {
     const errors = [];
@@ -396,6 +629,7 @@
       if (l.quantity === '' || !Number.isFinite(q) || q < 0) errors.push(`${label}: 数量が正しくありません`);
       if (!Number.isInteger(Number(l.amount || 0))) errors.push(`${label}: 金額は整数の円で入力してください`);
       if (l.isAutoShokehi && !(Number(l.shokehiPct) >= 0)) errors.push(`${label}: 諸経費の%が正しくありません`);
+      if (hasCost(l) && !(Number.isInteger(Number(l.cost)) && Number(l.cost) >= 0)) errors.push(`${label}: 原価は0以上の整数の円で入力してください`);
     });
     return { ok: errors.length === 0, errors };
   }
@@ -410,6 +644,8 @@
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
     hankoParts, hankoCols, validate,
+    MARGIN_MAX, IMPORT_MAX_ITEMS, hasCost, normMargin, marginPrice, applyMargin, profitSummary, importItems, importToLines, mergeImported, verifyImport,
+    pdfTextLines, parseEstimateText, extractTotals, dedupSummary,
     PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
     presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
   };

@@ -535,13 +535,30 @@
   #case-parties .pty-sub a{min-height:36px;}
   #case-phases{padding:8px 12px;margin-bottom:10px;}
   @media(max-width:899px){ #case-phases{padding:8px 8px;} .ph-row-p{padding:3px 4px;} }
-  .case-tools-row{display:grid;gap:8px;margin:0 0 10px;}
-  .case-tools-row .tools{margin:0;}
-  .case-tools-row .rep-banner{margin:0;}
-  #case-detail-root .toolbtn{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0 6px;padding:4px 6px;min-height:44px;}
-  #case-detail-root .toolbtn .ic{font-size:16px;}
-  #case-detail-root .toolbtn .nm{margin-top:0;font-size:13px;}
-  #case-detail-root .toolbtn .ct{font-size:11px;}
+  /* 案件ページの「ツール」（Task 19。現場用のツールカードと同じ並び・管理画面の色） */
+  .ctools{padding:10px 12px;margin-bottom:10px;}
+  .ctools-head{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;justify-content:flex-start;margin-bottom:8px;}
+  .ctools-chips{display:flex;gap:6px;flex-wrap:wrap;min-width:0;}
+  .ctools-chip{font-weight:700;color:var(--text);max-width:100%;overflow-wrap:anywhere;text-align:left;}
+  .ctools-none{font-size:12px;color:var(--muted);}
+  .ctools-head .rep-banner{margin:0 0 0 auto;width:auto;flex:0 1 auto;}
+  .ctools-grid{display:grid;gap:8px;grid-template-columns:minmax(0,1fr);}
+  .ctool{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:6px 8px;min-width:0;}
+  .ctool-main{display:flex;align-items:center;gap:8px;min-width:0;min-height:76px;background:none;border:0;border-radius:10px;padding:4px;font-family:inherit;color:inherit;text-align:left;cursor:pointer;}
+  .ctool-main:hover{background:#f7faff;}
+  .ctool-main:disabled{cursor:default;opacity:.7;}
+  .ctool-ic{width:38px;height:38px;border-radius:12px;background:#e8eff7;display:grid;place-items:center;font-size:21px;flex:none;}
+  .ctool-t{display:grid;gap:2px;min-width:0;flex:1;}
+  .ctool-t b{font-size:14px;overflow-wrap:anywhere;}
+  .ctool-st{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .ctool[data-state=draft] .ctool-st{color:var(--amber);font-weight:700;}
+  #case-tools-err:empty{display:none;}
+  .ctool-acts{display:grid;gap:4px;min-width:118px;}
+  .ctool-acts .btn.sm{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
+  .ctool-list .ct{font-weight:400;color:var(--muted);}
+  .ctool-list .ct.hot{color:var(--red);font-weight:700;}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  @media(max-width:599px){ .ctools-chip-when{display:none;} .ctools-head .rep-banner{margin:0;width:100%;} }
   #case-timeline .tl-input textarea{min-height:52px;height:56px;}
   #case-timeline .taio-head{margin-bottom:4px;}
   #case-timeline .err:empty{min-height:0;margin-top:0;}
@@ -556,8 +573,7 @@
     #case-parties .taio-head{grid-column:1 / span 2;grid-row:1;}
     #case-parties .pty-room{grid-column:3;grid-row:1;border-top:0;align-items:center;grid-template-columns:44px minmax(0,1fr);}
     #case-parties .pty-row:not(.pty-room){grid-template-columns:minmax(0,1fr);gap:0;padding:4px 0 0;}
-    .case-tools-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:stretch;}
-    .case-tools-row .tools:only-child{grid-column:1 / -1;max-width:60%;}
+    .ctools-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
   }
   /* 関係する部屋（Task 12）: 役割は小さなラベル（.tag の形）。カードの片側だけの太い線は使わない */
   .rm-box{grid-column:1 / -1;border-top:1px solid var(--border);margin-top:4px;padding-top:2px;min-width:0;}
@@ -853,7 +869,7 @@
      640px未満は 摘要・詳細の下に 数量・単位・金額、その下に単価。並び替えは 1100px以上=⠿ のドラッグ、未満=↑↓ */
   .eu-lines-h{display:none;}
   .eu-lines{border-top:1px solid var(--border);}
-  .eu-ln{display:grid;grid-template-columns:36px 64px 56px minmax(0,1fr) 36px;grid-template-areas:"hd desc desc desc ops" "hd detail detail detail ops" "more qty unit amt amt" ". price price price price";gap:4px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);background:#fff;min-width:0;}
+  .eu-ln{display:grid;grid-template-columns:36px 64px 56px minmax(0,1fr) 36px;grid-template-areas:"hd desc desc desc ops" "hd detail detail detail ops" "more qty unit amt amt" ". cost cost price price";gap:4px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);background:#fff;min-width:0;}
   .eu-ln.auto{background:#f7faff;}
   .eu-ln.adj{background:#fdf8ef;}
   .eu-ln>*{min-width:0;}
@@ -863,7 +879,16 @@
   .eu-ln .c-qty{grid-area:qty;}
   .eu-ln .c-unit{grid-area:unit;}
   .eu-ln .c-price{grid-area:price;text-align:right;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;}
-  .eu-ln .c-amt{grid-area:amt;}
+  .eu-ln .c-amt{grid-area:amt;position:relative;}
+  /* 原価（Task 19）。スマホは4行目の左（「原価」の見出し付き）、640px以上は 単位 と 販売金額 の間の列 */
+  .eu-ln .c-cost{grid-area:cost;display:flex;align-items:center;gap:4px;}
+  .eu-ln .c-cost .eu-l2{font-size:12px;color:var(--muted);white-space:nowrap;}
+  .eu-ln input.eu-cost{background:#fffaf0;}
+  .eu-ln.auto input.eu-cost,.eu-ln.adj input.eu-cost{background:#f4f6f9;}
+  .eu-ovr-tag{display:none;position:absolute;top:-7px;left:4px;font-size:10px;font-weight:700;line-height:14px;color:#92400e;background:#fef3c7;border:1px solid #f5c26b;border-radius:4px;padding:0 4px;pointer-events:none;}
+  .eu-ln.ovr .eu-ovr-tag{display:block;}
+  .eu-ln.ovr .c-amt input{border-color:#f5c26b;background:#fffbeb;}
+  .eu-lines-h .h-price{display:none;}
   .eu-ln .c-ops{grid-area:ops;align-self:stretch;display:flex;flex-direction:column;gap:4px;justify-content:center;}
   .eu-ln .c-more{grid-area:more;display:flex;justify-content:flex-end;}
   .eu-ln label.eu-l{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
@@ -898,17 +923,52 @@
   .eu-quick .eu-pct input{width:56px;flex:none;padding:6px 8px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
   .eu-quick .nu-chk.eu-adj-chk{gap:8px;min-height:40px;padding:0 12px;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-size:14px;font-weight:700;color:var(--navy);}
   .eu-quick .nu-chk.eu-adj-chk input{width:20px;height:20px;}
+  /* 業者の見積PDFの読み込み・利益率・粗利（Task 19） */
+  .eu-imp{margin:0 0 10px;}
+  .eu-imp-drop{position:relative;display:grid;gap:2px;justify-items:center;text-align:center;min-height:64px;padding:10px 12px;border:2px dashed #b8c7da;border-radius:12px;background:#f7faff;color:var(--navy);cursor:pointer;}
+  .eu-imp-drop b{font-size:15px;}
+  .eu-imp-hint{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .eu-imp-drop.over{border-color:var(--navy2);background:#e7f0fb;}
+  .eu-imp.busy .eu-imp-drop{opacity:.6;cursor:progress;}
+  .eu-imp-input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px;}
+  .eu-imp-drop:focus-within{outline:2px solid var(--navy2);outline-offset:2px;}
+  .eu-imp-msg{font-size:13px;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;overflow-wrap:anywhere;}
+  .eu-imp-msg:empty{display:none;}
+  .eu-imp-msg.ok{color:var(--green);font-weight:700;}
+  .eu-imp-msg.warn{color:var(--amber);font-weight:700;}
+  .eu-imp-msg.err{color:var(--red);}
+  .eu-imp-msg.busy{color:var(--navy2);}
+  .eu-imp-method{font-size:11px;font-weight:700;border-radius:999px;padding:1px 9px;background:#eef3fa;color:var(--navy2);white-space:nowrap;}
+  .eu-imp-method.m-ai{background:#ede9fe;color:#5b21b6;}
+  .eu-imp-sub{flex-basis:100%;font-size:12px;font-weight:400;color:var(--muted);}
+  .eu-imp-src{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+  .eu-imp-src[hidden]{display:none;}
+  .eu-margin{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 8px;font-size:14px;font-weight:700;color:var(--navy);}
+  .eu-margin input{width:76px;min-height:40px;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;text-align:right;}
+  .eu-margin-mul{font-size:12px;font-weight:400;color:var(--muted);}
+  .eu-margin-err:empty{display:none;}
+  .eu-margin-err{flex-basis:100%;margin:0;}
+  .eu-profit{background:#effaf2;border:1px solid #9fd9b0;border-radius:10px;padding:8px 12px;margin:0 0 8px;font-size:13px;font-variant-numeric:tabular-nums;}
+  .eu-profit[hidden]{display:none;}
+  .eu-profit-r{display:flex;justify-content:space-between;gap:8px;padding:1px 0;}
+  .eu-profit-r span{color:var(--muted);}
+  .eu-profit-r.sell b{color:var(--navy2);}
+  .eu-profit-r.gross{border-top:1px solid #bfe6cb;margin-top:3px;padding-top:4px;color:var(--green);}
+  .eu-profit-r.gross span{color:var(--green);font-weight:700;}
+  .eu-profit-r.gross.minus,.eu-profit-r.gross.minus span{color:var(--red);}
+  .eu-profit-note{font-size:11px;color:var(--muted);margin-top:2px;}
   @media(min-width:640px){
     .eu-lines{border-top:0;}
-    .eu-lines-h{display:grid;grid-template-columns:36px minmax(0,1fr) 52px 46px 62px 92px 36px;gap:4px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 0 5px;border-bottom:1px solid var(--border);margin-top:4px;}
+    .eu-lines-h{display:grid;grid-template-columns:36px minmax(0,1fr) 52px 46px 80px 92px 36px;gap:4px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 0 5px;border-bottom:1px solid var(--border);margin-top:4px;}
     .eu-lines-h .r{text-align:right;padding-right:6px;}
-    .eu-ln{grid-template-columns:36px minmax(0,1fr) 52px 46px 62px 92px 36px;grid-template-areas:"hd desc qty unit price amt ops" "hd detail detail detail detail more ops";padding:5px 0;}
-    .eu-ln .c-price{font-size:13px;line-height:36px;align-self:start;color:var(--text);padding-right:2px;}
+    .eu-ln{grid-template-columns:36px minmax(0,1fr) 52px 46px 80px 92px 36px;grid-template-areas:"hd desc qty unit cost amt ops" "hd detail detail detail price more ops";padding:5px 0;}
+    .eu-ln .c-price{font-size:12px;line-height:36px;align-self:start;color:var(--muted);padding-right:2px;}
     .eu-ln .c-price .eu-l2{display:none;}
+    .eu-ln .c-cost .eu-l2{display:none;}
   }
   @media(min-width:1100px){
-    .eu-lines-h{grid-template-columns:24px minmax(0,1fr) 52px 46px 62px 92px 36px;}
-    .eu-ln{grid-template-columns:24px minmax(0,1fr) 52px 46px 62px 92px 36px;}
+    .eu-lines-h{grid-template-columns:24px minmax(0,1fr) 52px 46px 80px 92px 36px;}
+    .eu-ln{grid-template-columns:24px minmax(0,1fr) 52px 46px 80px 92px 36px;}
     .eu-ln .c-hd .up,.eu-ln .c-hd .down{display:none;}
     .eu-ops .eu-drag{display:flex;align-items:center;justify-content:center;width:24px;min-width:24px;height:100%;min-height:76px;padding:0;border:0;border-radius:4px;background:none;color:#a3b1c2;font-size:18px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;}
     .eu-ops .eu-drag:hover,.eu-ops .eu-drag:focus-visible{color:var(--navy2);background:#eef3f9;}
@@ -980,7 +1040,9 @@
   .eu-ro input:disabled,.eu-ro select:disabled,.eu-ro textarea:disabled{border-color:#eef2f7;background:transparent;color:var(--text);-webkit-text-fill-color:var(--text);opacity:1;}
   .eu-ro select:disabled{-webkit-appearance:none;appearance:none;}
   .eu-ro input[type=checkbox]:disabled{opacity:.7;}
-  .eu-ro .eu-lines-h.ro .h-hd,.eu-ro .eu-lines-h.ro .h-ops{display:none;}
+  .eu-ro .eu-lines-h.ro .h-hd,.eu-ro .eu-lines-h.ro .h-ops,.eu-ro .eu-lines-h.ro .h-cost{display:none;}
+  .eu-ro .eu-lines-h.ro .h-price{display:block;}
+  .eu-ro .eu-ln .c-cost{display:none;}
   .eu-ro .eu-ln{grid-template-columns:64px 56px minmax(0,1fr);grid-template-areas:"desc desc desc" "detail detail detail" "qty unit amt";gap:2px 6px;padding:6px 0;}
   .eu-ro .eu-ln.no-detail{grid-template-areas:"desc desc desc" "qty unit amt";}
   .eu-ro .eu-ln.no-detail .c-detail{display:none;}
@@ -1614,6 +1676,7 @@
       <div class="ff"><label for="set-tel">電話番号</label><input type="tel" id="set-tel" placeholder="03-1234-5678"></div>
       <div class="ff"><label for="set-email">会社のメールアドレス（依頼者への返信先になります）</label><input type="email" id="set-email" placeholder="info@company.co.jp" autocomplete="off"></div>
       <div class="ff"><label for="set-reg">登録番号（インボイス）</label><input type="text" id="set-reg" placeholder="T1234567890123" autocomplete="off" maxlength="20" inputmode="text" spellcheck="false"><div class="set-hint">「T」と13桁の数字。見積書PDFの発行元に載ります（未登録なら空のまま）</div></div>
+      <div class="ff"><label for="set-margin">利益率の既定値（%）</label><input type="text" id="set-margin" placeholder="例：20" autocomplete="off" maxlength="6" inputmode="decimal"><div class="set-hint">業者の見積PDFを読み込んだとき、販売金額 = 原価 ×（1 ＋ 利益率÷100）で計算します。見積ごとに変えられます（空なら 0%）</div></div>
       <div class="save-bar"><button class="btn" type="button" id="set-save">保存する</button></div>
       <div class="err" id="set-msg"></div>
     </div>
@@ -1664,60 +1727,61 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=22c7c47"></script>
-<script src="js/supabase-config.js?v=22c7c47"></script>
-<script src="js/supabase.js?v=22c7c47"></script>
-<script src="js/auth.js?v=22c7c47"></script>
-<script src="js/storage.js?v=22c7c47"></script>
-<script src="js/quota.js?v=22c7c47"></script>
-<script src="js/case-logic.js?v=22c7c47"></script>
-<script src="js/mail-templates.js?v=22c7c47"></script>
-<script src="js/phase-logic.js?v=22c7c47"></script>
-<script src="js/image.js?v=22c7c47"></script>
-<script src="js/cases-api.js?v=22c7c47"></script>
-<script src="js/clients-api.js?v=22c7c47"></script>
-<script src="js/phases-api.js?v=22c7c47"></script>
+<script src="js/crypto-util.js?v=f376dd7"></script>
+<script src="js/supabase-config.js?v=f376dd7"></script>
+<script src="js/supabase.js?v=f376dd7"></script>
+<script src="js/auth.js?v=f376dd7"></script>
+<script src="js/storage.js?v=f376dd7"></script>
+<script src="js/quota.js?v=f376dd7"></script>
+<script src="js/case-logic.js?v=f376dd7"></script>
+<script src="js/mail-templates.js?v=f376dd7"></script>
+<script src="js/phase-logic.js?v=f376dd7"></script>
+<script src="js/image.js?v=f376dd7"></script>
+<script src="js/cases-api.js?v=f376dd7"></script>
+<script src="js/clients-api.js?v=f376dd7"></script>
+<script src="js/phases-api.js?v=f376dd7"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=22c7c47"></script>
-<script src="js/reports-api.js?v=22c7c47"></script>
-<script src="js/photo-marks.js?v=22c7c47"></script>
-<script src="js/report-pdf.js?v=22c7c47"></script>
-<script src="js/notice-logic.js?v=22c7c47"></script>
-<script src="js/notices-api.js?v=22c7c47"></script>
-<script src="js/notice-pdf.js?v=22c7c47"></script>
-<script src="js/estimate-logic.js?v=22c7c47"></script>
-<script src="js/estimates-api.js?v=22c7c47"></script>
-<script src="js/estimate-pdf.js?v=22c7c47"></script>
-<script src="js/estimate-presets-api.js?v=22c7c47"></script>
-<script src="js/estimate-presets.js?v=22c7c47"></script>
-<script src="js/estimate-layout.js?v=22c7c47"></script>
-<script src="js/case-list.js?v=22c7c47"></script>
-<script src="js/clients-ui.js?v=22c7c47"></script>
-<script src="js/case-detail.js?v=22c7c47"></script>
-<script src="js/case-rooms-api.js?v=22c7c47"></script>
-<script src="js/case-rooms.js?v=22c7c47"></script>
-<script src="js/edit-logic.js?v=22c7c47"></script>
-<script src="js/case-trash.js?v=22c7c47"></script>
-<script src="js/case-undo.js?v=22c7c47"></script>
-<script src="js/phase-ui.js?v=22c7c47"></script>
-<script src="js/phase-detail.js?v=22c7c47"></script>
-<script src="js/billing-ui.js?v=22c7c47"></script>
-<script src="js/team.js?v=22c7c47"></script>
-<script src="js/tasks.js?v=22c7c47"></script>
-<script src="js/timeline.js?v=22c7c47"></script>
-<script src="js/photo-mark-editor.js?v=22c7c47"></script>
-<script src="js/report-form.js?v=22c7c47"></script>
-<script src="js/report-ui.js?v=22c7c47"></script>
-<script src="js/report-share.js?v=22c7c47"></script>
-<script src="js/report-edit.js?v=22c7c47"></script>
-<script src="js/mail-ui.js?v=22c7c47"></script>
-<script src="js/outbox-ui.js?v=22c7c47"></script>
-<script src="js/staff-inbox.js?v=22c7c47"></script>
-<script src="js/notice-ui.js?v=22c7c47"></script>
-<script src="js/notice-edit.js?v=22c7c47"></script>
-<script src="js/estimate-ui.js?v=22c7c47"></script>
-<script src="js/field-ui.js?v=22c7c47"></script>
-<script src="js/app.js?v=22c7c47"></script>
+<script src="js/report-logic.js?v=f376dd7"></script>
+<script src="js/reports-api.js?v=f376dd7"></script>
+<script src="js/photo-marks.js?v=f376dd7"></script>
+<script src="js/report-pdf.js?v=f376dd7"></script>
+<script src="js/notice-logic.js?v=f376dd7"></script>
+<script src="js/notices-api.js?v=f376dd7"></script>
+<script src="js/notice-pdf.js?v=f376dd7"></script>
+<script src="js/estimate-logic.js?v=f376dd7"></script>
+<script src="js/estimates-api.js?v=f376dd7"></script>
+<script src="js/estimate-pdf.js?v=f376dd7"></script>
+<script src="js/estimate-presets-api.js?v=f376dd7"></script>
+<script src="js/estimate-presets.js?v=f376dd7"></script>
+<script src="js/estimate-layout.js?v=f376dd7"></script>
+<script src="js/estimate-import.js?v=f376dd7"></script>
+<script src="js/case-list.js?v=f376dd7"></script>
+<script src="js/clients-ui.js?v=f376dd7"></script>
+<script src="js/case-detail.js?v=f376dd7"></script>
+<script src="js/case-rooms-api.js?v=f376dd7"></script>
+<script src="js/case-rooms.js?v=f376dd7"></script>
+<script src="js/edit-logic.js?v=f376dd7"></script>
+<script src="js/case-trash.js?v=f376dd7"></script>
+<script src="js/case-undo.js?v=f376dd7"></script>
+<script src="js/phase-ui.js?v=f376dd7"></script>
+<script src="js/phase-detail.js?v=f376dd7"></script>
+<script src="js/billing-ui.js?v=f376dd7"></script>
+<script src="js/team.js?v=f376dd7"></script>
+<script src="js/tasks.js?v=f376dd7"></script>
+<script src="js/timeline.js?v=f376dd7"></script>
+<script src="js/photo-mark-editor.js?v=f376dd7"></script>
+<script src="js/report-form.js?v=f376dd7"></script>
+<script src="js/report-ui.js?v=f376dd7"></script>
+<script src="js/report-share.js?v=f376dd7"></script>
+<script src="js/report-edit.js?v=f376dd7"></script>
+<script src="js/mail-ui.js?v=f376dd7"></script>
+<script src="js/outbox-ui.js?v=f376dd7"></script>
+<script src="js/staff-inbox.js?v=f376dd7"></script>
+<script src="js/notice-ui.js?v=f376dd7"></script>
+<script src="js/notice-edit.js?v=f376dd7"></script>
+<script src="js/estimate-ui.js?v=f376dd7"></script>
+<script src="js/field-ui.js?v=f376dd7"></script>
+<script src="js/app.js?v=f376dd7"></script>
 </body>
 </html>

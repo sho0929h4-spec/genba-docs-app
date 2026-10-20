@@ -121,6 +121,7 @@ async function phLoad() {
     if (i) { if (i.scrollIntoView) i.scrollIntoView({ block: 'center' }); i.focus({ preventScroll: true }); }
   }
   if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
+  if (!s.phaseId && typeof syncCaseTools === 'function') syncCaseTools(s.caseId, s.data); // 案件ページの「ツール」（Task 19）
   return '';
 }
 
@@ -559,6 +560,37 @@ function phMakeEstimate(btn, p, errId) {
       const row = await EstimatesApi.create(s.caseId, currentCase, opts);
       if (phAlive(s)) location.hash = '#estimate/' + row.id;
     } catch (e) { if (phAlive(s)) phMsg(errId, '見積書を作れませんでした: ' + errText(e)); }
+    finally { s.running.delete(errId); }
+  });
+}
+
+// 工事掲示をこのフェーズで作る（工事日・調査結果の注意事項を初期値に）。roomNo: 号室の初期値（省略すると案件の号室。Task 19 の案件ページのツールからも）
+function phMakeNotice(btn, p, errId, roomNo) {
+  const s = ph;
+  if (!phAlive(s) || s.running.has(errId)) return;
+  phMsg(errId, '');
+  s.running.add(errId);
+  return withBusy(btn, async () => {
+    try {
+      const data = {};
+      const room = roomNo !== undefined ? roomNo : (currentCase && currentCase.room ? String(currentCase.room) : '');
+      if (room) data.roomNo = room;
+      if (p.scheduled_at) {
+        data.workDate = phYmd(p.scheduled_at);
+        data.timeStart = phHm(p.scheduled_at);
+        if (p.scheduled_end) {
+          if (phYmd(p.scheduled_end) !== data.workDate) data.workDateEnd = phYmd(p.scheduled_end);
+          data.timeEnd = phHm(p.scheduled_end);
+        }
+      }
+      // この案件の調査結果の注意事項を工事内容のチェックの初期値に（作成時だけ）
+      await phResSettle();
+      const r = PhaseLogic.latestSurveyResult(phLivePhases());
+      if (r) Object.assign(data, PhaseLogic.noticeInit(r));
+      if (!phAlive(s)) return;
+      const row = await NoticesApi.create(s.caseId, currentCase, { phase_id: p.id, phaseTitle: phTitle(p), data });
+      if (phAlive(s)) location.hash = '#notice/' + row.id;
+    } catch (e) { if (phAlive(s)) phMsg(errId, '工事掲示を作れませんでした: ' + errText(e)); }
     finally { s.running.delete(errId); }
   });
 }
@@ -1200,31 +1232,7 @@ function phNoticesBody(p, docs, errId) {
   // 号室の初期値（この案件の部屋／関係する部屋。候補が無ければ出さない。Task 12。js/notice-ui.js ntlRoomPicker）
   const pick = typeof ntlRoomPicker === 'function' ? ntlRoomPicker(currentCase, 'ph-notice-room-' + p.id) : null;
   if (pick) { pick.el.classList.add('ph-notice-room'); out.push(pick.el); }
-  const b = dBtn('📢 工事掲示を作る', 'ph-mkdoc ph-mk-notice', btn => {
-    const s = ph;
-    phMsg(errId, '');
-    return withBusy(btn, async () => {
-      try {
-        const data = {};
-        if (pick && pick.value()) data.roomNo = pick.value();
-        if (p.scheduled_at) {
-          data.workDate = phYmd(p.scheduled_at);
-          data.timeStart = phHm(p.scheduled_at);
-          if (p.scheduled_end) {
-            if (phYmd(p.scheduled_end) !== data.workDate) data.workDateEnd = phYmd(p.scheduled_end);
-            data.timeEnd = phHm(p.scheduled_end);
-          }
-        }
-        // この案件の調査結果の注意事項を工事内容のチェックの初期値に（作成時だけ）
-        await phResSettle();
-        const r = PhaseLogic.latestSurveyResult(phLivePhases());
-        if (r) Object.assign(data, PhaseLogic.noticeInit(r));
-        if (!phAlive(s)) return;
-        const row = await NoticesApi.create(s.caseId, currentCase, { phase_id: p.id, phaseTitle: phTitle(p), data });
-        if (phAlive(s)) location.hash = '#notice/' + row.id;
-      } catch (e) { if (phAlive(s)) phMsg(errId, '工事掲示を作れませんでした: ' + errText(e)); }
-    });
-  });
+  const b = dBtn('📢 工事掲示を作る', 'ph-mkdoc ph-mk-notice', btn => phMakeNotice(btn, p, errId, pick && pick.value() ? pick.value() : ''));
   out.push(b);
   return out;
 }

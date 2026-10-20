@@ -162,47 +162,9 @@ function buildDetail() {
     phases.id = 'case-phases';
   }
 
-  const tools = mk('div', 'tools');
-  [['📋', '報告書'], ['🧾', '見積書'], ['📢', '工事掲示']].forEach(([ic, nm]) => {
-    const b = mk('button', 'toolbtn');
-    b.type = 'button';
-    const ct = mk('div', 'ct', '準備中');
-    if (nm === '報告書') {
-      // 件数は case_summaries の report_count / reports_to_confirm。確認待ちがあれば強調
-      const total = Number(currentCase.report_count) || 0;
-      const wait = Number(currentCase.reports_to_confirm) || 0;
-      ct.textContent = wait > 0 ? '確認待ち ' + wait : total + '件';
-      if (wait > 0) ct.classList.add('hot');
-      b.id = 'case-tool-reports';
-      b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/reports'; });
-    } else if (nm === '見積書') {
-      // 件数は case_summaries の estimate_count（系列の数）、金額は latest_estimate_total（migration 014/015）
-      const n = Number(currentCase.estimate_count) || 0;
-      const lt = currentCase.latest_estimate_total;
-      ct.textContent = n + '件';
-      b.id = 'case-tool-estimates';
-      b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/estimates'; });
-      if (n > 0 && lt != null && typeof EstimateLogic !== 'undefined') {
-        const yen = mk('div', 'ct ct-yen', EstimateLogic.yen(lt));
-        yen.id = 'case-tool-estimates-total';
-        b.append(mk('div', 'ic', ic), mk('div', 'nm', nm), ct, yen);
-        tools.appendChild(b);
-        return;
-      }
-    } else if (nm === '工事掲示') {
-      // 件数は case_summaries の notice_count（migration 013）
-      ct.textContent = (Number(currentCase.notice_count) || 0) + '件';
-      b.id = 'case-tool-notices';
-      b.addEventListener('click', () => { location.hash = '#case/' + currentCase.id + '/notices'; });
-    } else {
-      b.addEventListener('click', () => { $('case-tools-note').hidden = false; });
-    }
-    b.append(mk('div', 'ic', ic), mk('div', 'nm', nm), ct);
-    tools.appendChild(b);
-  });
-  const toolsNote = mk('div', 'tools-note', 'Phase 2以降で使えるようになります');
-  toolsNote.id = 'case-tools-note';
-  toolsNote.hidden = true;
+  // ツール（①報告書 ②見積書 ③工事掲示。現場用と同じ大きなカード＋対応の切替チップ。Task 19）。中身は renderCaseTools
+  const tools = mk('div', 'taio ctools');
+  tools.id = 'case-tools';
 
   const tl = mk('div'); tl.id = 'case-timeline';
 
@@ -245,20 +207,184 @@ function buildDetail() {
     mailBanner.append(cnt, mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
-    // 書類のボタンと「送信待ちの下書き」は1行に（PC。スマホは折り返す）
-  const toolsRow = mk('div', 'case-tools-row');
-  toolsRow.append(...[tools, mailBanner].filter(Boolean));
   // 一番下に小さく「この案件を削除」（管理者だけ。js/case-trash.js）
   const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.section(currentCase) : null;
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, toolsRow, toolsNote, mailList, tl, trash].filter(Boolean));
+  ctState = { caseId: currentCase.id, data: null, busy: '', err: '', banner: mailBanner };
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, tools, mailList, tl, trash].filter(Boolean));
 
   renderHead();
   renderParties();
+  renderCaseTools();
   if (phases) {
     try { renderPhases(phases); }
     catch (e) { console.warn('対応フェーズ欄の表示に失敗', e); phases.replaceChildren(mk('div', 'err', '対応フェーズ欄を表示できませんでした: ' + errText(e))); }
   }
   if (typeof renderTimeline === 'function') renderTimeline(tl);
+}
+
+// ---- ツール（Task 19）----
+// 対応フェーズ欄の読み込み（js/phase-ui.js phLoad）が、この案件のフェーズ・書類を渡して syncCaseTools を呼ぶ（同じデータを使う。読み込みを増やさない）。
+// 件数（一覧ボタン）は case_summaries の report_count / reports_to_confirm / estimate_count / latest_estimate_total / notice_count（案件全体）、
+// 状態の1行は選んだ対応の書類（PhaseLogic.fieldTools。現場用のツールページと同じ）。対応が無い案件は案件全体の書類
+let ctState = null;               // { caseId, data: {phases, reports, estimates, notices} | null, busy, err, banner（送信待ちの下書きのボタン） }
+const ctSel = new Map();          // 案件ごとに選んだ対応（この画面を開いている間だけ覚える。書類から戻ったとき同じ対応を選ぶ）
+const CT_TOOLS = [
+  { key: 'report', icon: '📋', title: '① 報告書作成ツール', id: 'case-tool-reports', list: 'reports', name: '報告書' },
+  { key: 'estimate', icon: '🧾', title: '② 見積書作成ツール', id: 'case-tool-estimates', list: 'estimates', name: '見積書' },
+  { key: 'notice', icon: '📢', title: '③ 工事掲示作成ツール', id: 'case-tool-notices', list: 'notices', name: '工事掲示' }
+];
+
+function syncCaseTools(caseId, data) {
+  if (!ctState || ctState.caseId !== caseId || caseDetailId !== caseId) return;
+  ctState.data = data;
+  renderCaseTools();
+}
+
+function ctPhases() {
+  const d = ctState && ctState.data;
+  return d ? (d.phases || []) : (Array.isArray(currentCase.phases) ? currentCase.phases : []);
+}
+function ctSelected() {
+  const phases = ctPhases();
+  if (!phases.length) return null;
+  const want = ctSel.get(currentCase.id);
+  return phases.find(p => p.id === want) || PhaseLogic.fieldDefaultPhase(phases, new Date());
+}
+
+function renderCaseTools() {
+  const box = $('case-tools');
+  if (!box || !currentCase || !ctState) return;
+  const c = currentCase;
+  const s = ctState;
+  const head = mk('div', 'taio-head ctools-head');
+  head.appendChild(mk('b', null, 'ツール'));
+  const phases = ctPhases();
+  const sel = ctSelected();
+  const chips = mk('div', 'ctools-chips');
+  chips.id = 'case-tool-chips';
+  if (phases.length) {
+    chips.setAttribute('role', 'group');
+    chips.setAttribute('aria-label', 'どの対応の書類か');
+    PhaseLogic.fieldPhaseChips(phases, new Date()).forEach(ch => {
+      const on = !!sel && ch.id === sel.id;
+      const b = dBtn('', 'chip ctools-chip' + (on ? ' on' : ''), () => {
+        ctSel.set(c.id, ch.id);
+        s.err = '';
+        renderCaseTools();
+      });
+      b.appendChild(mk('span', null, ch.title));
+      if (ch.text !== ch.title) b.appendChild(mk('span', 'ctools-chip-when', ch.text.slice(ch.title.length))); // スマホでは日時を省く
+      b.dataset.phaseId = ch.id;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      chips.appendChild(b);
+    });
+  } else {
+    chips.appendChild(mk('span', 'ctools-none', '対応（調査・工事）がまだ無いので、案件全体の書類として作ります'));
+  }
+  head.appendChild(chips);
+  // 「✉ 送信待ちの下書き n件」は見出しの行の右に（PC。スマホは折り返す）
+  if (s.banner) head.appendChild(s.banner);
+
+  // 選んだ対応の書類（読み込み前は null）
+  let t = null;
+  if (s.data) {
+    const of = list => (list || []).filter(x => !sel || x.phase_id === sel.id);
+    t = PhaseLogic.fieldTools({ reports: of(s.data.reports), estimates: of(s.data.estimates), notices: of(s.data.notices) });
+  }
+  const grid = mk('div', 'ctools-grid');
+  CT_TOOLS.forEach(def => grid.appendChild(ctCard(def, t ? t[def.key] : null, sel)));
+  const err = mk('div', 'err', s.err || '');
+  err.id = 'case-tools-err';
+  box.replaceChildren(head, grid, err);
+}
+
+function ctCard(def, state, sel) {
+  const c = currentCase;
+  const s = ctState;
+  const card = mk('div', 'ctool');
+  card.dataset.tool = def.key;
+  card.dataset.state = state ? state.state : 'loading';
+  // 大きなボタン（現場用のツールボタンと同じ）: 書類があれば最新を開く／複数の工事掲示は一覧／無ければ新しく作る
+  const go = !state ? null
+    : state.open ? () => { location.hash = (def.key === 'report' ? '#report/' : def.key === 'estimate' ? '#estimate/' : '#notice/') + state.open.id; }
+      : state.count > 1 ? () => { location.hash = '#case/' + c.id + '/' + def.list; }
+        : null;
+  const main = dBtn('', 'ctool-main', b => (go ? go() : ctCreate(b, def, sel)));
+  main.dataset.open = def.key;
+  main.disabled = !state || !!s.busy;
+  main.appendChild(mk('span', 'ctool-ic', def.icon));
+  const body = mk('span', 'ctool-t');
+  body.appendChild(mk('b', null, def.title));
+  let stText = '読み込み中…';
+  if (state) {
+    // 「下書きあり ・ 続きを書く」の後ろ（押したときの動き）は読み上げとツールチップに
+    const [label, action] = String(state.text).split(' ・ ');
+    stText = (sel ? '' : '案件全体: ') + (s.busy === def.key ? '作っています…' : label);
+    if (action) { main.title = action; main.setAttribute('aria-label', def.title + '：' + label + '・' + action); }
+  }
+  body.appendChild(mk('span', 'ctool-st', stText));
+  main.appendChild(body);
+  card.appendChild(main);
+
+  const acts = mk('div', 'ctool-acts');
+  const mkNew = dBtn('＋ 新しく作る', 'btn sm inline ctool-new', b => ctCreate(b, def, sel));
+  mkNew.dataset.create = def.key;
+  mkNew.disabled = !!s.busy;
+  acts.appendChild(mkNew);
+  // 一覧（案件全体の件数。case_summaries）。読み上げは「報告書の一覧 n件」
+  const list = mk('button', 'btn sm ghost inline ctool-list');
+  list.type = 'button';
+  list.id = def.id;
+  list.appendChild(mk('span', 'sr-only', def.name + 'の'));
+  list.appendChild(mk('span', 'nm', '一覧'));
+  const ct = mk('span', 'ct');
+  if (def.key === 'report') {
+    const total = Number(c.report_count) || 0;
+    const wait = Number(c.reports_to_confirm) || 0;
+    ct.textContent = wait > 0 ? '確認待ち ' + wait : total + '件';
+    if (wait > 0) ct.classList.add('hot');
+  } else if (def.key === 'estimate') {
+    ct.textContent = (Number(c.estimate_count) || 0) + '件';
+  } else {
+    ct.textContent = (Number(c.notice_count) || 0) + '件';
+  }
+  list.appendChild(ct);
+  if (def.key === 'estimate' && Number(c.estimate_count) > 0 && c.latest_estimate_total != null && typeof EstimateLogic !== 'undefined') {
+    const yen = mk('span', 'ct ct-yen', EstimateLogic.yen(c.latest_estimate_total));
+    yen.id = 'case-tool-estimates-total';
+    list.appendChild(yen);
+  }
+  list.addEventListener('click', () => { location.hash = '#case/' + c.id + '/' + def.list; });
+  acts.appendChild(list);
+  card.appendChild(acts);
+  return card;
+}
+
+// 「＋ 新しく作る」: 対応を選んでいれば phase_id 付きで（フェーズ詳細ページの「＋ 報告書を作る」等と同じ。js/phase-ui.js）、
+// 対応が無い案件は案件全体の書類として作る（報告書は作業区分・担当を選ぶ必要があるので一覧の作成欄へ）
+async function ctCreate(btn, def, sel) {
+  const s = ctState;
+  const c = currentCase;
+  if (!s || s.busy) return;
+  s.err = '';
+  setMsg('case-tools-err', '');
+  if (sel && typeof phMakeReport === 'function') {
+    ctSel.set(c.id, sel.id);
+    const fn = def.key === 'report' ? phMakeReport : def.key === 'estimate' ? phMakeEstimate : phMakeNotice;
+    return fn(btn, sel, 'case-tools-err');
+  }
+  if (def.key === 'report') { location.hash = '#case/' + c.id + '/reports'; return; }
+  s.busy = def.key;
+  renderCaseTools();
+  let row = null;
+  try {
+    row = def.key === 'estimate' ? await EstimatesApi.create(c.id, c)
+      : await NoticesApi.create(c.id, c, c.room ? { data: { roomNo: String(c.room) } } : {});
+  } catch (e) { s.err = def.name + 'を作れませんでした: ' + errText(e); }
+  if (ctState !== s || caseDetailId !== c.id) return;
+  s.busy = '';
+  if (row) { location.hash = (def.key === 'estimate' ? '#estimate/' : '#notice/') + row.id; return; }
+  renderCaseTools();
 }
 
 // 「送信待ちの下書き n件」を実際の下書きに合わせる（case_summaries.drafts_to_send は「今回は送らない」も数えるため）。
