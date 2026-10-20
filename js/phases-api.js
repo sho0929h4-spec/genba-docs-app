@@ -79,13 +79,7 @@ const PhasesApi = (() => {
       if (!rows || rows.length === 0) throw new Error('削除できませんでした');
       await logSystem(phase.case_id, `${title}を削除した`);
     },
-    // 調査済み・完了（done=false で取り消し）
-    async setDone(phase, done, title) {
-      const row = await api.update(phase.id, { done_at: done ? now() : null });
-      const what = phase.kind === 'survey' ? '調査済み' : '完了';
-      await logSystem(phase.case_id, done ? `${title}を${what}にした` : `${title}の${what}を取り消した`);
-      return row;
-    },
+    // Task 16: setDone（調査済みにする・完了にする・取り消す）は無くした。done_at は報告書の提出で DB が入れる（migration 034）
     // 調査日時・工事日を保存し、日程連絡の下書きを作る/更新する。日時を消したら未送信の下書きは消す。
     // 日時が変わった・消えたときの未送信のリマインドは消す（作り直しはアプリを開いたとき。js/phase-logic.js dueReminders）
     //   drafts: この案件の mail_drafts（ReportsApi.listDrafts）。戻り値 { phase, draft }（draft は未送信の日程連絡 or null）

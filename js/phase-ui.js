@@ -3,7 +3,7 @@
 //                                       （行 = フェーズ、列 = 日時・対応状況・報告書・見積・請求・入金日・確認。各セルを押すとその場で編集。
 //                                       セルのデータは PhaseLogic.phaseRow / workerCell）と、上部の「今の状態」1行（#case-now。PhaseLogic.caseNow）
 //   renderPhaseDetail(container, phase) … フェーズ詳細ページ #case/{caseId}/phase/{phaseId} の中身（js/phase-detail.js から）。
-//                                       今までカードに縦に並んでいた中身（日時・連絡メール・リマインド・作業担当者・現場担当への指示・調査済み/完了・
+//                                       今までカードに縦に並んでいた中身（日時・連絡メール・リマインド・作業担当者・現場担当への指示・調査した（報告書の流れ）・
 //                                       調査結果・報告書/見積・工事掲示・請求/精算・削除）を全部ここに出す
 // 段階・文面・日本時間の計算は js/phase-logic.js（PhaseLogic）、
 // DB は js/phases-api.js（PhasesApi）と既存の ReportsApi / EstimatesApi / NoticesApi。
@@ -11,15 +11,18 @@
 // mk() は case-list.js、dBtn / errText / notifyTimeline / currentCase / caseGen / caseDetailId は case-detail.js、withBusy / $ は app.js
 //
 // 詳細ページの段（ワイヤーフレーム docs/mocks/mock-phases.html の 3・6）:
-//   調査: 調査日時 → 作業担当者 → 現場担当への指示 → 調査した → 調査結果（Task 5b）→ 報告書 → 見積書 → 精算
-//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 作業担当者 → 現場担当への指示 → 完了 → 報告書 → 請求（Task 7）
+//   調査: 調査日時 → 作業担当者 → 現場担当への指示 → 調査した（報告書の流れの2択。Task 16）→ 調査結果（Task 5b）→ 報告書 → 見積書 → 精算
+//   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 作業担当者 → 現場担当への指示 → 完了報告（報告書。2択）→ 請求（Task 7）
+//   Task 16: 「調査済みにする」「完了にする」「取り消す」は無い。done_at は報告書が提出されたとき DB（migration 034）が入れる。
+//     報告書の2択 = 作業員にURLを渡す（このフェーズの報告書を作って協力業者URLを発行・URLと送る文面をコピー）／
+//     自社で作る（報告書を作って編集画面へ）。phReportFlow
 //   現場担当への指示（case_phases.plan。Task 9）の段の中身は js/phase-detail.js（phBriefBody）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
 const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分
 const PH_STEP_INDEX = {
-  survey: { schedule: 0, visit: 1, report: 3, approval: 4, done: 5 }, // 2 = 調査結果（段階 report で未入力なら 2）
-  work: { estimate: 0, approval: 0, schedule: 1, work: 2, report: 3, bill: 4, payment: 4, done: 5 }
+  survey: { schedule: 0, visit: 1, waiting: 1, write: 1, check: 3, report: 3, approval: 4, done: 5 }, // 2 = 調査結果（段階 check / report で未入力なら 2）
+  work: { estimate: 0, issued: 0, approval: 0, schedule: 1, work: 1, report: 3, bill: 4, payment: 4, done: 5 } // 2（完了の段）は Task 16 で無くした
 };
 const PH_REMIND_STATE = { planned: '予定', due: '時刻を過ぎました（まもなく下書きができます）', draft: '下書きあり', sent: '送信済み', skipped: '送らない' };
 const PH_REPORT_STATUS = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '送付済み' };
@@ -47,7 +50,8 @@ const phYmd = iso => phToInput(iso).slice(0, 10);
 /* ---------- 読み込み ---------- */
 function phState(root, phaseId) {
   return { gen: caseGen, caseId: currentCase.id, phaseId: phaseId || null, root, data: null, editing: new Set(), amountEdit: new Set(), billForm: new Set(),
-    dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null };
+    dueEdit: new Set(), confirmDel: null, adding: false, loadErr: '', running: new Set(), cell: null,
+    shareForm: new Set(), issued: new Map() }; // Task 16: 作業員にURLを渡す欄が開いているフェーズ・発行したURL（この画面にいる間だけ）
 }
 // 案件ページ（対応フェーズの表）
 function renderPhases(root) {
@@ -87,6 +91,11 @@ async function phLoad() {
   const [phases, series, reports] = res;
   const notices = res[3];
   let drafts = res[4];
+  // 協力業者URL（作業員が入力中か = share_active。case_summaries の reports と同じ形にそろえる）
+  let shares = [];
+  try { shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id)); }
+  catch (e) { console.warn('協力業者URLの読み込みに失敗', e); }
+  (reports || []).forEach(r => { r.share_active = (shares || []).some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh)); });
   // 時刻を過ぎたリマインドの下書きを作る・古い未送信のリマインドを消す（案件一覧と同じ。二重作成は DB の unique で防ぐ）
   try {
     const r = await PhasesApi.syncReminders([{ caseRow: currentCase, phases: phases || [] }], drafts || [], new Date());
@@ -100,7 +109,8 @@ async function phLoad() {
     estimates: (series || []).flatMap(x => x.versions || []),
     reports: reports || [],
     notices: notices || [],
-    drafts: drafts || []
+    drafts: drafts || [],
+    shares: shares || []
   };
   phDraw();
   if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
@@ -248,9 +258,13 @@ function phDrawDetail(s, keep) {
     s.root.replaceChildren(mk('div', 'empty ph-gone', 'このフェーズは見つかりません（削除された可能性があります）'), err);
     return;
   }
+  // 作業員の名前（URLを渡す欄）の入力中の値は描き直しても残す
+  const keptName = (s.root.querySelector('.ph-share-name') || {}).value;
   const nodes = [phCard(p)];
   if (s.loadErr) nodes.push(mk('div', 'err', '最新の表示に更新できませんでした: ' + s.loadErr));
   s.root.replaceChildren(...nodes, err);
+  const nameEl = s.root.querySelector('.ph-share-name');
+  if (nameEl && keptName != null) nameEl.value = keptName;
   if (typeof pdSyncHead === 'function') pdSyncHead(p, phTitle(p)); // 詳細ページの見出し（js/phase-detail.js）
   phKeepFocus(keep);
 }
@@ -271,11 +285,12 @@ const PH_CHIP_LABEL = { report: '報告書', estimate: '見積', bill: '請求',
 function phFormOpen(s) {
   const c = s && s.cell;
   if (!c) return false;
-  return (c.col === 'when' && s.editing.has(c.id)) || (c.col === 'bill' && s.billForm.has(c.id)) || (c.col === 'pay' && s.dueEdit.has(c.id));
+  return (c.col === 'when' && s.editing.has(c.id)) || (c.col === 'bill' && s.billForm.has(c.id)) || (c.col === 'pay' && s.dueEdit.has(c.id))
+    || ((c.col === 'status' || c.col === 'report') && s.shareForm.has(c.id));
 }
 function phCloseCell(s) {
   const c = s.cell;
-  if (c) { s.editing.delete(c.id); s.billForm.delete(c.id); s.dueEdit.delete(c.id); phMsg('ph-err-' + c.id, ''); }
+  if (c) { s.editing.delete(c.id); s.billForm.delete(c.id); s.dueEdit.delete(c.id); s.shareForm.delete(c.id); phMsg('ph-err-' + c.id, ''); }
   s.cell = null;
 }
 // セルを押した: 編集欄を開く（同じセルなら閉じる）。入力中の欄があれば切り替えずに知らせる
@@ -387,16 +402,16 @@ function phTableRow(p, multi) {
   cell('when', row.when.text, row.when.at ? 'num' : 'none', row.when.at ? '変更する' : (isSurvey ? '調査日時を決める' : '工事日を決める'), () => phOpenCell(p, 'when'));
   // 対応状況
   const stCls = 'ph-stage ' + (st.ball === 'us' ? 'us' : st.ball === 'them' ? 'them' : 'done') + (st.late ? ' late' : '');
-  const sb = cell('status', row.short, 'ph-c-status', p.done_at ? '取り消す' : (isSurvey ? '調査済みにする' : '完了にする'), () => phOpenCell(p, 'status'));
+  const sb = cell('status', row.short, 'ph-c-status', '次にやること', () => phOpenCell(p, 'status'));
   sb.querySelector('.ph-cv').className = 'ph-cv ' + stCls;
   sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
   // スマホの改行（2行目にチップ）
   tr.appendChild(mk('span', 'ph-br'));
-  // 報告書（無ければ作る／あれば一覧へ）
+  // 報告書（無ければ その場の欄で2択＝作業員にURLを渡す／自社で作る。あれば一覧へ）
   const rep = row.report;
-  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : '',
-    rep.state === 'none' ? '報告書を作る' : '報告書の一覧へ',
-    b => rep.state === 'none' ? phMakeReport(b, p, errId) : (location.hash = '#case/' + s.caseId + '/reports'), rep.state === 'none' ? '未' : '');
+  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : rep.state === 'waiting' ? 'wait' : '',
+    rep.state === 'none' ? '作業員にURLを渡すか自社で作る' : '報告書の一覧へ',
+    () => rep.state === 'none' ? phOpenCell(p, 'report') : (location.hash = '#case/' + s.caseId + '/reports'), rep.state === 'none' ? '未' : '');
   // 見積（無ければ作る／あれば一覧へ）。金額は PC だけ2段目に
   const est = row.estimate;
   const eb = cell('estimate', est.state === 'none' ? '＋ 作る' : est.text, est.state === 'none' ? 'none add' : est.state === 'accepted' ? 'ok' : est.state === 'sent' ? 'wait' : '',
@@ -444,8 +459,10 @@ function phPanel(p, col, docs, errId, row) {
     body.appendChild(phScheduleForm(p, errId));
   } else if (col === 'status') {
     const st = row.stage;
-    body.appendChild(mk('div', 'ph-sub', '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label)));
-    phDoneBody(p, errId).forEach(el => body.appendChild(el));
+    body.appendChild(mk('div', 'ph-sub ph-st-now', '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label)));
+    phStatusBody(p, st, docs, errId).forEach(el => body.appendChild(el));
+  } else if (col === 'report') {
+    phReportFlow(p, docs, errId, true).forEach(el => body.appendChild(el));
   } else if (col === 'bill') {
     const amount = PhaseLogic.billingAmount(p, docs.estimates);
     if (!p.billed_at && s.billForm.has(p.id)) {
@@ -578,7 +595,7 @@ function phStepState(p, docs, i) {
   const map = isSurvey ? PH_STEP_INDEX.survey : PH_STEP_INDEX.work;
   const hasRes = isSurvey && PhaseLogic.hasResult(phResultOf(p));
   let cur = map[st.key] != null ? map[st.key] : 0;
-  if (isSurvey && st.key === 'report' && !hasRes) cur = 2;
+  if (isSurvey && (st.key === 'report' || st.key === 'check') && !hasRes) cur = 2;
   const schedIdx = isSurvey ? 0 : 1;
   const resIdx = isSurvey ? 2 : -1;
   if (i === resIdx && hasRes) return 'done';
@@ -616,7 +633,7 @@ function phCard(p) {
     add(stateOf(0), '調査日時', phScheduleBody(p, docs, errId));
     add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
     phBriefStep(p, add);
-    add(stateOf(1), '調査した', phDoneBody(p, errId).concat([phContactEl(p, docs.mails)]));
+    add(stateOf(1), '調査した', phSurveyDoneBody(p, docs, errId).concat([phContactEl(p, docs.mails)]));
     add(stateOf(2), '調査結果', phResultBody(p, docs));
     add(stateOf(3), '報告書', phReportsBody(p, docs, errId));
     add(stateOf(4), '見積書（この調査の分）', phEstimatesBody(p, docs, errId));
@@ -628,8 +645,8 @@ function phCard(p) {
     add(stateOf(1), '工事日の調整', phScheduleBody(p, docs, errId).concat(phNoticesBody(p, docs, errId)));
     add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
     phBriefStep(p, add);
-    add(stateOf(2), '完了', phDoneBody(p, errId));
-    add(stateOf(3), '報告書', phReportsBody(p, docs, errId));
+    // Task 16: 「完了」の段（完了にする・取り消す）は無い。報告書が提出されると完了になる
+    add(stateOf(3), '完了報告（報告書）', phWorkDoneBody(p, docs, errId).concat(phReportsBody(p, docs, errId)));
     steps.appendChild(phBillTagged(phStep(stateOf(4), ++n, '請求', phBillingBody(p, docs, errId)), p));
   }
   card.appendChild(steps);
@@ -775,18 +792,235 @@ function phSaveSchedule(btn, p, startIso, endIso, errId) {
   });
 }
 
-/* ---- 調査した・完了 ---- */
-function phDoneBody(p, errId) {
-  const isSurvey = p.kind === 'survey';
-  const line = mk('div', 'ph-row');
-  if (p.done_at) {
-    line.appendChild(mk('span', 'ph-done', PhaseLogic.fmtMD(p.done_at) + (isSurvey ? ' 調査済み' : ' 完了')));
-    line.appendChild(dBtn('取り消す', 'linkbtn ph-undone', b => phRun(b, errId, '取り消し', () => PhasesApi.setDone(p, false, phTitle(p)))));
-    return [line];
+/* ---- 調査した・完了報告（Task 16: 報告書の流れ。手で「調査済み」「完了」にするボタンは無い） ---- */
+// 調査の「調査した」の段: 調査済みの日（報告書の提出で自動）＋ 報告書の2択（作業員にURLを渡す／自社で作る）
+function phSurveyDoneBody(p, docs, errId) {
+  const line = mk('div', 'ph-row ph-done-line');
+  if (p.done_at) line.appendChild(mk('span', 'ph-done', PhaseLogic.fmtMD(p.done_at) + ' 調査済み（報告書の提出）'));
+  else line.appendChild(mk('span', 'ph-sub', '報告書が提出されると、自動で「調査した」になります'));
+  return [line].concat(phReportFlow(p, docs, errId, false));
+}
+// 工事の「完了報告（報告書）」の段: 完了の日（報告書の提出で自動）＋ 2択
+function phWorkDoneBody(p, docs, errId) {
+  const line = mk('div', 'ph-row ph-done-line');
+  if (p.done_at) line.appendChild(mk('span', 'ph-done', PhaseLogic.fmtMD(p.done_at) + ' 完了（報告書の提出）'));
+  else line.appendChild(mk('span', 'ph-sub', '工事が終わったら報告書を作ってください。報告書が提出されると、自動で完了になります'));
+  return [line].concat(phReportFlow(p, docs, errId, false));
+}
+
+// 表の「対応状況」の欄: 今の段階の次にやること（段階は画面の操作から自動で決まる。ここで段階を変えるボタンは無い）
+function phStatusBody(p, st, docs, errId) {
+  const s = ph;
+  const out = [];
+  const hint = t => out.push(mk('div', 'ph-sub ph-st-hint', t));
+  const reportKeys = ['visit', 'waiting', 'write', 'check', 'report'];
+  if (p.kind === 'survey') {
+    if (st.key === 'schedule') {
+      hint('調査日時を決めてください（日時の欄から）。先に報告書の用意をするときは下から');
+    } else if (st.key === 'approval') hint('見積の承諾待ちです（見積の欄から開けます）');
+    else if (st.key === 'payment') hint('入金を待っています（入金日の欄から入金確認）');
+    else if (st.key === 'done') hint('このフェーズは完了しています');
+    if (st.key === 'schedule' || reportKeys.includes(st.key)) out.push(...phReportFlow(p, docs, errId, true));
+    return out;
   }
-  line.appendChild(dBtn(isSurvey ? '調査済みにする' : '完了にする', 'btn sm inline ph-done-btn',
-    b => phRun(b, errId, isSurvey ? '調査済みにする操作' : '完了にする操作', () => PhasesApi.setDone(p, true, phTitle(p)))));
-  return [line, mk('div', 'ph-sub', isSurvey ? '調査に行ったら押してください（間違えたら取り消せます）' : '工事が終わったら押してください（間違えたら取り消せます）')];
+  if (st.key === 'estimate') {
+    hint('このフェーズの見積書を作ってください');
+    out.push(dBtn('＋ 見積書を作る', 'btn sm inline ph-st-est', b => phMakeEstimate(b, p, errId)));
+  } else if (st.key === 'issued' || st.key === 'approval') {
+    hint(st.key === 'issued' ? '見積書は提出（番号付き）済みです。見積書を開いて依頼元に送付してください' : '依頼元からの発注（見積の承諾）を待っています');
+    out.push(dBtn('見積書の一覧へ', 'btn sm ghost inline ph-st-est', () => { location.hash = '#case/' + s.caseId + '/estimates'; }));
+  } else if (st.key === 'schedule') {
+    hint('工事日を決めてください');
+    out.push(dBtn('工事日を入れる', 'btn sm inline ph-st-when', () => { phCloseCell(s); phOpenCell(p, 'when'); }));
+  } else if (st.key === 'work') {
+    hint('工事日を過ぎると「完了報告必要」になります。先に報告書の用意をするときは下から');
+    out.push(...phReportFlow(p, docs, errId, true));
+  } else if (st.key === 'report') {
+    out.push(...phReportFlow(p, docs, errId, true));
+  } else if (st.key === 'bill') hint('報告書は送付済みです。請求の欄から「請求した」を記録してください');
+  else if (st.key === 'payment') hint('入金を待っています（入金日の欄から入金確認）');
+  else if (st.key === 'done') hint('このフェーズは完了しています');
+  return out;
+}
+
+// 報告書の流れ（このフェーズの報告書の状態に合わせて出す）
+//   報告書なし → 2択「作業員にURLを渡す」「自社で作る」
+//   下書き（URLなし）→ 開いて書く／作業員にURLを渡す（この下書きに URL を発行）
+//   作業員が入力中（URLあり）→ 🟡 ○○ 様が入力中。発行した直後なら URL と送る文面のコピー
+//   提出済み・確認済み → 開く（contact = true なら 報告連絡 の行も。詳細ページは下の「報告書」の段に出る）
+function phReportFlow(p, docs, errId, contact) {
+  const s = ph;
+  const out = [];
+  const box = mk('div', 'ph-flow');
+  box.dataset.phaseId = p.id;
+  const reps = docs.reports;
+  const issued = s.issued.get(p.id);
+  const sent = reps.find(r => r.status === 'sent');
+  const confirmed = reps.find(r => r.status === 'confirmed');
+  const submitted = reps.find(r => r.status === 'submitted');
+  const waiting = reps.find(r => r.status === 'draft' && r.share_active);
+  const draft = reps.find(r => r.status === 'draft' && !r.share_active);
+  const open = (r, label) => dBtn(label, 'btn sm ghost inline ph-flow-open', () => { location.hash = '#report/' + r.id; });
+  if (issued) box.appendChild(phIssuedEl(p, issued));
+  const done = sent || confirmed || submitted;
+  if (done) {
+    box.dataset.state = done.status;
+    const line = mk('div', 'ph-row');
+    line.appendChild(mk('span', 'ph-sub', done.status === 'sent' ? '報告書は送付済みです'
+      : done.status === 'confirmed' ? '報告書は確認済みです。依頼元に送ってください'
+        : '報告書が提出されました（' + (done.submitted_at ? PhaseLogic.fmtMD(done.submitted_at) + '・' : '') + (done.worker_name || '社内') + '）。'
+          + (done.submitted_via === 'share' ? '内容を確認してください' : '依頼元に送ってください')));
+    line.appendChild(open(done, done.status === 'submitted' && done.submitted_via === 'share' ? '報告書を開いて確認' : '報告書を開く'));
+    box.appendChild(line);
+    if (contact && done.status !== 'sent') {
+      const rc = phReportContactEl(done, PhaseLogic.docTrack(done, docs.mails), errId);
+      if (rc) box.appendChild(rc);
+    } else if (done.status !== 'sent') box.appendChild(mk('div', 'ph-sub', '下の「報告書」の段から確認して報告連絡できます'));
+  } else if (waiting) {
+    box.dataset.state = 'waiting';
+    const sh = (s.data.shares || []).find(x => x.report_id === waiting.id && ReportsApi.shareActive(x));
+    const who = (sh && sh.vendor_name) || waiting.worker_name || '作業員';
+    const line = mk('div', 'ph-row');
+    line.appendChild(mk('span', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + who + ' 様が入力中です（調査報告待ち・URL発行 ' + (sh ? PhaseLogic.fmtMD(sh.created_at) : '') + '）'));
+    box.appendChild(line);
+    if (!issued) {
+      box.appendChild(mk('div', 'ph-sub', 'URLは発行した直後にしか表示できません。分からなくなったら「協力業者URLの一覧」で無効にして、もう一度渡してください'));
+      box.appendChild(dBtn('協力業者URLの一覧', 'linkbtn ph-flow-shares', () => { location.hash = '#case/' + s.caseId + '/share'; }));
+    }
+  } else if (draft) {
+    box.dataset.state = 'draft';
+    box.appendChild(mk('div', 'ph-sub', '報告書の下書きがあります（提出すると次へ進みます）'));
+    const acts = mk('div', 'ph-flow-acts');
+    acts.appendChild(open(draft, '報告書を開いて書く'));
+    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('作業員にURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
+    box.appendChild(acts);
+    if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, draft, errId));
+  } else {
+    box.dataset.state = 'none';
+    if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, null, errId));
+    else {
+      const acts = mk('div', 'ph-flow-acts ph-flow-choice');
+      const a = dBtn('作業員にURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
+      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。作業員がスマホで入力・提出します'));
+      const b = dBtn('自社で作る', 'ph-choice ph-flow-self', btn => phMakeReport(btn, p, errId));
+      b.appendChild(mk('span', 'ph-choice-sub', '報告書を作って編集画面を開きます'));
+      acts.append(a, b);
+      box.appendChild(acts);
+    }
+  }
+  out.push(box);
+  return out;
+}
+function phShareOpen(p) {
+  const s = ph;
+  if (!phAlive(s)) return;
+  s.shareForm.add(p.id);
+  phMsg('ph-err-' + p.id, '');
+  phDraw();
+  const el = s.root.querySelector('.ph-flow[data-phase-id="' + p.id + '"] .ph-share-name');
+  if (el) { if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); el.focus({ preventScroll: true }); }
+}
+// 作業員の名前（URLの宛名）を入れて発行。入力のある欄なので × とキャンセルでだけ閉じる
+function phShareForm(p, existing, errId) {
+  const s = ph;
+  const form = mk('div', 'ph-form ph-share-form');
+  const id = 'ph-share-name-' + p.id;
+  const lb = mk('label', 'ph-lbl', '作業員の名前（URLの宛名）');
+  lb.htmlFor = id;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.id = id;
+  inp.className = 'ph-share-name';
+  inp.maxLength = 60;
+  inp.autocomplete = 'off';
+  inp.placeholder = '例：山本設備';
+  const m = phMembers().find(x => x.user_id === p.worker_id);
+  inp.value = (m && m.display_name) || '';
+  form.append(lb, inp);
+  form.appendChild(mk('div', 'ph-sub', 'URLを開いた人は、この報告書の入力・写真の追加・提出だけができます（ログイン不要・期限なし。提出するとURLは使えなくなります）'));
+  const acts = mk('div', 'ph-acts');
+  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline ph-share-cancel', () => { s.shareForm.delete(p.id); phMsg(errId, ''); phDraw(); }));
+  acts.appendChild(dBtn('URLを発行する', 'btn sm inline ph-share-issue', b => phIssueShare(b, p, existing, inp, errId)));
+  form.appendChild(acts);
+  return form;
+}
+function phIssueShare(btn, p, existing, nameEl, errId) {
+  const s = ph;
+  const name = String(nameEl.value || '').trim();
+  if (!name) { phMsg(errId, '作業員の名前を入れてください'); nameEl.focus(); return; }
+  return phRun(btn, errId, 'URLの発行', async () => {
+    let report = existing;
+    let made = false;
+    if (!report) {
+      const f = { work_type: PH_WORK_TYPE[p.kind], worker_name: name, phase_id: p.id, phaseTitle: phTitle(p) };
+      if (p.kind === 'survey') { await phResSettle(); f.init = PhaseLogic.reportInit(phResultOf(p)); }
+      report = await ReportsApi.create(s.caseId, f);
+      made = true;
+    }
+    let res;
+    try { res = await ReportsApi.createShare(report, name, null); }
+    catch (e) {
+      if (made) { try { await ReportsApi.remove(report); } catch (_) { /* 下書きが残るだけ */ } }
+      throw e;
+    }
+    if (!phAlive(s)) return;
+    s.shareForm.delete(p.id);
+    s.issued.set(p.id, { url: res.url, vendor: name,
+      text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url: res.url }) });
+  });
+}
+// 発行した直後の URL（この画面にいる間だけ。token は DB に無いので後からは出せない）
+function phIssuedEl(p, info) {
+  const s = ph;
+  const box = mk('div', 'ph-issued');
+  const hd = mk('div', 'ph-row');
+  hd.appendChild(mk('b', null, info.vendor + ' 様あてのURL'));
+  hd.appendChild(mk('span', 'ph-sp'));
+  hd.appendChild(dBtn('閉じる', 'linkbtn ph-issued-close', () => { s.issued.delete(p.id); phDraw(); }));
+  box.appendChild(hd);
+  const line = mk('div', 'shr-link');
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.readOnly = true;
+  inp.className = 'ph-share-url';
+  inp.value = info.url;
+  inp.setAttribute('aria-label', '発行したURL');
+  inp.addEventListener('focus', () => inp.select());
+  line.appendChild(inp);
+  box.appendChild(line);
+  const status = mk('div', 'shr-ok ph-copy-msg');
+  status.setAttribute('role', 'status');
+  const acts = mk('div', 'ph-flow-acts');
+  acts.appendChild(phCopyBtn('URLをコピー', 'ph-share-copy', info.url, status, () => { inp.focus(); inp.select(); }));
+  acts.appendChild(phCopyBtn('送る文面をコピー', 'ph-share-text', info.text, status, () => {
+    let ta = box.querySelector('.ph-share-msg');
+    if (!ta) {
+      ta = document.createElement('textarea');
+      ta.className = 'ph-share-msg';
+      ta.readOnly = true;
+      ta.rows = 5;
+      ta.value = info.text;
+      ta.setAttribute('aria-label', '送る文面');
+      box.appendChild(ta);
+    }
+    ta.focus();
+    ta.select();
+  }));
+  box.append(acts, status);
+  box.appendChild(mk('div', 'shr-warn', 'このURLは今だけ表示されます。ほかの画面に移る前にコピーして、LINE などで作業員に送ってください'));
+  return box;
+}
+function phCopyBtn(label, cls, text, status, fallback) {
+  return dBtn(label, 'btn sm inline ' + cls, async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('clipboard');
+      await navigator.clipboard.writeText(text);
+      status.textContent = label.replace('をコピー', '') + 'をコピーしました';
+    } catch (e) {
+      fallback();
+      status.textContent = 'コピーできませんでした。選択したので、長押し（またはCtrl+C）でコピーしてください';
+    }
+  });
 }
 
 /* ---- 調査した → 依頼元へ報告連絡（「調査結果のご報告」purpose survey_result の下書き。Task 5b の仕組み） ---- */
@@ -888,6 +1122,11 @@ function phReportsBody(p, docs, errId) {
     if (rc) box.appendChild(rc);
     out.push(box);
   });
+  // 報告書が無いときは「調査した」（工事は「完了報告」）の段の2択から作る。あるときだけ追加の「＋ 報告書を作る」
+  if (!docs.reports.length) {
+    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、作業員にURLを渡すか自社で作ってください'));
+    return out;
+  }
   const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => phMakeReport(btn, p, errId));
   out.push(b);
   return out;

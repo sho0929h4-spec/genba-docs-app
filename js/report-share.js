@@ -1,5 +1,7 @@
 // js/report-share.js — ⑦ 協力業者に報告書の作成を依頼（#case/{id}/share）… openShareScreen(caseId)  （Task 6）
-// 協力業者名・作業区分・期限 → 下書きの報告書を作る（worker_name = 協力業者名）→ URL を発行して表示。
+// 協力業者名・対応フェーズ・作業区分・期限 → 下書きの報告書を作る（worker_name = 協力業者名・phase_id = 選んだフェーズ）→ URL を発行して表示。
+// Task 16: 対応フェーズを選べる（既定は まだ報告書の無いフェーズのうち最初の調査、無ければ完了報告が要る工事）。
+//   選んだフェーズの段階は 🟡 調査報告待ち（工事は 完了報告必要（作業員の入力待ち））になり、提出されると done_at が自動で入る（migration 034）
 // URL（token）は DB に保存されない（ハッシュだけ）。表示できるのは発行直後のこの画面だけ。
 //   画面を離れたら表示中の URL を DOM から消す。一覧は状態だけで、URL は出せない。
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）
@@ -17,6 +19,16 @@ let shrBusy = false;     // 無効化の実行中
 const SHR_DAYS = [['none', '期限なし（提出まで有効）'], ['7', '7日間'], ['14', '14日間'], ['30', '30日間']];
 const shrMD = iso => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : (d.getMonth() + 1) + '/' + d.getDate(); };
 const shrHash = caseId => '#case/' + caseId + '/share';
+const SHR_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // phase-ui.js の PH_WORK_TYPE と同じ
+// 既定のフェーズ: 報告書の無いフェーズのうち、段階が 調査日を決める／調査に行く の調査 → 完了報告必要の工事 → 無し
+function shrDefaultPhase(phases) {
+  const list = (phases || []).filter(p => !(p.reports || []).length);
+  const st = p => PhaseLogic.stage(p, null, new Date()).key;
+  const a = list.find(p => p.kind === 'survey' && (st(p) === 'schedule' || st(p) === 'visit'));
+  if (a) return a.id;
+  const b = list.find(p => p.kind !== 'survey' && st(p) === 'report');
+  return b ? b.id : '';
+}
 
 function openShareScreen(caseId) {
   if (!caseId) return;
@@ -91,17 +103,30 @@ function buildShare() {
   vendor.maxLength = 60;
   vendor.autocomplete = 'off';
   vendor.placeholder = '例：山本設備';
-  const type = edSelect('shr-type', Object.entries(ReportLogic.WORK_TYPE_LABEL), 'investigate', () => {});
+  const phases = (shrSummary.phases || []);
+  const count = {};
+  const phOpts = [['', '（フェーズに付けない）']].concat(phases.map(p => {
+    count[p.kind] = (count[p.kind] || 0) + 1;
+    return [p.id, PhaseLogic.phaseTitle(p, p.seq != null ? p.seq : count[p.kind])];
+  }));
+  const ph0 = shrDefaultPhase(phases);
+  const p0 = phases.find(p => p.id === ph0);
+  const type = edSelect('shr-type', Object.entries(ReportLogic.WORK_TYPE_LABEL), p0 ? SHR_WORK_TYPE[p0.kind] : 'investigate', () => {});
+  const phaseSel = edSelect('shr-phase', phOpts, ph0, v => {
+    const p = phases.find(x => x.id === v);
+    if (p) type.value = SHR_WORK_TYPE[p.kind];
+  });
   const days = edSelect('shr-days', SHR_DAYS, 'none', () => {});
   const form = mk('div');
   form.style.marginTop = '10px';
   form.appendChild(edField('協力業者名 *', vendor));
+  form.appendChild(edField('対応フェーズ', phaseSel));
   const g2 = mk('div', 'rep-g2');
   g2.append(edField('作業区分', type), edField('有効期限', days));
   form.appendChild(g2);
   card.appendChild(form);
 
-  const issue = dBtn('URLを発行する', 'btn', b => onShareIssue(b, caseId, vendor, type, days));
+  const issue = dBtn('URLを発行する', 'btn', b => onShareIssue(b, caseId, vendor, type, days, phaseSel, phOpts));
   issue.id = 'shr-issue';
   card.appendChild(issue);
   const err = mk('div', 'err');
@@ -132,7 +157,7 @@ function buildShare() {
 }
 
 /* ---- 発行 ---- */
-function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl) {
+function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl, phaseEl, phOpts) {
   const name = vendorEl.value.trim();
   setMsg('shr-err', '');
   if (!name) { setMsg('shr-err', '協力業者名を入力してください'); vendorEl.focus(); return; }
@@ -140,7 +165,12 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl) {
     $('shr-result').replaceChildren();
     let report;
     try {
-      report = await ReportsApi.create(caseId, { work_type: typeEl.value, worker_name: name });
+      const f = { work_type: typeEl.value, worker_name: name };
+      if (phaseEl && phaseEl.value) {
+        f.phase_id = phaseEl.value;
+        f.phaseTitle = (phOpts.find(o => o[0] === phaseEl.value) || [])[1] || '';
+      }
+      report = await ReportsApi.create(caseId, f);
     } catch (e) {
       setMsg('shr-err', '報告書を作成できませんでした: ' + errText(e));
       return;
@@ -242,7 +272,8 @@ function renderShareList() {
     top.append(mk('b', null, sh.vendor_name + ' 様'), mk('span', 'rep-pill ' + pill, label));
     row.appendChild(top);
     const wt = rep ? (ReportLogic.WORK_TYPE_LABEL[rep.work_type] || rep.work_type) : '（報告書なし）';
-    row.appendChild(mk('div', 'rep-sub', wt + ' ・ 発行 ' + repStamp(sh.created_at) +
+    const php = rep && rep.phase_id && shrSummary ? (shrSummary.phases || []).find(p => p.id === rep.phase_id) : null;
+    row.appendChild(mk('div', 'rep-sub', (php ? PhaseLogic.phaseTitle(php) + ' ・ ' : '') + wt + ' ・ 発行 ' + repStamp(sh.created_at) +
       (sh.submitted_at ? ' ・ 提出 ' + repStamp(sh.submitted_at) : '')));
     if (active) {
       const acts = mk('div', 'rep-acts');

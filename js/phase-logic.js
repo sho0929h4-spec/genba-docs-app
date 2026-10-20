@@ -6,7 +6,8 @@
 //   { id, kind, seq, scheduled_at, scheduled_end, done_at, bill_to_type, bill_to_name, billing_mode, billing_month,
 //     billed_at, paid_at, amount_override, estimates: [...], reports: [...] }
 //   estimates の要素 { id, series_id, version, status, total, accepted, sent_at, accepted_at, sent_version, sent_total }
-//   reports の要素   { id, work_type, status, sent, sent_at }
+//   reports の要素   { id, work_type, status, sent, sent_at, submitted_at, submitted_via, share_active }
+//     （034: share_active = 協力業者URLが使える＝作業員が入力中。035: submitted_via = member（社内）/ share（協力業者URL））
 // 見積・報告書は estimates / reports 表の行そのもの（全版）を渡してもよい（superseded を除いて同じ判定になる）。
 (function (root) {
   const KINDS = [
@@ -21,19 +22,25 @@
 
   // 段階の並び（カードのステップ表示用）。stage().key はこのどれか
   const STEPS = {
+    // Task 16: 「調査済みにする」は無い。報告書の流れ（URLを渡す→作業員が提出／自社で書く→提出）で進む
     survey: [
       { key: 'schedule', label: '調査日を決める' },
       { key: 'visit', label: '調査に行く' },
+      { key: 'waiting', label: '調査報告待ち' },
+      { key: 'write', label: '報告書を書く' },
+      { key: 'check', label: '報告書を確認する' },
       { key: 'report', label: '報告書を送る' },
       { key: 'approval', label: '見積の承諾待ち' },
       { key: 'done', label: '完了' }
     ],
+    // 工事は 7 つの段階（2026-10-20 ユーザー指示。手で段階を変えるボタンは無く、画面の操作から自動で決まる）
     work: [
-      { key: 'estimate', label: '見積を送る' },
-      { key: 'approval', label: '見積の承諾待ち' },
-      { key: 'schedule', label: '工事日を決める' },
-      { key: 'work', label: '工事' },
-      { key: 'report', label: '報告書を送る' },
+      { key: 'estimate', label: '見積書作成必要' },
+      { key: 'issued', label: '見積書提出済み' },
+      { key: 'approval', label: '発注待ち' },
+      { key: 'schedule', label: '受注後日程調整必要' },
+      { key: 'work', label: '工事待ち' },
+      { key: 'report', label: '完了報告必要' },
       { key: 'bill', label: '請求する' },
       { key: 'payment', label: '入金待ち' },
       { key: 'done', label: '済' }
@@ -133,6 +140,22 @@
       reports: listOf(d.reports != null ? d.reports : phase && phase.reports)
     };
   }
+  // 報告書の進み具合（一番進んでいるもの）→ { state: 'sent'|'confirmed'|'submitted'|'waiting'|'draft'|null, report, date }
+  //   waiting = 下書きで協力業者URLが使える（作業員が入力中）。date は提出日（submitted / confirmed）。
+  //   submitted は 作業員がURLから提出したもの（確認が要る）だけ。社内で書いて提出したものは confirmed と同じ扱い（そのまま送れる）
+  const REPORT_RANK = { draft: 1, waiting: 2, submitted: 3, confirmed: 4, sent: 5 };
+  function reportState(reports) {
+    let best = { state: null, report: null, date: null };
+    for (const r of listOf(reports)) {
+      const st = isReportSent(r) ? 'sent' : r.status === 'confirmed' ? 'confirmed'
+        : r.status === 'submitted' ? (r.submitted_via === 'share' ? 'submitted' : 'confirmed')
+        : r.share_active ? 'waiting' : 'draft';
+      if (!best.state || REPORT_RANK[st] > REPORT_RANK[best.state]) best = { state: st, report: r, date: r.submitted_at || null };
+    }
+    return best;
+  }
+  // 工事の「完了報告必要」の括弧の補足（報告書の状態）
+  const WORK_REPORT_NOTE = { draft: '（報告書 下書き）', waiting: '（作業員の入力待ち）', submitted: '（報告書 提出済み・確認する）', confirmed: '（報告書 送付する）' };
   // 送付済みで承諾されていない見積（最新の版が sent）。日付は一番新しい送付日
   function pendingApproval(estimates) {
     const pend = liveEstimates(estimates).filter(e => e.status === 'sent');
@@ -156,21 +179,30 @@
   }
 
   // フェーズの今の段階 → { key, label, ball: 'us'|'them'|null, date, late? }
-  //   調査: 日時未定 → 日時決定・未実施 → 調査済み・報告書未送付 → 見積が送付済みで未承諾 → 完了
-  //   工事: 見積未送付 → 承諾待ち → 工事日未定 → 未完了 → 報告書未送付 → 未請求 → 入金待ち → 済
-  //   工事は 入金・請求・完了 の記録を先に見る（記録があれば前の段は済んだものとする。旧 対応履歴から移したフェーズは見積が無いため）
+  //   調査（Task 16）: 報告書の状態を先に見る。送付前は
+  //     確認済み（🔴 報告書を送る）＞ 提出済み（🔴 報告書を確認する）＞ URL発行済み・未提出（🟡 調査報告待ち）＞ 下書き（🔴 報告書を書く）＞
+  //     報告書なし: 調査済み（旧データ。🔴 報告書を送る）／日時未定（🔴 調査日を決める）／日時決定（🔴 M/D H:MM 調査に行く）
+  //     送付後 → 見積が送付済みで未承諾（🟡 見積の承諾待ち）→ 入金待ち → 完了
+  //   工事（2026-10-20 の7段階）: 1 見積書作成必要 🔴 → 2 見積書提出済み（送付する）🔴 → 3 発注待ち 🟡 → 4 受注後日程調整必要 🔴 →
+  //     5 工事待ち（M/D）🟡 → 6 完了報告必要 🔴（工事日を過ぎた or done_at。報告書の状態を括弧で補足）→ 7 請求する 🔴 → 入金待ち 🟡 → 済
+  //   工事は 入金・請求・報告書の送付・完了 の記録を先に見る（記録があれば前の段は済んだものとする。旧 対応履歴から移したフェーズは見積が無いため）
   function stage(phase, docs, now) {
     const p = phase || {};
     const { estimates, reports } = docsOf(p, docs);
     const nowAt = toDate(now) || new Date();
-    const reportSent = reports.some(isReportSent);
+    const rs = reportState(reports);
+    const reportSent = rs.state === 'sent';
     if (p.kind === 'survey') {
-      if (!p.done_at) {
+      if (!reportSent) {
+        if (rs.state === 'confirmed') return mkStage('report', '報告書を送る', 'us', p.done_at || rs.date);
+        if (rs.state === 'submitted') return mkStage('check', '報告書を確認する', 'us', rs.date || p.done_at);
+        if (rs.state === 'waiting') return mkStage('waiting', '調査報告待ち', 'them', null);
+        if (rs.state === 'draft') return mkStage('write', '報告書を書く', 'us', null);
+        if (p.done_at) return mkStage('report', '報告書を送る', 'us', p.done_at);
         if (!p.scheduled_at) return mkStage('schedule', '調査日を決める', 'us', null);
         return mkStage('visit', `${fmtMDHM(p.scheduled_at)} 調査に行く`, 'us', p.scheduled_at,
           { late: isLate(p.scheduled_at, nowAt) });
       }
-      if (!reportSent) return mkStage('report', '報告書を送る', 'us', p.done_at);
       const pend = pendingApproval(estimates);
       if (pend) return mkStage('approval', '見積の承諾待ち', 'them', pend.date);
       // 調査費用を請求して入金待ち（精算の段。Task 7）
@@ -180,18 +212,20 @@
     if (isWork(p.kind)) {
       if (p.paid_at) return mkStage('done', '済', null, p.paid_at);
       if (p.billed_at) return paymentStage(p, nowAt);
-      if (p.done_at) {
-        if (!reportSent) return mkStage('report', '報告書を送る', 'us', p.done_at);
-        return mkStage('bill', '請求する', 'us', p.done_at);
-      }
+      if (reportSent) return mkStage('bill', '請求する', 'us', p.done_at || rs.report.sent_at);
+      const workReport = () => mkStage('report', '完了報告必要' + (WORK_REPORT_NOTE[rs.state] || ''), 'us', p.done_at || p.scheduled_at,
+        { report: rs.state });
+      if (p.done_at) return workReport();
       if (!liveEstimates(estimates).some(isAccepted)) {
         const pend = pendingApproval(estimates);
-        if (pend) return mkStage('approval', '見積の承諾待ち', 'them', pend.date);
-        return mkStage('estimate', '見積を送る', 'us', null);
+        if (pend) return mkStage('approval', '発注待ち', 'them', pend.date);
+        if (liveEstimates(estimates).some(e => e.status === 'issued')) return mkStage('issued', '見積書提出済み（送付する）', 'us', null);
+        return mkStage('estimate', '見積書作成必要', 'us', null);
       }
-      if (!p.scheduled_at) return mkStage('schedule', '工事日を決める', 'us', null);
-      return mkStage('work', `${fmtMD(p.scheduled_at)} 工事`, 'us', p.scheduled_at,
-        { late: isLate(p.scheduled_at, nowAt) });
+      if (!p.scheduled_at) return mkStage('schedule', '受注後日程調整必要', 'us', null);
+      // 工事日（終わりの日があればその日）の当日までは 工事待ち、過ぎたら 完了報告必要
+      if (isLate(p.scheduled_end && ms(p.scheduled_end) > ms(p.scheduled_at) ? p.scheduled_end : p.scheduled_at, nowAt)) return workReport();
+      return mkStage('work', `工事待ち（${fmtMD(p.scheduled_at)}）`, 'them', p.scheduled_at);
     }
     return mkStage('unknown', '', null, null);
   }
@@ -218,6 +252,8 @@
   function nextText(row) {
     if (!row) return '';
     if (row.key === 'approval' && row.date) return `${row.label}（${fmtMD(row.date)} 送付）`;
+    if (row.key === 'check' && row.date) return `${row.label}（提出 ${fmtMD(row.date)}）`;
+    if (row.key === 'report' && row.kind !== 'survey') return row.label; // 工事の「完了報告必要」は括弧の補足だけ
     if ((row.key === 'report' || row.key === 'bill') && row.date) {
       return `${row.label}（${row.kind === 'survey' ? '調査' : '完了'} ${fmtMD(row.date)}）`;
     }
@@ -1125,7 +1161,7 @@
   // docs: { estimates（全版可）, reports, mails（このフェーズの mail_drafts） }（省略時は phase.estimates / phase.reports）、now
   //   → { id, kind, title, when, stage, short, report, estimate, bill, payment, worker, brief }
   //     when: { at, end, text: '10/20 9:00' | '未定' } / stage: stage() の値 / short: 表のセル向けの短い段階 '🔴 調査に行く' '🟡 承諾待ち 2日' '✓ 完了'
-  //     report: { state: 'none'|'draft'|'submitted'|'confirmed'|'shared'|'viewed', text, date } / estimate: { state: 'none'|'draft'|'sent'|'accepted', text, version, amount }
+  //     report: { state: 'none'|'draft'|'waiting'|'submitted'|'confirmed'|'shared'|'viewed', text, date } / estimate: { state: 'none'|'draft'|'sent'|'accepted', text, version, amount }
   //     bill: { state: 'unbilled'|'billed'|'paid', text } / payment: { state: 'none'|'due'|'overdue'|'paid', text } / worker: workerState() / brief: 指示があるか
   function phaseRow(phase, seq, docs, now) {
     const p = phase || {};
@@ -1136,21 +1172,23 @@
     const mails = listOf(d.mails);
     const st = stage(p, { estimates, reports }, nowAt);
     const days = st.date ? Math.max(0, Math.round((ms(jstYmd(nowAt)) - ms(jstYmd(st.date))) / 86400000)) : 0;
-    const shortLabel = st.key === 'visit' ? '調査に行く' : st.key === 'work' ? '工事' :
-      st.key === 'approval' ? `承諾待ち${st.date && days ? ` ${days}日` : ''}` : st.label;
+    const shortLabel = st.key === 'visit' ? '調査に行く' : st.key === 'issued' ? '見積書提出済み' :
+      st.key === 'report' && isWork(p.kind) ? '完了報告必要' :
+      st.key === 'approval' ? `${isWork(p.kind) ? '発注待ち' : '承諾待ち'}${st.date && days ? ` ${days}日` : ''}` : st.label;
     const short = st.ball ? `${MARK[st.ball]} ${shortLabel}` : `✓ ${st.label}`;
-    // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 下書き）
-    const rank = { draft: 0, submitted: 1, confirmed: 2, shared: 3, viewed: 4 };
+    // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 作業員が入力中 > 下書き）
+    const rank = { draft: 0, waiting: 1, submitted: 2, confirmed: 3, shared: 4, viewed: 5 };
     let report = { state: 'none', text: '未作成', date: null };
     for (const r of reports) {
       const t = docTrack(r, mails);
       const shared = t.steps.find(x => x.key === 'shared');
       const seen = t.steps.find(x => x.key === 'confirmed');
-      const s = seen && seen.done ? 'viewed' : shared && shared.done ? 'shared' : r.status === 'confirmed' ? 'confirmed' : r.status === 'submitted' ? 'submitted' : 'draft';
+      const s = seen && seen.done ? 'viewed' : shared && shared.done ? 'shared' : r.status === 'confirmed' ? 'confirmed' : r.status === 'submitted' ? 'submitted'
+        : r.share_active ? 'waiting' : 'draft';
       const date = s === 'viewed' ? seen.date : s === 'shared' ? shared.date : null;
       if (report.state === 'none' || rank[s] > rank[report.state]) {
         report = { state: s, date, text: s === 'viewed' ? `確認 ${fmtMD(date)}` : s === 'shared' ? `共有${date ? ' ' + fmtMD(date) : ''}`
-          : s === 'confirmed' ? '確認済み' : s === 'submitted' ? '提出済み' : '下書き' };
+          : s === 'confirmed' ? '確認済み' : s === 'submitted' ? '提出済み' : s === 'waiting' ? '作業員が入力中' : '下書き' };
       }
     }
     // 見積: 最新の版（承諾があればそれ）
@@ -1204,10 +1242,22 @@
     return { us, them, next, text: `${MARK.us} 自社の番 ${us}件 ・ ${MARK.them} 相手待ち ${them}件 ・ ${tail}` };
   }
 
+  // 作業員に報告書のURLを渡すときの文面（「送る文面をコピー」。LINE 等に貼る）
+  //   { phase, caseRow, org, url } → '○○設備です。△△マンション 101号室の調査の報告書の入力をお願いします。…\nURL'
+  function shareRequestText({ phase, caseRow, org, url }) {
+    const p = phase || {}, c = caseRow || {};
+    const place = placeName(c);
+    const lines = [`${str(org && org.name) ? str(org.name) + 'です。' : ''}${place ? place + 'の' : ''}${kindLabel(p.kind) || '作業'}の報告書の入力をお願いします。`];
+    if (p.scheduled_at) lines.push(`${p.kind === 'survey' ? '調査日時' : '工事日'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    lines.push('下のURLを開くと、ログインなしで報告書の入力・写真の追加・提出ができます（提出するとURLは使えなくなります）。');
+    lines.push(String(url || ''));
+    return lines.join('\n');
+  }
+
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, caseNext, nextText, caseFlags, teamStages, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    phaseTitle, stage, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     BRIEF_SUSPECTS, BRIEF_PRIORITY, BRIEF_HEADS, normalizeBrief, briefLines, hasBrief, briefSummary, setBriefSection, STAFF_TAILS,
