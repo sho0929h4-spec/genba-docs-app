@@ -183,11 +183,34 @@ function edBuild(s) {
 
   if (s.lock) {
     const d = s.lock.expires_at ? new Date(s.lock.expires_at) : null; // 期限なしは null
-    const box = mk('div', 'rep-ro', s.lock.vendor_name + '様が入力中' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '') + '。編集するにはURLを無効にしてください ');
+    const box = mk('div', 'rep-ro', '');
     box.id = 'rp-lock';
+    box.appendChild(mk('b', null, s.lock.vendor_name + '様（作業員）がこの報告書を入力中です' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '')));
+    box.appendChild(mk('div', null, '作業員に渡したURLが有効なあいだは、入力が重ならないようにここでは編集できません。作業員が提出すると編集できるようになります。'));
+    box.appendChild(mk('div', null, '自分で入力する場合は、URLを取り消してください（作業員はそのURLで続きを入力できなくなります）。'));
+    const act = mk('div', 'rep-lock-act');
+    const rv = mk('button', 'btn sm', 'URLを取り消して自分で入力する');
+    rv.type = 'button'; rv.id = 'rp-lock-revoke';
     const a = mk('a', null, '協力業者URLの管理へ');
     a.href = '#case/' + s.report.case_id + '/share';
-    box.appendChild(a);
+    act.appendChild(rv); act.appendChild(a);
+    box.appendChild(act);
+    rv.addEventListener('click', () => {
+      // 画面内の確認（confirm() は使わない）
+      act.replaceChildren();
+      act.appendChild(mk('span', null, s.lock.vendor_name + '様のURLを取り消します。よろしいですか？'));
+      const ok = mk('button', 'btn sm', '取り消して編集する'); ok.type = 'button'; ok.id = 'rp-lock-revoke-ok';
+      const no = mk('button', 'btn sm ghost', 'やめる'); no.type = 'button';
+      act.appendChild(ok); act.appendChild(no);
+      no.addEventListener('click', () => { act.replaceChildren(rv, a); });
+      ok.addEventListener('click', async () => {
+        ok.disabled = true; no.disabled = true;
+        try { await ReportsApi.revokeShare(s.lock.id); }
+        catch (e) { ok.disabled = false; no.disabled = false; act.appendChild(mk('div', 'err', 'URLを取り消せませんでした: ' + errText(e))); return; }
+        if (!s.alive()) return;
+        openReport(s.id); // 取り消し後は読み込み直して編集できる状態に（端末に退避した入力があれば復元される）
+      });
+    });
     nodes.push(box);
   } else if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status) + '」のため、内容は変更できません（読み取り専用）'));
 
