@@ -419,7 +419,7 @@ function mlComposeCard(s) {
   const card = mk('div', 'rep-card');
   const head = mk('div', 'rep-between');
   head.style.marginBottom = '10px';
-  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + ML_NOTE_TITLE[s.draft.purpose] : '✉ 依頼者へ送るメール') + (s.ro ? '' : '（下書き）')));
+  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + ML_NOTE_TITLE[s.draft.purpose] : '✉ 依頼元へ送るメール') + (s.ro ? '' : '（下書き）')));
   head.appendChild(mk('span', 'rep-pill ' + (s.ro ? 'p-ok' : 'p-sent'), s.ro ? '送付済み' : '自動作成'));
   card.appendChild(head);
   if (mlIsNote(s)) {
@@ -531,7 +531,10 @@ async function mlLoadPdfLink(s) {
 
 async function mlRevokePdf(s) {
   if (!s.pdf || s.pdf.busy || s.pdf.kind !== 'alive' || !mlAlive(s)) return;
-  if (!confirm('このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。' + mlDoc(s) + 'そのものは消えません）。\n反映まで数分〜1時間ほどかかる場合があります。')) return;
+  // 画面内の確認（confirm() は使わない。Task 23 M6）
+  const ok = await askInline($('ml-pdflink'), 'このメールのPDFリンクを無効にしますか？\n無効にすると、メールを受け取った人はPDFを開けなくなります（元に戻せません。' + mlDoc(s) + 'そのものは消えません）。\n反映まで数分〜1時間ほどかかる場合があります。',
+    { okLabel: '無効にする', danger: true, id: 'ml-ask' });
+  if (!ok || !s.pdf || s.pdf.busy || s.pdf.kind !== 'alive' || !mlAlive(s)) return;
   s.pdf.busy = true; s.pdf.err = '';
   mlFillPdfLink(s, $('ml-pdflink'));
   try {
@@ -665,7 +668,7 @@ async function mlLeave(s, hash) {
     s.busy = false;
     if (ml !== s) return;
     mlSyncBusy(s);
-    if (mlPending(s) && !confirm('保存できていない入力があります。このまま戻りますか？')) return;
+    if (mlPending(s) && !(await askInline($('mail-bar'), '保存できていない入力があります。このまま戻りますか？', { okLabel: 'このまま戻る', prepend: true, id: 'ml-ask' }))) return;
   }
   location.hash = hash;
 }
@@ -723,7 +726,10 @@ async function mlSend(s) {
       // 日程の連絡・リマインドは書類が無いので PDF のリンクは作らない
     } else if (!String(f.body || '').includes(PDF_LINK)) {
       // 本文からリンクの行が消されている → PDFを作らず、リンクなしで開くかどうか確認
-      if (!confirm('本文に「' + PDF_LINK + '」の行がないため、' + mlDoc(s) + 'PDFのリンクはメールに入りません。このまま進みますか？')) return;
+      // 画面内の確認（confirm() は使わない。Task 23 M6）
+      const ok = await askInline($('mail-bar'), '本文に「' + PDF_LINK + '」の行がないため、' + mlDoc(s) + 'PDFのリンクはメールに入りません。このまま進みますか？',
+        { okLabel: 'リンクなしで進む', prepend: true, id: 'ml-ask' });
+      if (!ok || !mlAlive(s)) return;
     } else {
       send.textContent = 'PDFを作成中…';
       try {
@@ -845,6 +851,13 @@ async function mlOpen(id) {
   }
   if (seq !== mlSeq) return;
   if (!draft) { mlMessage('メールの下書きが見つかりません', false); return; }
+  // Task 23 C2: 現場用の画面からは送らない（送付・連絡メールは管理者の操作）。送信ボタンを出さず、戻るだけ
+  if (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) {
+    $('mail-bar').hidden = true;
+    const back = dBtn('‹ 戻る', 'back', () => { if (history.length > 1) history.back(); else location.hash = '#f/case/' + draft.case_id; });
+    $('mail-root').replaceChildren(back, mk('div', 'empty ml-field-note', 'メールは管理者が送ります。現場用の画面からは送れません。伝えたいことは「✉️ 管理者に連絡」から送ってください'));
+    return;
+  }
 
   // 担当者へのメール: 宛名・宛先の作業担当者（フェーズの担当者・社内メンバーのメール）を caseRow に足す
   if (draft.purpose === 'staff_notice' && caseRow) {

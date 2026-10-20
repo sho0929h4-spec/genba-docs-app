@@ -83,6 +83,9 @@ const ReportsApi = (() => {
         worker_id: f.worker_id || null, worker_name: f.worker_name || null, data
       };
       if (f.phase_id) row.phase_id = f.phase_id;
+      // Task 23: 号室・作業日の初期値（PhaseLogic.reportFields。案件の号室・フェーズの日）
+      if (f.room) row.room = String(f.room).slice(0, 40);
+      if (f.work_date && /^\d{4}-\d{2}-\d{2}$/.test(f.work_date)) row.work_date = f.work_date;
       const made = must(await sb.from('reports').insert(row).select().single());
       await logSystem(caseId, () => `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`);
       return made;
@@ -168,10 +171,26 @@ const ReportsApi = (() => {
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
       await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を提出した`);
+      await api.syncSurveyResult(row);
       // Task 20: 調査の「次の対応方針」が原因元工事（＋見積書提案期日）なら、原因元工事フェーズの作成・estimate_due・タイムラインの記録は
       // DB のトリガー（migration 037 reports_next_action）が同じ更新の中で行う（share_submit と同じ処理。期日が無ければ DB も提出を拒否する）
       // 次やること（case_actions）への「報告書を確認する」の追加はやめた（対応フェーズ。確認待ちは報告書の状態 submitted で分かる）
       return row;
+    },
+    // Task 23 I10（原因の二重入力）: 調査の報告書の 原因・原因と判断した理由・次の対応方針 の文で、その調査フェーズの「調査結果」の
+    //   空の項目だけ埋め、「調査結果のご報告」の未送信の下書きも作り直す（PhasesApi.saveResult）。失敗しても提出・確認は止めない
+    async syncSurveyResult(report) {
+      try {
+        if (!report || report.work_type !== 'investigate' || !report.phase_id || typeof PhasesApi === 'undefined') return null;
+        const ph = must(await sb.from('case_phases').select('id, case_id, kind, result, scheduled_at, done_at').eq('id', report.phase_id).maybeSingle());
+        if (!ph || ph.kind !== 'survey') return null;
+        const d = RL().normalizeData(report.data);
+        const next = window.PhaseLogic.resultFromReport(ph.result, { cause: RL().causeText(d), reason: d.reason, next: RL().nextActionText(d) });
+        if (!next) return null;
+        const caseRow = (typeof CasesApi !== 'undefined' && await CasesApi.getSummary(report.case_id)) || { id: report.case_id };
+        const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
+        return await PhasesApi.saveResult(ph, next, caseRow, window.PhaseLogic.phaseTitle(ph, seq));
+      } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
     },
     // 確認済みにして、依頼者への送付メール下書きを作って返す
     async confirm(report, caseRow) {
@@ -180,6 +199,7 @@ const ReportsApi = (() => {
         .eq('id', report.id).eq('status', 'submitted').select());
       if (!rows || rows.length === 0) throw new Error('確認待ちの報告書ではありません');
       const row = rows[0];
+      await api.syncSurveyResult(row); // 協力業者URLから提出された報告書は、確認したときに調査結果へ写す（Task 23 I10）
       let draft, draftErr;
       try { draft = await api.createDraft(row, caseRow); }
       catch (e) { draftErr = e; }
@@ -348,7 +368,7 @@ const ReportsApi = (() => {
       }
       const note = NOTE_PURPOSES.includes(row.purpose);
       if (!opts.skipLog) await logSystem(row.case_id, () => (note && opts.logText) ? opts.logText
-        : `${note ? '連絡メールを送った' : '依頼者へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
+        : `${note ? '連絡メールを送った' : '依頼元へ送付した'}（宛先: ${row.to_email || '未入力'}／件名: ${row.subject || '（なし）'}）`);
       return row;
     }
   };

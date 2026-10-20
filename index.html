@@ -682,6 +682,39 @@
   /* ===== TASKS（やること #tasks。Task 17） ===== */
   #screen-tasks [hidden],#case-tasks[hidden]{display:none !important;}
   .rep-banner.tasks{border-color:#9fd3ad;background:#eaf6ee;color:#166534;}
+  /* 現場からの連絡（Task 23。#messages・現場用の #f/contact・「＋ 連絡する」のシート） */
+  #case-chip-hint[hidden]{display:none !important;}
+  .chip-hint{margin:-4px 0 10px;}
+  #case-messages[hidden],#screen-messages [hidden],.sm-sheet [hidden]{display:none !important;}
+  #messages-root > .back{min-height:36px;margin-bottom:6px;}
+  .rep-banner.msgs{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8;}
+  .sm-list{display:grid;gap:10px;}
+  .sm-thread{background:#fff;border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:grid;gap:8px;min-width:0;}
+  .sm-thread.unread{border-color:#60a5fa;box-shadow:0 0 0 1px #60a5fa inset;}
+  .sm-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;}
+  .sm-msg{display:grid;gap:4px;min-width:0;}
+  .sm-msg.reply{border-left:3px solid var(--border);padding-left:10px;margin-left:4px;}
+  .sm-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:13px;}
+  .sm-at{color:var(--muted);}
+  .sm-new{background:#1d4ed8;color:#fff;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:700;}
+  .sm-read{color:var(--muted);font-size:12px;}
+  .sm-subj{font-weight:700;font-size:15px;overflow-wrap:anywhere;}
+  .sm-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;}
+  .sm-photos{display:flex;flex-wrap:wrap;gap:6px;}
+  .sm-photo{width:88px;height:88px;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--bg);}
+  .sm-acts{display:flex;flex-wrap:wrap;gap:8px;}
+  .sm-acts .btn,.sm-reply .btn{min-height:40px;}
+  .sm-reply textarea,.sm-sheet textarea,.sm-sheet input[type=text],.sm-sheet select{width:100%;font-size:16px;font-family:inherit;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;min-height:44px;background:#fff;color:var(--text);}
+  .sm-filter{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px;}
+  .sm-new-btn,#sm-new{min-height:48px;width:100%;}
+  .sm-f{display:grid;gap:4px;margin-top:10px;font-size:13px;font-weight:700;}
+  .sm-subj-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px;}
+  .sm-subj-chips .chip{min-height:40px;}
+  .sm-filerow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;}
+  .sm-filerow .btn,.sm-filerow .linkbtn{min-height:40px;}
+  .cn-msg{border:1.5px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:999px;padding:4px 12px;min-height:36px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+  .fd-contact{width:100%;min-height:48px;}
+  .si-item.message{border-left:4px solid #60a5fa;}
   .tk-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
   .tk-mine{min-height:40px;padding:8px 14px;border:1.5px solid var(--border);border-radius:999px;background:#fff;color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
   .tk-mine.on{border-color:var(--navy2);background:#eef4fc;color:var(--navy);}
@@ -803,6 +836,12 @@
   .rep-ph-empty{padding:10px 0;border-top:1px solid var(--border);}
   .rep-photo-msg{color:var(--muted);font-size:12px;min-height:0;margin-top:4px;}
   .rep-photo-msg.err-on{color:var(--red);}
+  /* 画面内の確認（askInline。Task 23） */
+  .inline-ask{flex-basis:100%;width:100%;background:#fff8e6;border:1.5px solid #f5c26b;border-radius:12px;padding:10px 12px;display:grid;gap:8px;margin:6px 0;color:var(--text);}
+  .inline-ask-t{white-space:pre-wrap;font-size:14px;font-weight:700;overflow-wrap:anywhere;}
+  .inline-ask-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;}
+  .inline-ask-acts .btn{min-height:40px;}
+  .rep-bar{flex-wrap:wrap;}
   .rep-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;justify-content:center;z-index:50;}
   .rep-bar .btn{flex:1;max-width:240px;width:auto;padding:12px 10px;min-height:44px;}
   #screen-share [hidden]{display:none !important;}
@@ -1188,6 +1227,7 @@
   .fd-tool-t b{font-size:17px;}
   .fd-tool-st{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
   .fd-tool[data-state=draft] .fd-tool-st{color:var(--amber);font-weight:700;}
+  .fd-tool[data-state=waiting] .fd-tool-st,.ctool[data-state=waiting] .ctool-st{color:#1d4ed8;font-weight:700;}
   .fd-tool-go{font-size:24px;color:var(--muted);flex:none;}
   .fd-note{font-size:12px;color:var(--muted);border-top:1px dashed var(--border);padding-top:8px;}
   .fd-set{padding:12px 14px;gap:6px;}
@@ -1294,11 +1334,12 @@
       <button class="vt" type="button" data-view="team">チーム状況</button>
       <button class="vt" type="button" data-view="tasks">やること</button>
     </div>
+    <button class="rep-banner msgs" id="case-messages" type="button" hidden></button>
     <button class="rep-banner staff" id="case-staff" type="button" hidden></button>
     <button class="rep-banner" id="case-outbox" type="button" hidden></button>
     <button class="rep-banner tasks" id="case-tasks" type="button" hidden></button>
     <div class="list-top">
-      <input class="search" id="case-search" type="search" placeholder="物件名・現場名・住所・元請けで検索" autocomplete="off">
+      <input class="search" id="case-search" type="search" placeholder="物件名・現場名・住所・元請で検索" autocomplete="off">
       <button class="btn inline" id="case-new-btn" type="button">＋ 新規案件</button>
     </div>
     <div class="chips" id="case-chips">
@@ -1310,6 +1351,7 @@
       <button class="chip" type="button" data-filter="unpaid">💴 入金待ち 0</button>
       <button class="chip" type="button" data-filter="done">完了 0</button>
     </div>
+    <div class="rep-sub chip-hint" id="case-chip-hint" hidden></div>
     <div class="err" id="case-list-msg"></div>
     <div id="case-list"></div>
     <div class="empty" id="case-loading" hidden>読み込み中…</div>
@@ -1329,6 +1371,20 @@
     </div>
   </div>
   <div class="wrap" id="outbox-root"></div>
+</section>
+
+<!-- MESSAGES 現場からの連絡（#messages・#messages/{caseId}。スタッフが現場用から送った連絡と返事。中身は js/staff-messages.js が作る。Task 23） -->
+<section class="screen" id="screen-messages">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧">💴</button>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定">⚙️</button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap" id="messages-root"></div>
 </section>
 
 <!-- INBOX-STAFF 担当者の「確認してください」（#inbox-staff。知らせてもらった予定・明日の予定。中身は js/staff-inbox.js が作る） -->
@@ -1662,7 +1718,7 @@
     <div class="ff"><label for="cm-room">号室 <span class="opt">任意・連絡メールの件名や宛名に入ります</span></label><input type="text" id="cm-room" maxlength="40" placeholder="例: 302" autocomplete="off"></div>
     <div class="cm-sec" id="cm-parties">
       <div class="cm-sec-ttl">依頼元 <span class="opt">あとからでOK</span></div>
-      <div class="ff"><label for="cm-client">元請（管理会社）<span class="opt">元請マスタから選ぶ</span></label>
+      <div class="ff"><label for="cm-client">元請<span class="opt">元請マスタから選ぶ</span></label>
         <div class="cm-client-row"><select id="cm-client"></select><button class="btn sm ghost inline" id="cm-client-add" type="button">＋ 新しい元請</button></div>
         <div class="cm-client-info" id="cm-client-info"></div>
       </div>
@@ -1720,7 +1776,7 @@
       <div class="ff"><label for="set-name">会社名</label><input type="text" id="set-name"></div>
       <div class="ff"><label for="set-address">住所</label><input type="text" id="set-address" placeholder="東京都〇〇区〇〇 1-2-3 〇〇ビル4F"></div>
       <div class="ff"><label for="set-tel">電話番号</label><input type="tel" id="set-tel" placeholder="03-1234-5678"></div>
-      <div class="ff"><label for="set-email">会社のメールアドレス（依頼者への返信先になります）</label><input type="email" id="set-email" placeholder="info@company.co.jp" autocomplete="off"></div>
+      <div class="ff"><label for="set-email">会社のメールアドレス（依頼元への返信先になります）</label><input type="email" id="set-email" placeholder="info@company.co.jp" autocomplete="off"></div>
       <div class="ff"><label for="set-reg">登録番号（インボイス）</label><input type="text" id="set-reg" placeholder="T1234567890123" autocomplete="off" maxlength="20" inputmode="text" spellcheck="false"><div class="set-hint">「T」と13桁の数字。見積書PDFの発行元に載ります（未登録なら空のまま）</div></div>
       <div class="ff"><label for="set-margin">利益率の既定値（%）</label><input type="text" id="set-margin" placeholder="例：20" autocomplete="off" maxlength="6" inputmode="decimal"><div class="set-hint">業者の見積PDFを読み込んだとき、販売金額 = 原価 ×（1 ＋ 利益率÷100）で計算します。見積ごとに変えられます（空なら 0%）</div></div>
       <div class="save-bar"><button class="btn" type="button" id="set-save">保存する</button></div>
@@ -1728,7 +1784,7 @@
     </div>
     <div class="card" id="card-clients">
       <div class="card-ttl">元請マスタ</div>
-      <p class="set-hint cl-lead">管理会社・元請の一覧です。案件の登録では、元請をこの一覧から選びます。請求を「単発（案件ごと）」にするか「月ごと（1か月分をまとめて）」にするかを元請ごとに決めておけます。社内の誰でも追加・編集できます。</p>
+      <p class="set-hint cl-lead">元請の一覧です。案件の登録では、元請をこの一覧から選びます。請求を「単発（案件ごと）」にするか「月ごと（1か月分をまとめて）」にするかを元請ごとに決めておけます。社内の誰でも追加・編集できます。</p>
       <div id="cl-list"></div>
       <button class="btn ghost cl-add" type="button" id="cl-add-btn">＋ 元請を追加</button>
       <div class="cl-form" id="cl-form" hidden>
@@ -1773,61 +1829,63 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=ee91420"></script>
-<script src="js/supabase-config.js?v=ee91420"></script>
-<script src="js/supabase.js?v=ee91420"></script>
-<script src="js/auth.js?v=ee91420"></script>
-<script src="js/storage.js?v=ee91420"></script>
-<script src="js/quota.js?v=ee91420"></script>
-<script src="js/case-logic.js?v=ee91420"></script>
-<script src="js/mail-templates.js?v=ee91420"></script>
-<script src="js/phase-logic.js?v=ee91420"></script>
-<script src="js/image.js?v=ee91420"></script>
-<script src="js/cases-api.js?v=ee91420"></script>
-<script src="js/clients-api.js?v=ee91420"></script>
-<script src="js/phases-api.js?v=ee91420"></script>
+<script src="js/crypto-util.js?v=a2810f0"></script>
+<script src="js/supabase-config.js?v=a2810f0"></script>
+<script src="js/supabase.js?v=a2810f0"></script>
+<script src="js/auth.js?v=a2810f0"></script>
+<script src="js/storage.js?v=a2810f0"></script>
+<script src="js/quota.js?v=a2810f0"></script>
+<script src="js/messages-api.js?v=a2810f0"></script>
+<script src="js/case-logic.js?v=a2810f0"></script>
+<script src="js/mail-templates.js?v=a2810f0"></script>
+<script src="js/phase-logic.js?v=a2810f0"></script>
+<script src="js/image.js?v=a2810f0"></script>
+<script src="js/cases-api.js?v=a2810f0"></script>
+<script src="js/clients-api.js?v=a2810f0"></script>
+<script src="js/phases-api.js?v=a2810f0"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=ee91420"></script>
-<script src="js/reports-api.js?v=ee91420"></script>
-<script src="js/photo-marks.js?v=ee91420"></script>
-<script src="js/report-pdf.js?v=ee91420"></script>
-<script src="js/notice-logic.js?v=ee91420"></script>
-<script src="js/notices-api.js?v=ee91420"></script>
-<script src="js/notice-pdf.js?v=ee91420"></script>
-<script src="js/estimate-logic.js?v=ee91420"></script>
-<script src="js/estimates-api.js?v=ee91420"></script>
-<script src="js/estimate-pdf.js?v=ee91420"></script>
-<script src="js/estimate-presets-api.js?v=ee91420"></script>
-<script src="js/estimate-presets.js?v=ee91420"></script>
-<script src="js/estimate-layout.js?v=ee91420"></script>
-<script src="js/estimate-import.js?v=ee91420"></script>
-<script src="js/case-list.js?v=ee91420"></script>
-<script src="js/clients-ui.js?v=ee91420"></script>
-<script src="js/case-detail.js?v=ee91420"></script>
-<script src="js/case-rooms-api.js?v=ee91420"></script>
-<script src="js/case-rooms.js?v=ee91420"></script>
-<script src="js/edit-logic.js?v=ee91420"></script>
-<script src="js/case-trash.js?v=ee91420"></script>
-<script src="js/case-undo.js?v=ee91420"></script>
-<script src="js/phase-ui.js?v=ee91420"></script>
-<script src="js/phase-detail.js?v=ee91420"></script>
-<script src="js/billing-ui.js?v=ee91420"></script>
-<script src="js/team.js?v=ee91420"></script>
-<script src="js/tasks.js?v=ee91420"></script>
-<script src="js/timeline.js?v=ee91420"></script>
-<script src="js/photo-mark-editor.js?v=ee91420"></script>
-<script src="js/report-form.js?v=ee91420"></script>
-<script src="js/report-ui.js?v=ee91420"></script>
-<script src="js/report-share.js?v=ee91420"></script>
-<script src="js/report-edit.js?v=ee91420"></script>
-<script src="js/mail-ui.js?v=ee91420"></script>
-<script src="js/outbox-ui.js?v=ee91420"></script>
-<script src="js/staff-inbox.js?v=ee91420"></script>
-<script src="js/notice-ui.js?v=ee91420"></script>
-<script src="js/notice-edit.js?v=ee91420"></script>
-<script src="js/estimate-ui.js?v=ee91420"></script>
-<script src="js/field-ui.js?v=ee91420"></script>
-<script src="js/app.js?v=ee91420"></script>
+<script src="js/report-logic.js?v=a2810f0"></script>
+<script src="js/reports-api.js?v=a2810f0"></script>
+<script src="js/photo-marks.js?v=a2810f0"></script>
+<script src="js/report-pdf.js?v=a2810f0"></script>
+<script src="js/notice-logic.js?v=a2810f0"></script>
+<script src="js/notices-api.js?v=a2810f0"></script>
+<script src="js/notice-pdf.js?v=a2810f0"></script>
+<script src="js/estimate-logic.js?v=a2810f0"></script>
+<script src="js/estimates-api.js?v=a2810f0"></script>
+<script src="js/estimate-pdf.js?v=a2810f0"></script>
+<script src="js/estimate-presets-api.js?v=a2810f0"></script>
+<script src="js/estimate-presets.js?v=a2810f0"></script>
+<script src="js/estimate-layout.js?v=a2810f0"></script>
+<script src="js/estimate-import.js?v=a2810f0"></script>
+<script src="js/case-list.js?v=a2810f0"></script>
+<script src="js/clients-ui.js?v=a2810f0"></script>
+<script src="js/case-detail.js?v=a2810f0"></script>
+<script src="js/case-rooms-api.js?v=a2810f0"></script>
+<script src="js/case-rooms.js?v=a2810f0"></script>
+<script src="js/edit-logic.js?v=a2810f0"></script>
+<script src="js/case-trash.js?v=a2810f0"></script>
+<script src="js/case-undo.js?v=a2810f0"></script>
+<script src="js/phase-ui.js?v=a2810f0"></script>
+<script src="js/phase-detail.js?v=a2810f0"></script>
+<script src="js/billing-ui.js?v=a2810f0"></script>
+<script src="js/team.js?v=a2810f0"></script>
+<script src="js/tasks.js?v=a2810f0"></script>
+<script src="js/timeline.js?v=a2810f0"></script>
+<script src="js/photo-mark-editor.js?v=a2810f0"></script>
+<script src="js/report-form.js?v=a2810f0"></script>
+<script src="js/report-ui.js?v=a2810f0"></script>
+<script src="js/report-share.js?v=a2810f0"></script>
+<script src="js/report-edit.js?v=a2810f0"></script>
+<script src="js/mail-ui.js?v=a2810f0"></script>
+<script src="js/outbox-ui.js?v=a2810f0"></script>
+<script src="js/staff-inbox.js?v=a2810f0"></script>
+<script src="js/staff-messages.js?v=a2810f0"></script>
+<script src="js/notice-ui.js?v=a2810f0"></script>
+<script src="js/notice-edit.js?v=a2810f0"></script>
+<script src="js/estimate-ui.js?v=a2810f0"></script>
+<script src="js/field-ui.js?v=a2810f0"></script>
+<script src="js/app.js?v=a2810f0"></script>
 </body>
 </html>

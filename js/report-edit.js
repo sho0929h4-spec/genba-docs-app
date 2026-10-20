@@ -185,16 +185,19 @@ function edBuild(s) {
     const d = s.lock.expires_at ? new Date(s.lock.expires_at) : null; // 期限なしは null
     const box = mk('div', 'rep-ro', '');
     box.id = 'rp-lock';
-    box.appendChild(mk('b', null, s.lock.vendor_name + '様（作業員）がこの報告書を入力中です' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '')));
-    box.appendChild(mk('div', null, '作業員に渡したURLが有効なあいだは、入力が重ならないようにここでは編集できません。作業員が提出すると編集できるようになります。'));
-    box.appendChild(mk('div', null, '自分で入力する場合は、URLを取り消してください（作業員はそのURLで続きを入力できなくなります）。'));
+    box.appendChild(mk('b', null, s.lock.vendor_name + '様（協力業者）がこの報告書を入力中です' + (d ? '（' + (d.getMonth() + 1) + '/' + d.getDate() + 'まで）' : '')));
+    box.appendChild(mk('div', null, '協力業者に渡したURLが有効なあいだは、入力が重ならないようにここでは編集できません。協力業者が提出すると編集できるようになります。'));
+    // URLの取り消しは管理者の操作（Task 23 I6）。現場用では出さない
+    const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
+    if (field) box.appendChild(mk('div', null, '自分で入力したいときは、管理者に連絡してください。'));
+    else box.appendChild(mk('div', null, '自分で入力する場合は、URLを取り消してください（協力業者はそのURLで続きを入力できなくなります）。'));
     const act = mk('div', 'rep-lock-act');
     const rv = mk('button', 'btn sm', 'URLを取り消して自分で入力する');
     rv.type = 'button'; rv.id = 'rp-lock-revoke';
     const a = mk('a', null, '協力業者URLの管理へ');
     a.href = '#case/' + s.report.case_id + '/share';
     act.appendChild(rv); act.appendChild(a);
-    box.appendChild(act);
+    if (!field) box.appendChild(act);
     rv.addEventListener('click', () => {
       // 画面内の確認（confirm() は使わない）
       act.replaceChildren();
@@ -212,7 +215,7 @@ function edBuild(s) {
       });
     });
     nodes.push(box);
-  } else if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status) + '」のため、内容は変更できません（読み取り専用）'));
+  } else if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via) + '」のため、内容は変更できません（読み取り専用）'));
 
   const info = s.info;
   nodes.push(...rfBuildForm(s, {
@@ -221,7 +224,7 @@ function edBuild(s) {
     fixedMode: !!s.fixed,
     fixedLabel: s.fixed ? L.WORK_TYPE_LABEL[s.f.work_type] : '',
     fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
-    infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請け', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
+    infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
     // 作業者: メンバー or 協力業者（名前を入力）
     afterRoom(g2, basic) {
       const known = s.members.some(m => m.user_id === s.f.worker_id);
@@ -237,7 +240,7 @@ function edBuild(s) {
         edMarkDirty(s);
         if (v === ED_VENDOR) els.vendor.focus();
       });
-      g2.appendChild(edField('作業者 *', els.worker));
+      g2.appendChild(edField('作業担当者 *', els.worker));
       els.vendor = edInput('rp-vendor', 'text', s.f.worker_name, v => { s.f.worker_name = v; edMarkDirty(s); }, { placeholder: '協力業者名', autocomplete: 'off' });
       els.vendorWrap = edField('協力業者名', els.vendor);
       const syncVendor = () => { els.vendorWrap.hidden = els.worker.value !== ED_VENDOR; };
@@ -415,7 +418,7 @@ async function edSubmit(s) {
     if (edPending(s)) { edShowVal(s, ['入力を保存できていません。通信を確認して、上の「再試行」を押してください'], []); return; }
     const cur = Object.assign({}, s.report, edCollect(s));
     const { errors, warnings } = ReportLogic.validate(cur);
-    if (!cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業者を選んでください');
+    if (!cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください');
     edShowVal(s, errors, warnings);
     if (errors.length) return;
     if (warnings.length && !confirm('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'))) return;
@@ -521,7 +524,7 @@ async function openReport(id) {
   $('rep-submit').hidden = s.ro;
   // 提出済み（確認待ち）のときだけ「確認する」。現場用（Task 18）では出さない（確認・送付は管理者側）
   $('rep-confirm').hidden = r.status !== 'submitted' || (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
-  $('rep-confirm').textContent = '確認する';
+  $('rep-confirm').textContent = r.submitted_via === 'share' ? '確認する' : '報告書を送る'; // 社内の提出は確認を飛ばす（Task 23）
   $('rep-to-pdf').onclick = () => edGoPdf(s);
   $('rep-submit').onclick = () => edSubmit(s);
   $('rep-confirm').onclick = () => edConfirm(s);
@@ -576,7 +579,11 @@ function edIsUntouched(r, f) {
 /* ---------- ⑥から確認する（提出済みのとき） ---------- */
 async function edConfirm(s) {
   if (s.submitting || s.photoBusy || s.report.status !== 'submitted') return;
-  if (!confirm('この報告書を確認済みにしますか？\n確認すると、依頼者へ送る報告メールの下書きが作られます。')) return;
+  // 画面内の確認（confirm() は使わない。Task 23 M6）。下のバーの上に出す
+  const share = s.report.submitted_via === 'share';
+  const ok = await askInline($('report-bar'), share ? 'この報告書を確認済みにしますか？\n確認すると、依頼元へ送る報告メールの下書きが作られます。'
+    : '依頼元へ送る報告メールの下書きを作りますか？', { okLabel: share ? '確認済みにする' : '下書きを作る', prepend: true, id: 'rep-ask' });
+  if (!ok || ed !== s || s.submitting) return;
   s.submitting = true;
   edSetBarBusy(s, true);
   let draft = null;

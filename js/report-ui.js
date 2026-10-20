@@ -182,7 +182,7 @@ function toggleRepForm() {
   const syncVendor = () => { vendorField.hidden = worker.value !== REP_VENDOR; };
   worker.addEventListener('change', () => { syncVendor(); if (!vendorField.hidden) vendor.focus(); });
   syncVendor();
-  grid.append(dField('作業区分', type), dField('作業者', worker), vendorField);
+  grid.append(dField('作業区分', type), dField('作業担当者', worker), vendorField);
   form.appendChild(grid);
 
   const msg = mk('div', 'err');
@@ -202,7 +202,9 @@ function toggleRepForm() {
         const row = await ReportsApi.create(caseId, {
           work_type: type.value,
           worker_id: isVendor ? null : worker.value,
-          worker_name: isVendor ? vname : null
+          worker_name: isVendor ? vname : null,
+          room: repSummary && repSummary.room ? String(repSummary.room) : null, // Task 23 I11: 号室の初期値は案件の号室
+          work_date: PhaseLogic.jstYmd(new Date()) // 作業日は今日（号室を入れると「何も入力していない下書き」の扱いにならないので先に入れる）
         });
         location.hash = '#report/' + row.id; // → openReport
       } catch (e) {
@@ -240,10 +242,10 @@ function repRowEl(r) {
   const title = [RL.WORK_TYPE_LABEL[r.work_type] || r.work_type, r.room, dateText].filter(Boolean).join(' ・ ');
   const top = mk('div', 'rep-between');
   top.appendChild(mk('b', null, title));
-  top.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status)));
+  top.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status, r.submitted_via)));
   row.appendChild(top);
 
-  let sub = '作業者: ' + repWorkerText(r);
+  let sub = '作業担当者: ' + repWorkerText(r);
   if (r.status === 'draft' && r.updated_at) sub += ' ・ 最終更新 ' + repStamp(r.updated_at);
   row.appendChild(mk('div', 'rep-sub', sub));
 
@@ -260,7 +262,8 @@ function repRowEl(r) {
   } else if (r.status === 'draft') {
     acts.appendChild(dBtn('続きを書く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
   } else if (r.status === 'submitted') {
-    acts.appendChild(dBtn('確認する', 'btn sm inline', () => onRepConfirm(r)));
+    // 協力業者URLからの提出は「確認する」、社内の提出は確認を飛ばして「報告書を送る」（Task 23）
+    acts.appendChild(dBtn(r.submitted_via === 'share' ? '確認する' : '報告書を送る', 'btn sm inline', () => onRepConfirm(r)));
   } else {
     acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
   }
@@ -300,9 +303,14 @@ async function runRepOp(label, fn) {
   if (parts.length) setMsg('rep-err', parts.join('\n'));
 }
 
-function onRepConfirm(r) {
+async function onRepConfirm(r) {
   if (repBusy) return;
-  if (!confirm('この報告書を確認済みにしますか？\n確認すると、依頼者へ送る報告メールの下書きが作られます。')) return;
+  // 画面内の確認（confirm() は使わない。Task 23 M6）。協力業者URLからの提出は確認、社内の提出はそのまま送る
+  const share = r.submitted_via === 'share';
+  const row = document.querySelector('#rep-list .rep-row[data-id="' + r.id + '"]');
+  const ok = await askInline(row, share ? 'この報告書を確認済みにしますか？\n確認すると、依頼元へ送る報告メールの下書きが作られます。'
+    : '依頼元へ送る報告メールの下書きを作りますか？', { okLabel: share ? '確認済みにする' : '下書きを作る', id: 'rep-ask' });
+  if (!ok || repBusy) return;
   const caseId = repCaseId;
   let draft = null;
   return runRepOp('確認', async () => { draft = await ReportsApi.confirm(r, repSummary); }).then(() => {

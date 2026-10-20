@@ -14,7 +14,6 @@ let tk = null;              // { seq, rows, members, loading, failed, busy: Set(
 let tkSeq = 0;
 let tkMineOnly = true;      // 「自分の分だけ」（既定オン。この端末の表示中だけ覚える）
 
-const TK_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分（phase-ui と同じ）
 const tkMe = () => (ctx && ctx.user ? ctx.user.id : null);
 const tkPhaseHash = it => '#case/' + it.caseId + '/phase/' + it.phaseId;
 
@@ -91,6 +90,9 @@ function tkGroupEl(gr) {
   return card;
 }
 
+// 行ごとの処理中・エラーの鍵（同じフェーズの2行＝日程調整と見積書作成が処理中を分け合わない。Task 23 M3）
+const tkKey = it => (it.group || '') + ':' + (it.phaseId || '');
+
 function tkRowEl(it) {
   const s = tk;
   const row = mk('div', 'mt-row tk-row');
@@ -115,7 +117,7 @@ function tkRowEl(it) {
   row.appendChild(r);
 
   if (s && s.bill === it.phaseId) row.appendChild(tkBillForm(it));
-  const err = mk('div', 'err tk-err', (s && s.rowErr.get(it.phaseId)) || '');
+  const err = mk('div', 'err tk-err', (s && s.rowErr.get(tkKey(it))) || '');
   if (!err.textContent) err.hidden = true;
   row.appendChild(err);
   return row;
@@ -124,7 +126,7 @@ function tkRowEl(it) {
 // 行の右のボタン（その場で進める操作。1つだけ）
 function tkActionBtn(it) {
   const s = tk;
-  const busy = s.busy.has(it.phaseId);
+  const busy = s.busy.has(tkKey(it));
   const btn = (label, fn) => {
     const b = dBtn(label, 'btn sm inline tk-act', () => fn(b));
     b.dataset.action = it.action || '';
@@ -132,12 +134,22 @@ function tkActionBtn(it) {
     return b;
   };
   switch (it.action) {
-    case 'make_estimate': return btn('見積を作る', b => tkRun(it, b, '見積書を作れませんでした', () => tkMakeEstimate(it)));
+    case 'make_estimate':
+      // 下書きがあれば続きを開く（Task 23: 提出するまで行が残る）
+      return it.estimateId ? btn('見積の続きを書く', () => { location.hash = '#estimate/' + it.estimateId; })
+        : btn('見積を作る', b => tkRun(it, b, '見積書を作れませんでした', () => tkMakeEstimate(it)));
     case 'send_estimate': return it.estimateId ? btn('送るメールへ', b => tkRun(it, b, '送付メールの下書きを作れませんでした', () => tkSendEstimate(it))) : null;
     case 'schedule': return btn(it.kind === 'survey' ? '調査日を決める' : '工事日を決める', () => tkOpenWhen(it));
-    case 'open_report': return it.reportId ? btn('報告書を開く', () => { location.hash = '#report/' + it.reportId; }) : null;
+    case 'open_report':
+      // Task 23: 調査日時を過ぎて報告書がまだ無い（報告書を書く・期限あり）→ その場で作る
+      return it.reportId ? btn('報告書を開く', () => { location.hash = '#report/' + it.reportId; })
+        : it.group === 'write' ? btn('報告書を作る', b => tkRun(it, b, '報告書を作れませんでした', () => tkMakeReport(it))) : null;
     case 'send_report': return it.reportId ? btn('送るメールへ', b => tkRun(it, b, '送付メールの下書きを作れませんでした', () => tkSendReport(it))) : null;
     case 'work_report':
+      // 報告書が提出済み・確認済み（送付する）なら調査の「報告書を送る」と同じく「送るメールへ」（Task 23 M4）
+      if (it.reportId && (it.reportState === 'confirmed' || (it.reportStatus === 'submitted' && it.reportState !== 'submitted'))) {
+        return btn('送るメールへ', b => tkRun(it, b, '送付メールの下書きを作れませんでした', () => tkSendReport(it)));
+      }
       return it.reportId ? btn('報告書を開く', () => { location.hash = '#report/' + it.reportId; })
         : btn('報告書を作る', b => tkRun(it, b, '報告書を作れませんでした', () => tkMakeReport(it)));
     case 'bill': {
@@ -152,18 +164,18 @@ function tkActionBtn(it) {
 // 共通: 二度押しを防ぎ、失敗はその行に出す。fn が true を返したら（画面を移った）何もしない
 async function tkRun(it, btn, failLabel, fn) {
   const s = tk;
-  if (!s || s.busy.has(it.phaseId)) return;
-  s.busy.add(it.phaseId);
-  s.rowErr.delete(it.phaseId);
+  if (!s || s.busy.has(tkKey(it))) return;
+  s.busy.add(tkKey(it));
+  s.rowErr.delete(tkKey(it));
   s.notice = '';
   tkRender();
   let err = '';
   try { await fn(); }
   catch (e) { err = failLabel + ': ' + errText(e); }
   if (tk !== s) return;
-  s.busy.delete(it.phaseId);
+  s.busy.delete(tkKey(it));
   if (err) {
-    s.rowErr.set(it.phaseId, err);
+    s.rowErr.set(tkKey(it), err);
     if (tkAlive(s)) tkRender();
   }
 }
@@ -207,7 +219,8 @@ async function tkSendReport(it) {
 
 async function tkMakeReport(it) {
   const s = tk;
-  const row = await ReportsApi.create(it.caseId, { work_type: TK_WORK_TYPE[it.kind] || 'repair', worker_id: tkMe(), phase_id: it.phaseId, phaseTitle: it.title });
+  // Task 23 I4: 作業担当者の初期値 = このフェーズの作業担当者（無ければ自分）
+  const row = await ReportsApi.create(it.caseId, PhaseLogic.reportFields(it.phase, it.caseRow, { meId: tkMe(), title: it.title }));
   if (tkAlive(s)) location.hash = '#report/' + row.id;
 }
 
@@ -223,7 +236,7 @@ function tkOpenBill(it) {
   if (!s) return;
   if (s.bill && s.bill !== it.phaseId) return;
   s.bill = it.phaseId;
-  s.rowErr.delete(it.phaseId);
+  s.rowErr.delete(tkKey(it));
   s.notice = '';
   tkRender();
   const i = document.querySelector('#tasks-body .tk-due-input');
@@ -247,15 +260,15 @@ function tkBillForm(it) {
   box.appendChild(mk('div', 'ph-sub', '初期値: ' + (p.billing_mode === 'monthly' ? '請求月の翌月末' : '請求日の30日後') + '（変えられます）。請求書を出したら記録してください'));
   const acts = mk('div', 'ph-acts');
   const cancel = dBtn('やめる', 'btn sm ghost inline tk-bill-cancel', () => {
-    if (s.busy.has(it.phaseId)) return;
-    s.bill = null; s.rowErr.delete(it.phaseId); tkRender();
+    if (s.busy.has(tkKey(it))) return;
+    s.bill = null; s.rowErr.delete(tkKey(it)); tkRender();
   });
   const ok = dBtn('請求した（記録する）', 'btn sm inline tk-bill-ok', b => {
     const v = input.value;
-    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { s.rowErr.set(it.phaseId, '入金期限の日付を正しく入れてください'); tkRender(); return; }
+    if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { s.rowErr.set(tkKey(it), '入金期限の日付を正しく入れてください'); tkRender(); return; }
     return tkBill(it, b, v || null, amount, billTo);
   });
-  const busy = s.busy.has(it.phaseId);
+  const busy = s.busy.has(tkKey(it));
   cancel.disabled = busy; ok.disabled = busy; input.disabled = busy;
   acts.appendChild(cancel);
   acts.appendChild(ok);
@@ -265,9 +278,9 @@ function tkBillForm(it) {
 
 async function tkBill(it, btn, due, amount, billTo) {
   const s = tk;
-  if (!s || s.busy.has(it.phaseId)) return;
-  s.busy.add(it.phaseId);
-  s.rowErr.delete(it.phaseId);
+  if (!s || s.busy.has(tkKey(it))) return;
+  s.busy.add(tkKey(it));
+  s.rowErr.delete(tkKey(it));
   tkRender();
   let err = '';
   try {
@@ -275,15 +288,15 @@ async function tkBill(it, btn, due, amount, billTo) {
     if (!rows.length) err = '記録できませんでした（ほかの人が先に記録した可能性があります。表示を更新しました）';
   } catch (e) { err = '請求の記録に失敗しました: ' + errText(e); }
   if (tk !== s) return;
-  s.busy.delete(it.phaseId);
+  s.busy.delete(tkKey(it));
   s.bill = null;
   const place = [it.caseName, PhaseLogic.roomLabel(it.room)].filter(Boolean).join(' ');
   s.notice = err ? '' : place + ' ・ ' + it.title + 'を請求済みにしました（入金期限 ' + (due ? PhaseLogic.fmtYmdMD(due) : 'なし') + '。取り消しはフェーズの詳細ページの請求の段から）';
-  if (err) s.rowErr.set(it.phaseId, err);
+  if (err) s.rowErr.set(tkKey(it), err);
   if (!tkAlive(s)) return;
   s.loading = false;
   await tkLoad(s.seq);
-  if (err && tk === s) { s.rowErr.set(it.phaseId, err); tkRender(); }
+  if (err && tk === s) { s.rowErr.set(tkKey(it), err); tkRender(); }
 }
 
 function bindTasks() {

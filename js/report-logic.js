@@ -126,7 +126,7 @@
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
     estimateDueLabel: '見積書提案期日',
     estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
-    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業者のやることに「見積書を作る（期限）」が入ります',
+    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業担当者の 🔔 に「見積書を仕上げて提出（期限）」が入ります',
     resurveyReasonLabel: '再調査の理由',
     resurveyDetailLabel: '再調査の内容',
     nextOtherLabel: '次の対応方針（その他）',
@@ -136,7 +136,7 @@
     workChecklistTitle: '作業チェックリスト',
     keyChecklistTitle: '鍵の取り扱い',
     keyReturnLabel: '鍵の返却方法',
-    keyReturnPlaceholder: '例：管理会社へ手渡し／ポスト投函',
+    keyReturnPlaceholder: '例：元請へ手渡し／ポスト投函',
     keyPhotoLabel: '返却時の写真',
     keyPhotoAdd: '鍵返却の写真を追加',
     photoAdd: '現場写真を追加',
@@ -199,7 +199,7 @@
     }
   };
   const WORK_TYPE_LABEL = { investigate: '調査', repair: '設備修繕', restore: '復旧工事' };
-  const STATUS_LABEL = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '依頼者へ送付済み' };
+  const STATUS_LABEL = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '依頼元へ送付済み' };
 
   const modeOf = wt => MODES[wt] || MODES.investigate;
   const str = v => (v == null ? '' : String(v));
@@ -520,7 +520,7 @@
     const lines = [
       t(caseRow.client_name) ? `${t(caseRow.client_name)} ご担当者様` : 'ご担当者様',
       '',
-      `いつもお世話になっております。${orgName ? orgName + 'です。' : ''}`,
+      `お世話になっております。${orgName ? orgName + 'でございます。' : ''}`, // Task 23: 書き出しは連絡メールと同じ（「いつも」は使わない）
       `${prop}の${workPhrase}が完了しましたので、作業報告書をお送りいたします。`,
       ''
     ];
@@ -571,7 +571,8 @@
   // 互換: URL 文字列だけ返す
   function mailtoUrl(opts) { return buildMailto(opts).url; }
 
-  const statusLabel = s => STATUS_LABEL[s] || str(s);
+  // via（submitted_via）: 社内（member）が提出したものは確認待ちにしない＝「提出済み（未送付）」（Task 23。協力業者URL＝share だけ確認待ち）
+  const statusLabel = (s, via) => (s === 'submitted' && via && via !== 'share' ? '提出済み（未送付）' : STATUS_LABEL[s] || str(s));
 
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,

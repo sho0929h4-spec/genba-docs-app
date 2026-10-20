@@ -236,10 +236,57 @@ function routeFromHash() {
   else if (h === '#team') openTeam();
   else if (h === '#tasks' && typeof openTasks === 'function') openTasks(); // やること（js/tasks.js。Task 17）
   else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
+  else if ((m = h.match(SM_HASH_RE)) && typeof openMessages === 'function') openMessages(m[1] || null); // 📨 現場からの連絡（js/staff-messages.js。Task 23）
   else if (h === '#billing' && typeof openBilling === 'function') openBilling(); // 請求の一覧（js/billing-ui.js）
   else if (h === '#inbox-staff' && typeof openStaffInbox === 'function') openStaffInbox(); // 担当者の「確認してください」（js/staff-inbox.js）
   else openCases();
 }
+
+// ---- 画面に戻ったときに読み直す（Task 23 I7） ----
+// タブが表に戻った（visibilitychange）・ウィンドウに戻った（focus）ときに、表示中の画面のデータを読み直す。
+// 30秒以内の連続は1回。入力中（入力欄にフォーカス）・シートを開いているときは読み直さない（入力を失わないため）
+const APP_RETURN_GAP = 30000;
+let appReturnAt = 0;
+let appAwayAt = 0; // 画面を離れた（タブが裏・ウィンドウから離れた）時刻。離れていないのに来た focus は無視する
+function onAppAway() { appAwayAt = Date.now(); }
+function onAppReturn() {
+  if (document.visibilityState === 'hidden') { onAppAway(); return; }
+  if (!ctx || !appAwayAt) return;
+  appAwayAt = 0;
+  const now = Date.now();
+  if (now - appReturnAt < APP_RETURN_GAP) return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+  if (document.querySelector('.modal-bg:not([hidden])')) return;
+  appReturnAt = now;
+  refreshActiveScreen();
+}
+function refreshActiveScreen() {
+  const on = id => { const el = document.getElementById('screen-' + id); return !!el && el.classList.contains('active'); };
+  try {
+    if (on('case') && typeof caseDetailId !== 'undefined' && caseDetailId) {
+      // 案件ページ: 見出し（今の状態・連絡の数）と対応フェーズの表・ツールの件数（同じ読み込み結果から数える）
+      refreshPart('head').then(() => { if (typeof ph !== 'undefined' && ph && !ph.phaseId && typeof phLoad === 'function') phLoad(); });
+    } else if (on('phase') && typeof ph !== 'undefined' && ph && typeof phLoad === 'function') {
+      phLoad();
+    } else if (on('field') && typeof fd !== 'undefined' && fd) {
+      if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+      if (fd.view === 'cases') fdLoadCases(fd.seq);
+      else if (fd.view === 'case') fdLoadCase(fd.seq);
+      else if (fd.view === 'inbox' && typeof si !== 'undefined' && si) siLoad(si.seq);
+      else if (fd.view === 'contact' && typeof sm !== 'undefined' && sm) smLoad(sm.seq);
+    } else if (on('inbox-staff') && typeof si !== 'undefined' && si) {
+      siLoad(si.seq);
+    } else if (on('tasks') && typeof tk !== 'undefined' && tk) {
+      tkLoad(tk.seq);
+    } else if (on('messages') && typeof sm !== 'undefined' && sm) {
+      smLoad(sm.seq);
+    }
+  } catch (e) { console.warn('画面の読み直しに失敗', e); }
+}
+document.addEventListener('visibilitychange', onAppReturn);
+window.addEventListener('blur', onAppAway);
+window.addEventListener('focus', onAppReturn);
 
 async function boot() {
   ctx = await getMyContext();
@@ -256,6 +303,44 @@ sb.auth.onAuthStateChange((event) => {
 });
 
 // ---- フォーム ----
+// 画面内の確認（confirm() の代わり。Task 23 M6）。host の中（先頭か末尾）に「文・やめる・okLabel」の欄を出し、押した方で true / false を返す。
+//   同じ host に出ている前の確認は「やめる」扱いで閉じる。opts: { okLabel, cancelLabel, danger, prepend, id }
+function askInline(host, text, opts) {
+  const o = opts || {};
+  return new Promise(resolve => {
+    if (!host) { resolve(false); return; }
+    const prev = host.querySelector(':scope > .inline-ask');
+    if (prev && prev._resolve) prev._resolve(false);
+    if (prev) prev.remove();
+    const box = document.createElement('div');
+    box.className = 'inline-ask';
+    if (o.id) box.id = o.id;
+    box.setAttribute('role', 'alertdialog');
+    const t = document.createElement('div');
+    t.className = 'inline-ask-t';
+    t.textContent = text;
+    const acts = document.createElement('div');
+    acts.className = 'inline-ask-acts';
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'btn sm ghost inline inline-ask-no';
+    no.textContent = o.cancelLabel || 'やめる';
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'btn sm inline inline-ask-ok' + (o.danger ? ' red' : '');
+    ok.textContent = o.okLabel || 'OK';
+    const done = v => { box._resolve = null; box.remove(); resolve(v); };
+    box._resolve = v => { box._resolve = null; resolve(v); };
+    no.addEventListener('click', () => done(false));
+    ok.addEventListener('click', () => done(true));
+    acts.append(no, ok);
+    box.append(t, acts);
+    if (o.prepend) host.insertBefore(box, host.firstChild); else host.appendChild(box);
+    ok.focus({ preventScroll: true });
+    if (box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+  });
+}
+
 async function withBusy(btn, fn) {
   btn.disabled = true;
   try { await fn(); } finally { btn.disabled = false; }

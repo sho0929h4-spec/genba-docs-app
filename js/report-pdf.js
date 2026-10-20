@@ -156,10 +156,10 @@
       { k: '物件名', v: trim(caseRow.name), cls: 'rp-prop-name' },
       { k: spaced('号室'), v: trim(report.room) },
       { k: '現場住所', v: trim(caseRow.address), opt: true },
-      { k: '元請け', v: trim(caseRow.client_name), opt: true },
+      { k: '元請', v: trim(caseRow.client_name), opt: true },
       { k: '作業内容', v: RL().WORK_TYPE_LABEL[report.work_type] || RL().WORK_TYPE_LABEL.investigate },
       { k: '作業日時', v: dateStr },
-      { k: '作業者', v: trim(o.workerName) || trim(report.worker_name), opt: true }
+      { k: '作業担当者', v: trim(o.workerName) || trim(report.worker_name), opt: true }
     ];
     rows.forEach(r => {
       if (r.opt && !r.v) return;

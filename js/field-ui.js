@@ -1,9 +1,9 @@
 // js/field-ui.js — 現場担当アプリ（スマホ専用の現場用画面。対応フェーズ Task 18。画面案 docs/mocks/mock-field.html）
-// ルート: #f（自分の案件一覧）／#f/case/{id}（ツールページ）／#f/inbox（🔔 確認してください）／#f/outbox（送るメール）／#f/settings（設定）。
-// 下のタブバー 案件／確認／送るメール／設定（safe-area）。
+// ルート: #f（自分の案件一覧）／#f/case/{id}（ツールページ）／#f/inbox（🔔 確認してください）／#f/contact（管理者に連絡。Task 23）／#f/settings（設定）。
+// 下のタブバー 案件／確認／管理者に連絡／設定（safe-area）。現場用では送付・連絡メールの下書きは出さない（Task 23 C2。#f/outbox は #f/contact へ）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
 //   スタッフ（memberships.role = 'member'）は現場用の画面だけ。管理画面のルートを開いても現場用に戻す
-//     （#case/{id}…（フェーズ詳細・協力業者URLを含む）→ #f/case/{id}、#inbox-staff → #f/inbox、#outbox → #f/outbox、それ以外 → #f）。
+//     （#case/{id}…（フェーズ詳細・協力業者URLを含む）→ #f/case/{id}、#inbox-staff → #f/inbox、#outbox・#messages → #f/contact、それ以外 → #f）。
 //   管理者（owner）は管理画面が既定。設定の「画面: 現場用／管理画面」で切替（この端末の localStorage に人ごとに記憶）。
 //     現場用にしている管理者は、空のルートで #f が開く（管理画面のリンクを開いたときはそのまま管理画面）。
 //     管理画面にしている管理者が #f… を開いたら管理画面へ（#f/case/{id} → #case/{id}）。
@@ -15,7 +15,7 @@
 //   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
 // DB の変更は無い（スタッフも API では会社の全案件を読める。画面で絞るだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
-// mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox は staff-inbox.js、openOutbox は outbox-ui.js、
+// mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox は staff-inbox.js、openFieldContact / smOpenSheet は staff-messages.js、
 // $ / showScreen / renderHeaders / withBusy は app.js
 
 const FD_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -23,7 +23,7 @@ const FD_CASE_RE = new RegExp('^#f/case/' + FD_UUID + '$', 'i');
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: '📋', label: '案件' },
   { view: 'inbox', hash: '#f/inbox', icon: '🔔', label: '確認' },
-  { view: 'outbox', hash: '#f/outbox', icon: '✉️', label: '送るメール' },
+  { view: 'contact', hash: '#f/contact', icon: '✉️', label: '管理者に連絡' },
   { view: 'settings', hash: '#f/settings', icon: '⚙️', label: '設定' }
 ];
 // 現場用からも開く共通の画面（報告書・見積書・工事掲示・送付メール）
@@ -34,11 +34,25 @@ const FD_SHARED_RES = [
   new RegExp('^#notice/' + FD_UUID + '$', 'i'),
   new RegExp('^#mail/' + FD_UUID + '$', 'i')
 ];
-const FD_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分（phase-ui・tasks と同じ）
 
 let fd = null;          // { seq, view, caseId, rows, loading, err, data, busy, msg }
 let fdSeq = 0;
 const fdSel = new Map(); // 案件ごとに選んだ対応（この画面を開いている間だけ覚える。ツールから戻ったとき同じ対応を選ぶ）
+
+/* ---------- 案件の集計の使い回し（Task 23 I13） ---------- */
+// 現場用のタブ（案件・確認・管理者に連絡）を切り替えるたびに case_summaries を全部読み直さない（60秒は使い回す）。
+// 書類の画面（報告書・見積書・工事掲示・メール）を開いたとき・操作したとき・画面に戻ったときは捨てて読み直す
+const FD_ROWS_TTL = 60000;
+let fdRowsCache = null; // { at, promise }
+function fieldRows(force) {
+  const now = Date.now();
+  if (!force && fdRowsCache && now - fdRowsCache.at < FD_ROWS_TTL) return fdRowsCache.promise;
+  const promise = CasesApi.listSummaries().then(r => r || []);
+  fdRowsCache = { at: now, promise };
+  promise.catch(() => { if (fdRowsCache && fdRowsCache.promise === promise) fdRowsCache = null; });
+  return promise;
+}
+function fieldRowsInvalidate() { fdRowsCache = null; }
 
 /* ---------- 画面の切替（現場用／管理画面） ---------- */
 const fdMe = () => (ctx && ctx.user ? ctx.user.id : null);
@@ -75,7 +89,7 @@ function fdReplace(hash) {
 function fdMatch(h) {
   if (h === '#f' || h === '#f/') return { view: 'cases' };
   if (h === '#f/inbox') return { view: 'inbox' };
-  if (h === '#f/outbox') return { view: 'outbox' };
+  if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡
   if (h === '#f/settings') return { view: 'settings' };
   const m = h.match(FD_CASE_RE);
   if (m) return { view: 'case', caseId: m[1].toLowerCase() };
@@ -89,7 +103,7 @@ function fdRedirectOf(h) {
     return '#f/case/' + m[1].toLowerCase();
   }
   if (h === '#inbox-staff') return '#f/inbox';
-  if (h === '#outbox') return '#f/outbox';
+  if (h === '#outbox' || /^#messages/.test(h)) return '#f/contact';
   return '#f';
 }
 
@@ -103,7 +117,7 @@ function fieldRoute() {
     return false;
   }
   if (fm) { fdSetMode(true); openField(fm); return true; }
-  if (FD_SHARED_RES.some(re => re.test(h))) { fdSetMode(true); return false; } // 共通の画面（現場用の見た目で開く）
+  if (FD_SHARED_RES.some(re => re.test(h))) { fieldRowsInvalidate(); fdSetMode(true); return false; } // 共通の画面（現場用の見た目で開く。書類を変えるので集計は読み直す）
   if (fdIsOwner() && h && h !== '#' && h !== '#login') { fdSetMode(false); return false; } // 管理者は管理画面のリンクをそのまま開ける
   const to = fdRedirectOf(h);
   fdReplace(to);
@@ -128,9 +142,10 @@ function openField(fm) {
     fdBar('確認してください');
     return openStaffInbox({ field: true, root: host });
   }
-  if (fm.view === 'outbox') {
-    fdBar('送るメール');
-    return openOutbox({ field: true, root: host });
+  if (fm.view === 'contact') {
+    if (location.hash === '#f/outbox') fdReplace('#f/contact');
+    fdBar('管理者に連絡');
+    return openFieldContact(host);
   }
   fdBar('設定');
   fdRenderSettings();
@@ -149,7 +164,8 @@ function fdTabs() {
   const active = fd && fd.view === 'case' ? 'cases' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
-      if (location.hash === t.hash) openField(fdMatch(t.hash)); else location.hash = t.hash;
+      // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
+      if (location.hash === t.hash) { fieldRowsInvalidate(); openField(fdMatch(t.hash)); } else location.hash = t.hash;
     });
     b.dataset.tab = t.view;
     if (t.view === active) b.setAttribute('aria-current', 'page');
@@ -161,15 +177,19 @@ function fdTabs() {
 
 /* ---------- #f 自分の案件一覧 ---------- */
 async function fdLoadCases(seq) {
-  let rows = [], err = '';
-  try { rows = (await CasesApi.listSummaries()) || []; }
-  catch (e) { err = '案件を読み込めませんでした: ' + errText(e); }
+  let rows = [], err = '', msgs = [];
+  try {
+    rows = await fieldRows();
+    // 管理者からの返事（未読）がある案件があれば読む（🔔 の件数に入れる。Task 23）
+    if (rows.some(r => Number(r.staff_unread) > 0)) msgs = (await StaffMessagesApi.list({ toUser: fdMe(), unread: true })) || [];
+  } catch (e) { err = '案件を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
-  Object.assign(fd, { rows, loading: false, err });
+  Object.assign(fd, { rows, msgs, loading: false, err });
   fdRenderCases();
   // 時刻を過ぎたリマインド（お客様向け・担当者向けの前日のお知らせ）の下書きを作る（管理画面の案件一覧と同じ。サーバーの定期実行は使わない）
   if (!err && typeof outboxSync === 'function') {
-    try { await outboxSync(rows); } catch (e) { console.warn('リマインドの確認に失敗', e); }
+    // 自分の担当の案件の分だけ（Task 23 I13。現場用ではメールの一覧は出さない）
+    try { await outboxSync(rows.filter(r => PhaseLogic.fieldMine(r, fdMe()))); } catch (e) { console.warn('リマインドの確認に失敗', e); }
   }
 }
 
@@ -183,7 +203,7 @@ function fdRenderCases() {
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'cases' })));
   } else {
     const now = new Date();
-    const n = PhaseLogic.staffInbox(s.rows, fdMe(), now).length;
+    const n = PhaseLogic.staffInbox(s.rows, fdMe(), now, { messages: s.msgs }).length;
     if (n) {
       const b = dBtn('', 'fd-bell', () => { location.hash = '#f/inbox'; });
       b.id = 'fd-bell';
@@ -256,6 +276,18 @@ async function fdLoadCase(seq) {
   if (!fd || fd.seq !== seq) return;
   s.loading = false;
   s.err = err;
+  if (!err && res[1] && res[1].length) {
+    // 協力業者URLで入力中か（「○○様が入力中」。Task 23 I6。案件ページの phLoad と同じ形）
+    try {
+      const shares = (await ReportsApi.listSharesByReports(res[1].map(r => r.id))) || [];
+      res[1].forEach(r => {
+        const act = shares.find(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
+        r.share_active = !!act;
+        r.share_name = act ? act.vendor_name || '' : '';
+      });
+    } catch (e) { console.warn('協力業者URLの読み込みに失敗', e); }
+    if (!fd || fd.seq !== seq) return;
+  }
   if (!err) {
     if (!res[0]) s.err = '案件が見つかりません';
     else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [] };
@@ -352,6 +384,12 @@ function fdRenderCase() {
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
   nodes.push(err);
+  // 管理者に連絡（Task 23。この案件・対応を選んだ状態でシートを開く）
+  const ct = dBtn('📨 管理者に連絡', 'btn ghost fd-contact', () => smOpenSheet({ rows: [c], caseId: c.id, phaseId: sel.id,
+    onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（「✉️ 管理者に連絡」のタブで返事を見られます）'; fdRenderCase(); } } }));
+  ct.id = 'fd-contact';
+  ct.disabled = !!s.busy;
+  nodes.push(ct);
   nodes.push(mk('div', 'fd-note', 'ツールの中身は管理画面の報告書・見積書・工事掲示と同じです。保存すると管理者の案件ページにそのまま反映されます。'));
   host.replaceChildren(...nodes);
 }
@@ -402,6 +440,7 @@ async function fdAck(s, c, p, btn) {
   if (!fdAlive(s)) return;
   if (err) { s.toolErr = err; fdRenderCase(); return; }
   s.msg = title + 'を「確認した」にしました';
+  fieldRowsInvalidate();
   await fdReloadCase(s);
 }
 async function fdReloadCase(s) {
@@ -446,7 +485,8 @@ const fdTitleOf = (c, p) => PhaseLogic.fieldPhaseChips(c.phases, new Date()).fin
 async function fdOpenReport(s, c, p, state) {
   fdSel.set(c.id, p.id);
   if (state.open) { location.hash = '#report/' + state.open.id; return; }
-  const row = await ReportsApi.create(c.id, { work_type: FD_WORK_TYPE[p.kind] || 'repair', worker_id: fdMe(), phase_id: p.id, phaseTitle: fdTitleOf(c, p) });
+  // Task 23 I4: 作業担当者の初期値 = このフェーズの作業担当者（無ければ自分）
+  const row = await ReportsApi.create(c.id, PhaseLogic.reportFields(p, c, { meId: fdMe(), title: fdTitleOf(c, p) }));
   if (fdAlive(s)) location.hash = '#report/' + row.id;
 }
 

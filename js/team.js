@@ -62,7 +62,7 @@ function teamRowEl(it, kind) {
   row.appendChild(l);
 
   const r = mk('div', 'mt-r');
-  if (it.late) r.appendChild(mk('span', 'nx-due near', it.key === 'payment' ? '期限切れ' : '予定を過ぎています'));
+  if (it.late) r.appendChild(mk('span', 'nx-due near', it.key === 'payment' ? '期限切れ' : it.due ? '期限を過ぎています' : '予定を過ぎています')); // Task 23: 見積・報告書の期限
   if (kind === 'unassigned') r.appendChild(teamAssignSelect(it));
   r.appendChild(teamOpenBtn(it));
   row.appendChild(r);

@@ -143,9 +143,13 @@ const EstimatePresets = (() => {
     btns.id = 'eu-presets-btns';
     btns.appendChild(mk('span', 'rep-sub', '読み込み中…'));
     const acts = mk('div', 'eu-pr-acts');
-    const edit = dBtn('よく使う明細を編集', 'btn sm ghost inline', () => openEditor());
-    edit.id = 'eu-presets-edit';
-    acts.appendChild(edit);
+    // 候補の編集・削除は管理者だけ（Task 23。DB も migration 042 で管理者だけ）。現場用・スタッフには出さない（登録はできる）
+    const canEdit = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) && !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+    if (canEdit) {
+      const edit = dBtn('よく使う明細を編集', 'btn sm ghost inline', () => openEditor());
+      edit.id = 'eu-presets-edit';
+      acts.appendChild(edit);
+    }
     const msg = mk('div', 'rep-sub eu-pr-msg');
     msg.id = 'eu-presets-msg';
     msg.setAttribute('role', 'status');
@@ -179,7 +183,7 @@ const EstimatePresets = (() => {
     if (!list) { me.btns.replaceChildren(mk('span', 'rep-sub', '読み込み中…')); return; }
     const ps = EL().presetsFor(list, me.kind);
     if (!ps.length) {
-      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。「よく使う明細を編集」の「＋ 候補を追加」か、明細の「…」→「よく使う明細に登録」で増やせます');
+      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。明細の「…」→「よく使う明細に登録」で増やせます' + (document.getElementById('eu-presets-edit') ? '（「よく使う明細を編集」の「＋ 候補を追加」からも）' : ''));
       e.id = 'eu-presets-empty';
       me.btns.replaceChildren(e);
     } else {

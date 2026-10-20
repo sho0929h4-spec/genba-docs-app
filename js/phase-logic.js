@@ -30,7 +30,7 @@
       { key: 'write', label: '報告書を書く' },
       { key: 'check', label: '報告書を確認する' },
       { key: 'report', label: '報告書を送る' },
-      { key: 'approval', label: '見積の承諾待ち' },
+      { key: 'approval', label: '発注待ち' },
       { key: 'done', label: '完了' }
     ],
     // 工事は 7 つの段階（2026-10-20 ユーザー指示。手で段階を変えるボタンは無く、画面の操作から自動で決まる）
@@ -155,7 +155,7 @@
     return best;
   }
   // 工事の「完了報告必要」の括弧の補足（報告書の状態）
-  const WORK_REPORT_NOTE = { draft: '（報告書 下書き）', waiting: '（作業員の入力待ち）', submitted: '（報告書 提出済み・確認する）', confirmed: '（報告書 送付する）' };
+  const WORK_REPORT_NOTE = { draft: '（報告書 下書き）', waiting: '（協力業者が入力中）', submitted: '（報告書 提出済み・確認する）', confirmed: '（報告書 送付する）' };
   // 送付済みで承諾されていない見積（最新の版が sent）。日付は一番新しい送付日
   function pendingApproval(estimates) {
     const pend = liveEstimates(estimates).filter(e => e.status === 'sent');
@@ -164,15 +164,37 @@
     return { date: last != null ? new Date(last).toISOString() : null };
   }
 
-  // 見積書を作る期限（Task 21）: 調査報告の「次の対応方針」（原因元工事・再調査）で estimate_due が入り、
-  //   そのフェーズに見積がまだ無い（取り消し済み以外が0件）・請求も入金もまだ → { due: 'YYYY-MM-DD', late }。それ以外は null
+  // 見積書の期限（Task 21・Task 23）: 調査報告の「次の対応方針」（原因元工事・再調査）で estimate_due が入り、
+  //   そのフェーズの見積がまだ提出されていない（下書きだけ・無い）・請求も入金もまだ → { due: 'YYYY-MM-DD', late }。それ以外は null
+  //   Task 23 I1: 下書きでは消さない（提出 issued・送付・承諾で消える。管理者側の「見積書作成必要」と同じ）
   function estimateTodo(phase, now) {
     const p = phase || {};
     const due = p.estimate_due ? String(p.estimate_due).slice(0, 10) : '';
     if (!due || p.billed_at || p.paid_at) return null;
     if (isWork(p.kind) && p.done_at) return null;
-    if (liveEstimates(p.estimates).length) return null;
+    if (liveEstimates(p.estimates).some(e => e.status && e.status !== 'draft')) return null;
     const nowAt = toDate(now) || new Date();
+    return { due, late: due < jstYmd(nowAt) };
+  }
+  // 'YYYY-MM-DD' の n 日後（日付だけで計算。タイムゾーンに依存しない）
+  function ymdAdd(ymd, n) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n));
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  }
+  // 報告書の期限（Task 23 Ruling）: 調査日・工事日（終わりの日があればその日）の翌日（日本時間）。
+  //   予定の時刻を過ぎて、報告書が未提出（無い・下書き）・調査済み／完了の記録も無い・請求も入金もまだ → { due, late }。それ以外は null
+  //   協力業者URLで入力中（share_active）は相手待ちなので出さない
+  function reportTodo(phase, now, docs) {
+    const p = phase || {};
+    if (!p.scheduled_at || p.done_at || p.billed_at || p.paid_at) return null;
+    const rs = reportState(docsOf(p, docs).reports);
+    if (rs.state && rs.state !== 'draft') return null;
+    const nowAt = toDate(now) || new Date();
+    const end = p.scheduled_end && ms(p.scheduled_end) > ms(p.scheduled_at) ? p.scheduled_end : p.scheduled_at;
+    if (ms(p.scheduled_at) > ms(nowAt)) return null;
+    const due = ymdAdd(jstYmd(end), 1);
     return { due, late: due < jstYmd(nowAt) };
   }
 
@@ -209,14 +231,20 @@
         if (rs.state === 'confirmed') return mkStage('report', '報告書を送る', 'us', p.done_at || rs.date);
         if (rs.state === 'submitted') return mkStage('check', '報告書を確認する', 'us', rs.date || p.done_at);
         if (rs.state === 'waiting') return mkStage('waiting', '調査報告待ち', 'them', null);
-        if (rs.state === 'draft') return mkStage('write', '報告書を書く', 'us', null);
+        // Task 23: 調査日時を過ぎて報告書が未提出 → 「報告書を書く（期限 翌日）」（🔔 の「報告書を書いて提出」と同じ期限）
+        const rt = reportTodo(p, nowAt, { reports });
+        if (rs.state === 'draft') {
+          return rt ? mkStage('write', `報告書を書く（期限 ${fmtYmdMD(rt.due)}）`, 'us', rt.due, { due: rt.due, late: rt.late })
+            : mkStage('write', '報告書を書く', 'us', null);
+        }
         if (p.done_at) return mkStage('report', '報告書を送る', 'us', p.done_at);
         if (!p.scheduled_at) return mkStage('schedule', '調査日を決める', 'us', null);
+        if (rt) return mkStage('write', `報告書を書く（期限 ${fmtYmdMD(rt.due)}）`, 'us', rt.due, { due: rt.due, late: rt.late });
         return mkStage('visit', `${fmtMDHM(p.scheduled_at)} 調査に行く`, 'us', p.scheduled_at,
           { late: isLate(p.scheduled_at, nowAt) });
       }
       const pend = pendingApproval(estimates);
-      if (pend) return mkStage('approval', '見積の承諾待ち', 'them', pend.date);
+      if (pend) return mkStage('approval', '発注待ち', 'them', pend.date); // Task 23: 承諾待ち → 発注待ち（見積の送付後）
       // 調査費用を請求して入金待ち（精算の段。Task 7）
       if (p.billed_at && !p.paid_at) return paymentStage(p, nowAt);
       return mkStage('done', '完了', null, p.done_at);
@@ -225,8 +253,13 @@
       if (p.paid_at) return mkStage('done', '済', null, p.paid_at);
       if (p.billed_at) return paymentStage(p, nowAt);
       if (reportSent) return mkStage('bill', '請求する', 'us', p.done_at || rs.report.sent_at);
-      const workReport = () => mkStage('report', '完了報告必要' + (WORK_REPORT_NOTE[rs.state] || ''), 'us', p.done_at || p.scheduled_at,
-        { report: rs.state });
+      // Task 23: 報告書が未提出（無い・下書き）なら期限（工事日の翌日）を括弧に足す。過ぎたら late
+      const workReport = () => {
+        const rt = reportTodo(p, nowAt, { reports, estimates });
+        const note = (WORK_REPORT_NOTE[rs.state] || '').replace(/）$/, rt ? `・期限 ${fmtYmdMD(rt.due)}）` : '）');
+        return mkStage('report', '完了報告必要' + (note || (rt ? `（期限 ${fmtYmdMD(rt.due)}）` : '')), 'us', rt ? rt.due : p.done_at || p.scheduled_at,
+          rt ? { report: rs.state, due: rt.due, late: rt.late } : { report: rs.state });
+      };
       if (p.done_at) return workReport();
       if (!liveEstimates(estimates).some(isAccepted)) {
         const pend = pendingApproval(estimates);
@@ -252,17 +285,25 @@
   function caseNext(phases, now) {
     const list = listOf(phases);
     const count = {};
-    const rows = list.map((p, i) => {
+    const rows = [];
+    list.forEach((p, i) => {
       count[p.kind] = (count[p.kind] || 0) + 1;
       const st = stage(p, null, now);
-      return { i, row: { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
-        seq: p.seq != null ? p.seq : count[p.kind],
-        key: st.key, label: st.label, ball: st.ball, mark: MARK[st.ball] || '', date: st.date, late: !!st.late,
-        workerId: p.worker_id || null, workerName: str(p.worker_name) || null } };
-    }).filter(x => x.row.ball);
+      const base = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
+        seq: p.seq != null ? p.seq : count[p.kind], workerId: p.worker_id || null, workerName: str(p.worker_name) || null };
+      rows.push({ i, row: Object.assign({}, base, { key: st.key, label: st.label, ball: st.ball, mark: MARK[st.ball] || '', date: st.date,
+        late: !!st.late, due: st.due || null }) });
+      // Task 23: 再調査の調査の見積書の期限も1行（やること・🔔 と同じ件数にする）
+      const todo = p.kind === 'survey' ? estimateTodo(p, now) : null;
+      if (todo) {
+        rows.push({ i, row: Object.assign({}, base, { key: 'estimate', label: `見積書作成必要（期日 ${fmtYmdMD(todo.due)}）`, ball: 'us', mark: MARK.us,
+          date: todo.due, late: todo.late, due: todo.due }) });
+      }
+    });
+    const shown = rows.filter(x => x.row.ball);
     const rank = b => (b === 'us' ? 0 : 1);
-    rows.sort((a, b) => rank(a.row.ball) - rank(b.row.ball) || a.i - b.i);
-    return rows.map(x => x.row);
+    shown.sort((a, b) => rank(a.row.ball) - rank(b.row.ball) || a.i - b.i);
+    return shown.map(x => x.row);
   }
 
   // 「次:」の1行の文（caseNext の行）→ '10/20 9:00 調査に行く' / '見積の承諾待ち（10/16 送付）' / '請求する（完了 10/14）'
@@ -354,6 +395,12 @@
     const m = kind === 'survey' ? TASK_OF.survey : isWork(kind) ? TASK_OF.work : {};
     return m[key] || 'other';
   }
+  // 作りかけの見積（下書きの最新）。「見積書作成必要」の行のボタンで続きを開く（Task 23: 下書きでは行が消えない）
+  function draftEstimate(estimates) {
+    const list = liveEstimates(estimates).filter(e => e.status === 'draft' && e.id);
+    list.sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    return list[0] || null;
+  }
   // 送付する見積（提出済み・未送付の最新）
   function issuedEstimate(estimates) {
     const list = liveEstimates(estimates).filter(e => e.status === 'issued');
@@ -389,7 +436,7 @@
             date: todo.due, late: todo.late, due: todo.due, who: who0,
             whoName: !who0 ? '' : nameOf.get(who0) || (who0 === w0 ? str(p.worker_name) : str(c.assignee_name)) || '不明',
             mine: !!me && (c.assignee_id === me || w0 === me),
-            reportId: null, reportStatus: null, reportState: null, estimateId: null, phase: p, caseRow: c
+            reportId: null, reportStatus: null, reportState: null, estimateId: (draftEstimate(p.estimates) || {}).id || null, phase: p, caseRow: c
           });
         }
         if (st.ball !== 'us') continue;
@@ -400,7 +447,7 @@
         const who = workerId || c.assignee_id || null;
         const whoName = !who ? '' : nameOf.get(who) || (who === workerId ? str(p.worker_name) : str(c.assignee_name)) || '不明';
         const rs = reportState(p.reports);
-        const est = group === 'send_estimate' ? issuedEstimate(p.estimates) : null;
+        const est = group === 'send_estimate' ? issuedEstimate(p.estimates) : group === 'estimate' ? draftEstimate(p.estimates) : null;
         const row = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, seq), seq, key: st.key, label: st.label, ball: st.ball, date: st.date };
         all.push({
           group, action: def.action, caseId: c.id || null, caseName: str(c.name), room: str(c.room),
@@ -1031,20 +1078,38 @@
   //   notice: 自分が担当者で、知らせてもらって未確認（調査済み・完了は除く）
   //   tomorrow: 自分が担当者で、明日（日本時間）の予定（未確認の notice があればそちらに含める: tomorrow: true）
   //   → [{ type, caseRow, phase, title, label, from, fromAt, tomorrow, brief }]（notice を先、各々予定の早い順。brief は現場担当への指示の要約・無ければ ''）
-  function staffInbox(caseRows, meId, now) {
+  //   opts.messages: 現場からの連絡（staff_messages）。自分あての未読の返事を type 'message' で先頭に出す（Task 23）
+  function staffInbox(caseRows, meId, now, opts) {
     const nowMs = ms(now) != null ? ms(now) : Date.now();
     const tomorrow = jstYmd(nowMs + 86400000);
     const out = [];
+    const caseById = new Map(listOf(caseRows).filter(c => (!c.status || c.status === 'open') && !c.deleted_at).map(c => [c.id, c]));
+    listOf(opts && opts.messages).filter(m => messageForMe(m, meId, false) && caseById.has(m.case_id)).forEach(m => {
+      const c = caseById.get(m.case_id);
+      const ws = withSeq(c.phases);
+      const hit = ws.find(x => x.p.id === m.phase_id);
+      out.push({ type: 'message', caseRow: c, phase: hit ? hit.p : null, title: hit ? phaseTitle(hit.p, hit.seq) : '案件全体',
+        label: `📨 管理者から: ${str(m.subject)}`, message: m, due: null, late: false, from: '', fromAt: m.created_at, tomorrow: false, brief: '' });
+    });
     for (const c of listOf(caseRows)) {
+      // Task 23 M2: 進行中の案件だけ（現場用の一覧の件数と合わせる）
+      if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
         if (!meId || p.worker_id !== meId) continue;
-        // Task 21: 作業担当者が自分・見積書の期限あり・見積なし → 「見積書を作る（期限 M/D）」
+        const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
+        // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない → 「見積書を仕上げて提出（期限 M/D）」（下書きでは消えない）
         const todo = estimateTodo(p, now);
         if (todo) {
-          out.push({ type: 'estimate', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
-            label: `見積書を作る（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
+          out.push({ type: 'estimate', caseRow: c, phase: p, title,
+            label: `見積書を仕上げて提出（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
+        }
+        // Task 23: 調査日・工事日を過ぎて報告書が未提出 → 「報告書を書いて提出（期限 翌日）」（stage の期限と同じ）
+        const st = stage(p, null, now);
+        if (st.due && ((p.kind === 'survey' && st.key === 'write') || (isWork(p.kind) && st.key === 'report'))) {
+          out.push({ type: 'report', caseRow: c, phase: p, title,
+            label: `報告書を書いて提出（期限 ${fmtYmdMD(st.due)}）`, due: st.due, late: !!st.late, from: '', fromAt: null, tomorrow: false, brief: '' });
         }
         if (p.done_at) continue;
         const isTomorrow = !!p.scheduled_at && jstYmd(p.scheduled_at) === tomorrow;
@@ -1057,11 +1122,39 @@
           label, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan) });
       }
     }
-    // 並び: 確認依頼 → 見積書を作る（期限を過ぎたもの → 期限の早い順）→ 明日の予定
-    const rank = { notice: 0, estimate: 1, tomorrow: 2 };
-    const t = x => (x.type === 'estimate' ? ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0))
+    // 並び: 確認依頼 → 見積書・報告書（期限を過ぎたもの → 期限の早い順）→ 明日の予定
+    const rank = { message: -1, notice: 0, estimate: 1, report: 1, tomorrow: 2 };
+    const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0))
       : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
     return out.sort((a, b) => rank[a.type] - rank[b.type] || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
+  }
+
+  /* ---------- 現場からの連絡（staff_messages。Task 23） ---------- */
+  // 件名の候補（現場用の「＋ 連絡する」）
+  const MESSAGE_SUBJECTS = ['調査が終わりました', '見積を提出しました', '質問があります', '日程を変えたい'];
+  // 自分あての未読か（宛先が自分。宛先が空 = 管理者全員あてなので管理者なら自分あて。自分が送ったものは除く）
+  function messageForMe(m, meId, isOwner) {
+    if (!m || m.read_at || !meId || m.from_user === meId) return false;
+    return m.to_user ? m.to_user === meId : !!isOwner;
+  }
+  // 連絡をやり取りごとにまとめる → [{ root, replies: [古い順], last: 最後のやり取りの時刻, unread: 自分あての未読の数 }]（新しいやり取りが先）
+  //   返事の返事も最初の連絡（root）にまとめる。もとの連絡が見えない返事はそれ自体を root にする
+  function messageThreads(messages, meId, isOwner) {
+    const list = listOf(messages);
+    const byId = new Map(list.map(m => [m.id, m]));
+    const rootOf = m => { let r = m, n = 0; while (r.reply_to && byId.has(r.reply_to) && n++ < 50) r = byId.get(r.reply_to); return r; };
+    const groups = new Map();
+    list.forEach(m => {
+      const r = rootOf(m);
+      if (!groups.has(r.id)) groups.set(r.id, { root: r, replies: [], last: r.created_at, unread: 0 });
+      const g = groups.get(r.id);
+      if (m !== r) g.replies.push(m);
+      if (ms(m.created_at) > ms(g.last)) g.last = m.created_at;
+      if (messageForMe(m, meId, isOwner)) g.unread += 1;
+    });
+    const out = [...groups.values()];
+    out.forEach(g => g.replies.sort((a, b) => ms(a.created_at) - ms(b.created_at)));
+    return out.sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0) || ms(b.last) - ms(a.last));
   }
 
   // 工事カードで使う調査結果: この案件の調査のうち、何か入っている一番新しい（並びの最後の）もの。無ければ null
@@ -1073,6 +1166,35 @@
   function reportInit(raw) {
     const r = normalizeResult(raw);
     return { f2: str(r.cause), reason: str(r.why), f4: str(r.scope) };
+  }
+  // 報告書をこのフェーズで作るときの項目（ReportsApi.create に渡す。Task 23）
+  //   作業担当者の初期値 = そのフェーズの作業担当者（無ければ開いた人 o.meId）。作業区分はフェーズの種類で決まる
+  //   Task 23 I11・I12: 号室 = 案件の号室（cases.room）、作業日 = フェーズの日時（日本時間の日。無ければ今日）、
+  //   調査の報告書は調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（reportInit。管理画面・現場用とも）
+  //   o: { meId, title, now, workerName（協力業者URLのとき。worker_id は入れない） }
+  function reportFields(phase, caseRow, o) {
+    const p = phase || {}, c = caseRow || {}, opt = o || {};
+    const WT = { survey: 'investigate', cause: 'repair', repair: 'restore' };
+    const f = { work_type: WT[p.kind] || 'repair', phase_id: p.id || null };
+    if (str(opt.workerName)) f.worker_name = str(opt.workerName);
+    else f.worker_id = p.worker_id || opt.meId || null;
+    if (opt.title) f.phaseTitle = opt.title;
+    if (str(c.room)) f.room = str(c.room).slice(0, 40);
+    f.work_date = p.scheduled_at ? jstYmd(p.scheduled_at) : jstYmd(toDate(opt.now) || new Date());
+    if (p.kind === 'survey' && hasResult(p.result)) f.init = reportInit(p.result);
+    return f;
+  }
+  // 提出された調査の報告書（選択式の原因・理由・次の対応方針）→ 調査結果（case_phases.result）の空の項目だけ埋めたもの（Task 23 I10）。
+  //   変わらなければ null。texts: { cause, reason, next }（ReportLogic.causeText / data.reason / ReportLogic.nextActionText）
+  function resultFromReport(currentResult, texts) {
+    const cur = normalizeResult(currentResult);
+    const t = texts || {};
+    const next = Object.assign({}, cur);
+    let changed = false;
+    [['cause', t.cause], ['why', t.reason], ['scope', t.next]].forEach(([k, v]) => {
+      if (!str(cur[k]) && str(v)) { next[k] = str(v); changed = true; }
+    });
+    return changed ? next : null;
   }
   // 見積書の備考の初期値（data.notes.extra）。NOTE_FIRST は備考の1行目に必ず入るので除く（重複は1回）
   function estimateNoteExtra(raw) {
@@ -1087,7 +1209,7 @@
   }
 
   /* ---------- 書類の共有記録 ---------- */
-  // 見積・報告書の「下書き → 共有 → 承諾（見積）／確認（報告書）」
+  // 見積・報告書の「下書き → 提出済み → 共有 → 承諾（見積）／確認（報告書）」
   //   mails（mail_drafts の行・任意）から送付日と宛先の種類を補う。報告書の「確認」は doc.viewed_at
   //   （お客様ページで開いた日など、呼ぶ側が入れる）があれば済
   //   → { type: 'estimate'|'report', steps: [{ key, label, done, date }], current, sentTo: ['client',...] }
@@ -1100,7 +1222,12 @@
     const sentAt = d.sent_at || (mailSentAt != null ? new Date(mailSentAt).toISOString() : null);
     const sentTo = RECIPIENTS.map(r => r.key).filter(k => sentMails.some(m => listOf(m.recipients).includes(k)));
     const shared = isEst ? (!!sentAt || d.status === 'sent' || isAccepted(d)) : (!!sentAt || isReportSent(d));
+    // 提出済み（Task 23 C1）: 見積は issued 以降、報告書は submitted 以降（社内・協力業者とも）
+    const submitted = shared || (isEst ? (d.status === 'issued' || !!d.issued_at)
+      : (d.status === 'submitted' || d.status === 'confirmed' || !!d.submitted_at));
+    const subAt = isEst ? d.issued_at || null : d.submitted_at || null;
     const steps = [{ key: 'draft', label: '下書き', done: true, date: d.created_at || null },
+      { key: 'submitted', label: '提出済み', done: submitted, date: submitted ? subAt : null },
       { key: 'shared', label: '共有', done: shared, date: shared ? sentAt : null }];
     if (isEst) steps.push({ key: 'accepted', label: '承諾', done: isAccepted(d), date: d.accepted_at || null });
     else steps.push({ key: 'confirmed', label: '確認', done: !!d.viewed_at, date: d.viewed_at || null });
@@ -1297,21 +1424,24 @@
     const days = st.date ? Math.max(0, Math.round((ms(jstYmd(nowAt)) - ms(jstYmd(st.date))) / 86400000)) : 0;
     const shortLabel = st.key === 'visit' ? '調査に行く' : st.key === 'issued' ? '見積書提出済み' :
       st.key === 'report' && isWork(p.kind) ? '完了報告必要' :
-      st.key === 'approval' ? `${isWork(p.kind) ? '発注待ち' : '承諾待ち'}${st.date && days ? ` ${days}日` : ''}` : st.label;
+      st.key === 'approval' ? `発注待ち${st.date && days ? ` ${days}日` : ''}` : st.label;
     const short = st.ball ? `${MARK[st.ball]} ${shortLabel}` : `✓ ${st.label}`;
     // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 作業員が入力中 > 下書き）
-    const rank = { draft: 0, waiting: 1, submitted: 2, confirmed: 3, shared: 4, viewed: 5 };
+    const rank = { draft: 0, waiting: 1, submitted: 2, ready: 3, confirmed: 3, shared: 4, viewed: 5 };
     let report = { state: 'none', text: '未作成', date: null };
     for (const r of reports) {
       const t = docTrack(r, mails);
       const shared = t.steps.find(x => x.key === 'shared');
       const seen = t.steps.find(x => x.key === 'confirmed');
-      const s = seen && seen.done ? 'viewed' : shared && shared.done ? 'shared' : r.status === 'confirmed' ? 'confirmed' : r.status === 'submitted' ? 'submitted'
+      // 社内（管理者・スタッフ）が提出したものは確認の段を飛ばす＝「提出済み（未送付）」（Task 23。stage の「報告書を送る」と同じ）
+      const s = seen && seen.done ? 'viewed' : shared && shared.done ? 'shared' : r.status === 'confirmed' ? 'confirmed'
+        : r.status === 'submitted' ? (r.submitted_via === 'share' ? 'submitted' : 'ready')
         : r.share_active ? 'waiting' : 'draft';
       const date = s === 'viewed' ? seen.date : s === 'shared' ? shared.date : null;
       if (report.state === 'none' || rank[s] > rank[report.state]) {
         report = { state: s, date, text: s === 'viewed' ? `確認 ${fmtMD(date)}` : s === 'shared' ? `共有${date ? ' ' + fmtMD(date) : ''}`
-          : s === 'confirmed' ? '確認済み' : s === 'submitted' ? '提出済み' : s === 'waiting' ? '作業員が入力中' : '下書き' };
+          : s === 'confirmed' ? '確認済み（未送付）' : s === 'ready' ? '提出済み（未送付）' : s === 'submitted' ? '提出済み・確認待ち'
+            : s === 'waiting' ? (str(r.share_name) ? `${str(r.share_name)}様が入力中` : '協力業者が入力中') : '下書き' };
       }
     }
     // 見積: 最新の版（承諾があればそれ）
@@ -1325,6 +1455,8 @@
       const amount = last.total != null ? Number(last.total) : null;
       if (acc) estimate = { state: 'accepted', text: `v${v} 承諾`, version: v, amount };
       else if (last.status === 'sent') estimate = { state: 'sent', text: `v${v} 送付${last.sent_at ? ' ' + fmtMD(last.sent_at) : ''}`, version: v, amount };
+      // 提出済み（issued）は下書きと分ける（Task 23 C1。対応状況の「見積書提出済み（送付する）」と同じ）
+      else if (last.status === 'issued') estimate = { state: 'issued', text: `v${v} 提出済み（未送付）`, version: v, amount };
       else estimate = { state: 'draft', text: `v${v} 下書き`, version: v, amount };
     }
     const bs = billStatus(p);
@@ -1467,7 +1599,10 @@
     let report = { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 };
     if (r) {
       const photos = listOf(r.photos).length;
-      report = r.status === 'draft'
+      // Task 23 I6: 協力業者URLで入力中（share_active）は「○○様が入力中」（現場用・案件ページのツールとも）
+      if (r.status === 'draft' && r.share_active) {
+        report = { state: 'waiting', text: more(reports.length, `${str(r.share_name) ? str(r.share_name) + '様' : '協力業者'}が入力中`) + ' ・ 開く', open: r, count: reports.length };
+      } else report = r.status === 'draft'
         ? { state: 'draft', text: more(reports.length, `下書きあり（写真 ${photos}枚）`) + ' ・ 続きを書く', open: r, count: reports.length }
         : { state: 'done', text: more(reports.length, '提出済み') + ' ・ 開く', open: r, count: reports.length };
     }
@@ -1496,14 +1631,14 @@
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
-    phaseTitle, stage, estimateTodo, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
+    phaseTitle, stage, estimateTodo, reportTodo, ymdAdd, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     BRIEF_SUSPECTS, BRIEF_PRIORITY, BRIEF_HEADS, normalizeBrief, briefLines, hasBrief, briefSummary, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, phaseRow, workerCell, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, cautionSentences, surveyResultMail, latestSurveyResult,
-    reportInit, estimateNoteExtra, noticeInit,
+    reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,
     billingBasis, billingAmount, billToLabel, groupBilling,
     BILL_STATUS_LABEL, BILLING_MODE_LABEL, billStatus, yen, parseYen, ymLabel, addMonth, billingMonthOf, showsBilling,
     paymentDueDefault, isOverdue, fmtYmdMD,

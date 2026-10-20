@@ -137,7 +137,7 @@ function buildShare() {
   card.appendChild(result);
   card.appendChild(mk('div', 'rep-note',
     'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要。' +
-    '他の案件・金額・タイムライン・依頼者の連絡先は見えません。提出したら編集できなくなり、URLは自動で無効になります。'));
+    '他の案件・金額・タイムライン・依頼元の連絡先は見えません。提出したら編集できなくなり、URLは自動で無効になります。'));
 
   const listCard = mk('div', 'rep-card');
   listCard.appendChild(mk('h3', null, '発行済みのURL'));
@@ -169,6 +169,15 @@ function onShareIssue(btn, caseId, vendorEl, typeEl, daysEl, phaseEl, phOpts) {
       if (phaseEl && phaseEl.value) {
         f.phase_id = phaseEl.value;
         f.phaseTitle = (phOpts.find(o => o[0] === phaseEl.value) || [])[1] || '';
+      }
+      // Task 23 I11: 号室・作業日の初期値（案件の号室・フェーズの日）
+      const cs = typeof shrSummary !== 'undefined' && shrSummary ? shrSummary : null;
+      const ph0 = cs && f.phase_id ? (cs.phases || []).find(x => x.id === f.phase_id) : null;
+      if (cs) {
+        const pf = PhaseLogic.reportFields(ph0 || {}, cs, { workerName: name });
+        if (pf.room) f.room = pf.room;
+        f.work_date = pf.work_date;
+        if (ph0 && ph0.kind === 'survey' && pf.init) f.init = pf.init;
       }
       report = await ReportsApi.create(caseId, f);
     } catch (e) {

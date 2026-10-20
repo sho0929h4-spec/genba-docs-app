@@ -133,7 +133,7 @@ function eulBuild() {
   const create = dBtn('＋ 見積書を作成', 'btn inline', () => eulCreate());
   create.id = 'eul-create';
   acts.appendChild(create);
-  const note = mk('div', 'rep-sub', '宛名は元請け、件名は物件名が入った状態で作られます。提出すると見積番号が付きます');
+  const note = mk('div', 'rep-sub', '宛名は元請、件名は物件名が入った状態で作られます。提出すると見積番号が付きます');
   const err = mk('div', 'err');
   err.id = 'eul-err';
   const list = mk('div');
@@ -610,10 +610,11 @@ function eueActsCard(s) {
     card.appendChild(mk('h3', null, st === 'accepted' ? 'この版は採用版です' : st === 'superseded' ? 'この版は旧版です' : 'この版の操作'));
     // 「依頼者へ送付」「承諾された」は管理者のみ（現場用で開いたときは出さない。Task 18）
     const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
-    if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼者へ送付', 'eu-send', 'btn inline', () => eueSend(s));
+    if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼元へ送付', 'eu-send', 'btn inline', () => eueSend(s));
     if (s.latest && ['issued', 'sent'].includes(st)) {
       if (admin) btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
-      btn('減額対応で新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
+      // 減額対応の新しい版は送付済みの版を旧版にする（管理者の「発注待ち」が戻る）ので管理者だけ（Task 23 I8）
+      if (admin) btn('減額対応で新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
     }
   }
   if (v >= 2) btn('前の版との差分', 'eu-diff-open', 'btn sm ghost inline', () => { location.hash = '#estimate/' + s.id + '/diff'; });
@@ -642,7 +643,7 @@ function eueLinksCard(s) {
   const card = mk('div', 'rep-card');
   card.id = 'eu-links';
   card.appendChild(mk('b', null, 'この版で対応する依頼（' + ids.length + '件）'));
-  card.appendChild(mk('div', 'rep-sub', 'この版を依頼者へ送付すると、タイムラインの依頼を「反映済み」にします'));
+  card.appendChild(mk('div', 'rep-sub', 'この版を依頼元へ送付すると、タイムラインの依頼を「反映済み」にします'));
   const list = mk('div', 'eu-links');
   (s.linked || []).forEach(e => {
     const it = mk('div', 'eu-link');
@@ -705,7 +706,10 @@ async function eueNewVerPanel(s) {
 // 「承諾された」: confirm → EstimatesApi.accept → 採用版（対応フェーズの段階が「承諾待ち」から進む）
 async function eueAccept(s) {
   if (s.busy) return;
-  if (!confirm('この版（' + euNumberText(s.row) + '・' + euYen(s.row.total) + '）を、依頼者に承諾された採用版として記録しますか？')) return;
+  // 画面内の確認（confirm() は使わない。Task 23 M6）
+  const ok = await askInline($('eu-acts'), 'この版（' + euNumberText(s.row) + '・' + euYen(s.row.total) + '）を、依頼元から発注を受けた（承諾された）採用版として記録しますか？',
+    { okLabel: '採用版として記録する', id: 'eu-ask' });
+  if (!ok || eue !== s || s.busy) return;
   eueActsBusy(s, 'accept');
   setMsg('eu-acts-msg', '');
   let row = null, msg = '';

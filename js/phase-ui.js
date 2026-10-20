@@ -25,7 +25,8 @@ const PH_STEP_INDEX = {
   work: { estimate: 0, issued: 0, approval: 0, schedule: 1, work: 1, report: 3, bill: 4, payment: 4, done: 5 } // 2（完了の段）は Task 16 で無くした
 };
 const PH_REMIND_STATE = { planned: '予定', due: '時刻を過ぎました（まもなく下書きができます）', draft: '下書きあり', sent: '送信済み', skipped: '送らない' };
-const PH_REPORT_STATUS = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '送付済み' };
+// 報告書の状態の文（Task 23: 社内が提出したものは確認待ちにしない＝「提出済み（未送付）」。ReportLogic.statusLabel と同じ）
+const phReportStatus = r => (typeof ReportLogic !== 'undefined' ? ReportLogic.statusLabel(r.status, r.submitted_via) : r.status);
 
 let ph = null;     // { gen, caseId, phaseId（詳細ページ。案件ページは null）, root, data: {phases, estimates, reports, notices, drafts}, editing: Set, confirmDel, adding, loadErr }
 let phSeq = 0;     // 読み込みのたびに増やす（古い応答を捨てる）
@@ -97,7 +98,11 @@ async function phLoad() {
   let shares = [];
   try { shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id)); }
   catch (e) { console.warn('協力業者URLの読み込みに失敗', e); }
-  (reports || []).forEach(r => { r.share_active = (shares || []).some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh)); });
+  (reports || []).forEach(r => {
+    const act = (shares || []).find(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
+    r.share_active = !!act;
+    r.share_name = act ? act.vendor_name || '' : ''; // 「○○様が入力中」（Task 23）
+  });
   // 時刻を過ぎたリマインドの下書きを作る・古い未送信のリマインドを消す（案件一覧と同じ。二重作成は DB の unique で防ぐ）
   try {
     const r = await PhasesApi.syncReminders([{ caseRow: currentCase, phases: phases || [] }], drafts || [], new Date());
@@ -345,7 +350,14 @@ function phSyncNow(s) {
   const tail = now.text.slice(now.text.indexOf('次: '));
   const next = mk('span', 'cn-next' + (now.next && now.next.late ? ' late' : ''), tail);
   el.replaceChildren(us, mk('span', 'cn-sep', '・'), them, mk('span', 'cn-sep', '・'), next);
-  el.setAttribute('aria-label', '今の状態: ' + now.text);
+  // Task 23: 現場からの連絡の未読（自分あて）。押すとこの案件の連絡
+  const unread = currentCase && currentCase.id === s.caseId ? Number(currentCase.staff_unread) || 0 : 0;
+  if (unread > 0) {
+    const b = dBtn('📨 現場からの連絡 ' + unread + '件', 'cn-msg', () => { location.hash = '#messages/' + s.caseId; });
+    b.id = 'case-now-messages';
+    el.append(mk('span', 'cn-sep', '・'), b);
+  }
+  el.setAttribute('aria-label', '今の状態: ' + now.text + (unread > 0 ? ' ・ 現場からの連絡 ' + unread + '件' : ''));
 }
 
 function phTable() {
@@ -384,7 +396,7 @@ function phTableRow(p, multi) {
   if (multi) name.appendChild(mk('span', 'ph-n', seq + '回目'));
   name.appendChild(mk('span', 'ph-go', '›'));
   name.setAttribute('aria-label', row.title + 'の詳細を開く');
-  name.title = row.title + 'の詳細（日時・調査結果・現場担当への指示・書類・請求の全部）';
+  name.title = row.title + 'の詳細（日時・調査結果・作業担当者への指示・書類・請求の全部）';
   name.addEventListener('click', () => { location.hash = '#case/' + s.caseId + '/phase/' + p.id; });
   tr.appendChild(name);
 
@@ -418,8 +430,13 @@ function phTableRow(p, multi) {
   // 報告書（無ければ その場の欄で2択＝作業員にURLを渡す／自社で作る。あれば一覧へ）
   const rep = row.report;
   cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : rep.state === 'waiting' ? 'wait' : '',
-    rep.state === 'none' ? '作業員にURLを渡すか自社で作る' : '報告書の一覧へ',
-    () => rep.state === 'none' ? phOpenCell(p, 'report') : (location.hash = '#case/' + s.caseId + '/reports'), rep.state === 'none' ? '未' : '');
+    rep.state === 'none' ? '協力業者にURLを渡すか自社で作る' : 'このフェーズの報告書を開く',
+    // Task 23 M5: このフェーズの報告書（一番新しいもの）を開く（案件全体の一覧ではなく）
+    () => {
+      if (rep.state === 'none') return phOpenCell(p, 'report');
+      const last = docs.reports.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))).pop();
+      location.hash = last ? '#report/' + last.id : '#case/' + s.caseId + '/reports';
+    }, rep.state === 'none' ? '未' : '');
   // 見積（無ければ作る／あれば一覧へ）。金額は PC だけ2段目に
   const est = row.estimate;
   const eb = cell('estimate', est.state === 'none' ? '＋ 作る' : est.text, est.state === 'none' ? 'none add' : est.state === 'accepted' ? 'ok' : est.state === 'sent' ? 'wait' : '',
@@ -529,7 +546,8 @@ function phMakeReport(btn, p, errId) {
   return withBusy(btn, async () => {
     try {
       const meId = ctx && ctx.user ? ctx.user.id : null;
-      const f = { work_type: PH_WORK_TYPE[p.kind], worker_id: meId, phase_id: p.id, phaseTitle: phTitle(p) };
+      // Task 23 I4: 作業担当者の初期値 = このフェーズの作業担当者（無ければ自分）
+      const f = PhaseLogic.reportFields(p, currentCase, { meId, title: phTitle(p) });
       // 調査で作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
       if (p.kind === 'survey') {
         await phResSettle();
@@ -700,7 +718,7 @@ function phCard(p) {
 function phBriefStep(p, add) {
   if (typeof phBriefBody !== 'function') return;
   const el = phBriefBody(p);
-  add(typeof pdBriefHas === 'function' && pdBriefHas(p) ? 'done' : 'later', '現場担当への指示', [el]);
+  add(typeof pdBriefHas === 'function' && pdBriefHas(p) ? 'done' : 'later', '作業担当者への指示', [el]);
 }
 
 /* ---- 日時と連絡メール・リマインド ---- */
@@ -800,7 +818,7 @@ function phScheduleForm(p, errId) {
     l2.appendChild(end);
     form.appendChild(l2);
   }
-  form.appendChild(mk('div', 'ph-sub', '保存すると、関係者への連絡メールの下書きができます（送るのは「確認して送る」から）'));
+  form.appendChild(mk('div', 'ph-sub', '保存すると、依頼元への連絡メールの下書きができます（送るのは「確認して送る」から）'));
   const acts = mk('div', 'ph-acts');
   acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline', () => { ph.editing.delete(p.id); phMsg(errId, ''); phDraw(); }));
   if (p.scheduled_at) {
@@ -856,7 +874,7 @@ function phStatusBody(p, st, docs, errId) {
   if (p.kind === 'survey') {
     if (st.key === 'schedule') {
       hint('調査日時を決めてください（日時の欄から）。先に報告書の用意をするときは下から');
-    } else if (st.key === 'approval') hint('見積の承諾待ちです（見積の欄から開けます）');
+    } else if (st.key === 'approval') hint('発注待ちです（見積の欄から開けます）');
     else if (st.key === 'payment') hint('入金を待っています（入金日の欄から入金確認）');
     else if (st.key === 'done') hint('このフェーズは完了しています');
     if (st.key === 'schedule' || reportKeys.includes(st.key)) out.push(...phReportFlow(p, docs, errId, true));
@@ -918,7 +936,7 @@ function phReportFlow(p, docs, errId, contact) {
   } else if (waiting) {
     box.dataset.state = 'waiting';
     const sh = (s.data.shares || []).find(x => x.report_id === waiting.id && ReportsApi.shareActive(x));
-    const who = (sh && sh.vendor_name) || waiting.worker_name || '作業員';
+    const who = (sh && sh.vendor_name) || waiting.worker_name || '協力業者';
     const line = mk('div', 'ph-row');
     line.appendChild(mk('span', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + who + ' 様が入力中です（調査報告待ち・URL発行 ' + (sh ? PhaseLogic.fmtMD(sh.created_at) : '') + '）'));
     box.appendChild(line);
@@ -931,7 +949,7 @@ function phReportFlow(p, docs, errId, contact) {
     box.appendChild(mk('div', 'ph-sub', '報告書の下書きがあります（提出すると次へ進みます）'));
     const acts = mk('div', 'ph-flow-acts');
     acts.appendChild(open(draft, '報告書を開いて書く'));
-    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('作業員にURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
+    if (!s.shareForm.has(p.id)) acts.appendChild(dBtn('協力業者にURLを渡す', 'btn sm inline ph-flow-share', () => phShareOpen(p)));
     box.appendChild(acts);
     if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, draft, errId));
   } else {
@@ -939,8 +957,8 @@ function phReportFlow(p, docs, errId, contact) {
     if (s.shareForm.has(p.id)) box.appendChild(phShareForm(p, null, errId));
     else {
       const acts = mk('div', 'ph-flow-acts ph-flow-choice');
-      const a = dBtn('作業員にURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
-      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。作業員がスマホで入力・提出します'));
+      const a = dBtn('協力業者にURLを渡す', 'ph-choice ph-flow-share', () => phShareOpen(p));
+      a.appendChild(mk('span', 'ph-choice-sub', '報告書を作ってURLを発行。協力業者がスマホで入力・提出します'));
       const b = dBtn('自社で作る', 'ph-choice ph-flow-self', btn => phMakeReport(btn, p, errId));
       b.appendChild(mk('span', 'ph-choice-sub', '報告書を作って編集画面を開きます'));
       acts.append(a, b);
@@ -964,7 +982,7 @@ function phShareForm(p, existing, errId) {
   const s = ph;
   const form = mk('div', 'ph-form ph-share-form');
   const id = 'ph-share-name-' + p.id;
-  const lb = mk('label', 'ph-lbl', '作業員の名前（URLの宛名）');
+  const lb = mk('label', 'ph-lbl', '協力業者の名前（URLの宛名）');
   lb.htmlFor = id;
   const inp = document.createElement('input');
   inp.type = 'text';
@@ -986,12 +1004,13 @@ function phShareForm(p, existing, errId) {
 function phIssueShare(btn, p, existing, nameEl, errId) {
   const s = ph;
   const name = String(nameEl.value || '').trim();
-  if (!name) { phMsg(errId, '作業員の名前を入れてください'); nameEl.focus(); return; }
+  if (!name) { phMsg(errId, '協力業者の名前を入れてください'); nameEl.focus(); return; }
   return phRun(btn, errId, 'URLの発行', async () => {
     let report = existing;
     let made = false;
     if (!report) {
-      const f = { work_type: PH_WORK_TYPE[p.kind], worker_name: name, phase_id: p.id, phaseTitle: phTitle(p) };
+      // Task 23: 号室・作業日の初期値（PhaseLogic.reportFields）。名前は協力業者URLの名前（メンバーと一致すれば提出時に DB が作業担当者を残す）
+      const f = PhaseLogic.reportFields(p, currentCase, { title: phTitle(p), workerName: name });
       if (p.kind === 'survey') { await phResSettle(); f.init = PhaseLogic.reportInit(phResultOf(p)); }
       report = await ReportsApi.create(s.caseId, f);
       made = true;
@@ -1046,7 +1065,7 @@ function phIssuedEl(p, info) {
     ta.select();
   }));
   box.append(acts, status);
-  box.appendChild(mk('div', 'shr-warn', 'このURLは今だけ表示されます。ほかの画面に移る前にコピーして、LINE などで作業員に送ってください'));
+  box.appendChild(mk('div', 'shr-warn', 'このURLは今だけ表示されます。ほかの画面に移る前にコピーして、LINE などで協力業者に送ってください'));
   return box;
 }
 function phCopyBtn(label, cls, text, status, fallback) {
@@ -1156,14 +1175,14 @@ function phReportsBody(p, docs, errId) {
     top.appendChild(dBtn(r.status === 'draft' ? '開いて入力' : '開く', 'linkbtn', () => { location.hash = '#report/' + r.id; }));
     box.appendChild(top);
     box.appendChild(phTrackEl(t));
-    box.appendChild(mk('div', 'ph-sub', (PH_REPORT_STATUS[r.status] || r.status) + ' ・ ' + phSentToText(t)));
+    box.appendChild(mk('div', 'ph-sub', phReportStatus(r) + ' ・ ' + phSentToText(t)));
     const rc = phReportContactEl(r, t, errId);
     if (rc) box.appendChild(rc);
     out.push(box);
   });
   // 報告書が無いときは「調査した」（工事は「完了報告」）の段の2択から作る。あるときだけ追加の「＋ 報告書を作る」
   if (!docs.reports.length) {
-    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、作業員にURLを渡すか自社で作ってください'));
+    if (p.kind === 'survey') out.push(mk('div', 'ph-sub', 'まだありません。上の「調査した」の段で、協力業者にURLを渡すか自社で作ってください'));
     return out;
   }
   const b = dBtn('＋ 報告書を作る', 'ph-mkdoc ph-mk-report', btn => phMakeReport(btn, p, errId));
@@ -1201,13 +1220,14 @@ function phReportContactEl(r, t, errId) {
     row.dataset.state = 'draft';
     row.appendChild(dBtn('📨 報告連絡（確認して送る）', 'btn sm inline ph-rep-ct', () => openMailDraft(draft.id)));
   } else if (r.status === 'submitted') {
+    const share = r.submitted_via === 'share'; // 協力業者URLからの提出だけ「確認して」。社内の提出はそのまま送る（Task 23）
     row.dataset.state = 'submitted';
-    row.appendChild(dBtn('📨 確認して報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
+    row.appendChild(dBtn(share ? '📨 確認して報告連絡' : '📨 報告書を送る', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
       const d = await ReportsApi.confirm(r, currentCase);
       notifyTimeline();
       return d;
     })));
-    row.appendChild(mk('span', 'ph-sub', '確認済みにして、依頼元への送付メールの下書きを開きます'));
+    row.appendChild(mk('span', 'ph-sub', share ? '確認済みにして、依頼元への送付メールの下書きを開きます' : '依頼元への送付メールの下書きを開きます'));
   } else {
     row.dataset.state = 'none';
     row.appendChild(dBtn('📨 報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, () => ReportsApi.createDraft(r, currentCase))));
@@ -1959,5 +1979,5 @@ function phFillWorkerBrief(el, p) {
   const sum = PhaseLogic.briefSummary(v);
   el.dataset.state = sum ? 'on' : 'off';
   el.replaceChildren(sum ? mk('span', null, '📝 指示あり: ' + sum)
-    : mk('span', 'ph-sub', '📝 現場担当への指示はまだありません（下の「現場担当への指示」に書くと、確認依頼のメールにも入ります）'));
+    : mk('span', 'ph-sub', '📝 作業担当者への指示はまだありません（下の「作業担当者への指示」に書くと、確認依頼のメールにも入ります）'));
 }

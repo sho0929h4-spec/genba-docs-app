@@ -372,9 +372,14 @@ const PhasesApi = (() => {
 
     /* ===== リマインド・送るメール（対応フェーズ Task 6） ===== */
     // 送るメールの一覧・リマインドの作成に使う下書き: 未送信の全部 ＋ 指定フェーズのリマインド（送信済み・送らないも。二重作成の判定用）
-    async listMailForOutbox(phaseIds) {
+    //   caseIds（任意。Task 23 I13）: 未送信の下書きはこの案件の分だけ読む（無ければ会社の全部）
+    async listMailForOutbox(phaseIds, caseIds) {
+      const openQ = Array.isArray(caseIds)
+        ? (caseIds.length ? Promise.all(chunks(caseIds, 80).map(ids => sb.from('mail_drafts').select('*').eq('status', 'draft').in('case_id', ids).order('created_at')))
+          .then(rs => ({ data: rs.flatMap(r => must(r) || []), error: null })) : Promise.resolve({ data: [], error: null }))
+        : sb.from('mail_drafts').select('*').eq('status', 'draft').order('created_at');
       const [open, rem] = await Promise.all([
-        sb.from('mail_drafts').select('*').eq('status', 'draft').order('created_at'),
+        openQ,
         phaseIds && phaseIds.length
           ? Promise.all(chunks(phaseIds, 80).map(ids => sb.from('mail_drafts').select('*').in('purpose', ['reminder', 'staff_notice']).in('phase_id', ids)))
           : Promise.resolve([])

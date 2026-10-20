@@ -298,6 +298,9 @@ function renderCaseTools() {
   box.replaceChildren(head, grid, err);
 }
 
+// 見積の件数（系列の数。case_summaries.estimate_count と同じ数え方）
+const estSeriesCount = list => new Set((list || []).map(e => e.series_id || e.id)).size;
+
 function ctCard(def, state, sel) {
   const c = currentCase;
   const s = ctState;
@@ -339,14 +342,16 @@ function ctCard(def, state, sel) {
   list.appendChild(mk('span', 'nm', '一覧'));
   const ct = mk('span', 'ct');
   if (def.key === 'report') {
-    const total = Number(c.report_count) || 0;
-    const wait = Number(c.reports_to_confirm) || 0;
+    // 件数は表と同じ読み込み結果（ctState.data）から数える。確認待ちは協力業者URLから提出されたものだけ（Task 23）
+    const reps = ctState && ctState.data ? ctState.data.reports || [] : null;
+    const total = reps ? reps.length : Number(c.report_count) || 0;
+    const wait = reps ? reps.filter(r => r.status === 'submitted' && r.submitted_via === 'share').length : Number(c.reports_to_confirm) || 0;
     ct.textContent = wait > 0 ? '確認待ち ' + wait : total + '件';
     if (wait > 0) ct.classList.add('hot');
   } else if (def.key === 'estimate') {
-    ct.textContent = (Number(c.estimate_count) || 0) + '件';
+    ct.textContent = (ctState && ctState.data ? estSeriesCount(ctState.data.estimates) : Number(c.estimate_count) || 0) + '件';
   } else {
-    ct.textContent = (Number(c.notice_count) || 0) + '件';
+    ct.textContent = (ctState && ctState.data ? (ctState.data.notices || []).length : Number(c.notice_count) || 0) + '件';
   }
   list.appendChild(ct);
   if (def.key === 'estimate' && Number(c.estimate_count) > 0 && c.latest_estimate_total != null && typeof EstimateLogic !== 'undefined') {

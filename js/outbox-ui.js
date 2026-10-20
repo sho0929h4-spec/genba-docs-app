@@ -15,9 +15,10 @@ async function outboxSync(rows) {
   // 送信済み・送らないのリマインドも読むのは、これから作る可能性があるフェーズ（未完了・予定の時刻前）だけ
   const active = entries.flatMap(e => e.phases)
     .filter(p => p.scheduled_at && !p.done_at && Date.parse(p.scheduled_at) > now.getTime()).map(p => p.id);
-  let drafts = await PhasesApi.listMailForOutbox(active);
+  const caseIds = (rows || []).map(r => r.id); // 未送信の下書きは一覧にある案件の分だけ読む（Task 23 I13）
+  let drafts = await PhasesApi.listMailForOutbox(active, caseIds);
   const res = await PhasesApi.syncReminders(entries, drafts, now);
-  if (res.created.length || res.removed) drafts = await PhasesApi.listMailForOutbox(active);
+  if (res.created.length || res.removed) drafts = await PhasesApi.listMailForOutbox(active, caseIds);
   res.errors.forEach(m => console.warn(m));
   return { drafts, errors: res.errors };
 }

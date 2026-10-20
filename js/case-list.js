@@ -23,6 +23,11 @@ const CHIP_LABELS = {
   unpaid: '💴 入金待ち',
   done: '完了'
 };
+// チップの説明（Task 23 用語表: 自分の番＝自分が担当の自社の番）。選んだチップの説明を一覧の上に出す（title にも入れる）
+const CHIP_HINTS = {
+  mine_turn: '自分の番 = 自分が担当（案件の担当者か作業担当者）の案件で、こちらがやること（🔴 自社の番）があるもの',
+  waiting: '相手待ち = 依頼元・協力業者の返事や入力を待っているもの（🟡）'
+};
 const NEXT_MAX = 2; // カードの「次:」は最大2行（🔴 を先）
 
 function mk(tag, cls, text) {
@@ -61,6 +66,7 @@ async function openCases() {
   renderCaseList();
   // 時刻を過ぎたリマインドの下書きを作り、「✉️ 送るメールが n件あります」を出す（js/outbox-ui.js）
   if (!errMsg && typeof refreshStaffBanner === 'function') refreshStaffBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active')); // 🔔 確認してください（Task 6b）
+  if (!errMsg && typeof refreshMessagesBanner === 'function') refreshMessagesBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active')); // 📨 現場からの連絡（Task 23）
   if (!errMsg && typeof refreshOutboxBanner === 'function') refreshOutboxBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active'));
 }
 
@@ -72,7 +78,10 @@ function renderCaseList() {
     const k = chip.dataset.filter;
     chip.textContent = CHIP_LABELS[k] + ' ' + (counts[k] || 0);
     chip.classList.toggle('on', k === caseFilter);
+    if (CHIP_HINTS[k]) chip.title = CHIP_HINTS[k];
   });
+  const hint = $('case-chip-hint');
+  if (hint) { hint.textContent = CHIP_HINTS[caseFilter] || ''; hint.hidden = !CHIP_HINTS[caseFilter]; }
 
   const rows = CaseLogic.filterCases(caseRows, caseFilter, $('case-search').value, me, now);
   const list = $('case-list');
