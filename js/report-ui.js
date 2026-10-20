@@ -41,13 +41,14 @@ function repStamp(iso) {
 }
 
 function repBackToCase() {
-  return dBtn('← ' + (repSummary ? repSummary.name : '案件へ'), 'back', () => {
-    location.hash = '#case/' + repCaseId;
+  const fb = (typeof fieldBack === 'function' ? fieldBack(repCaseId) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  return dBtn(fb ? fb.label : '← ' + (repSummary ? repSummary.name : '案件へ'), 'back', () => {
+    location.hash = fb ? fb.hash : '#case/' + repCaseId;
   });
 }
 
 function renderRepMessage(text, isErr, retryId) {
-  const nodes = [dBtn('← 案件へ', 'back', () => { location.hash = '#case/' + repCaseId; })];
+  const nodes = [repBackToCase()];
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   if (retryId) nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => loadReports(retryId)));
   $('reports-root').replaceChildren(...nodes);
@@ -127,7 +128,7 @@ function buildReports() {
 
   const acts = mk('div', 'rep-acts rep-top-acts');
   acts.appendChild(dBtn('＋ 報告書を作成', 'btn inline', () => toggleRepForm()));
-  if (typeof openShareScreen === 'function') {
+  if (typeof openShareScreen === 'function' && !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin())) { // 現場用では出さない
     acts.appendChild(dBtn('🔗 協力業者に作成を依頼', 'btn inline ghost', () => openShareScreen(repCaseId)));
   }
 
@@ -249,7 +250,12 @@ function repRowEl(r) {
   const acts = mk('div', 'rep-acts');
   acts.style.marginTop = '6px';
   const vendorLock = r.status === 'draft' && repShares.some(sh => sh.report_id === r.id && ReportsApi.shareActive(sh));
-  if (vendorLock) {
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin(); // 現場用（Task 18）: 確認・送付・協力業者URLは管理者側
+  if (vendorLock && field) {
+    acts.appendChild(mk('span', 'rep-sub', '協力業者が入力中'));
+  } else if (field && r.status !== 'draft') {
+    acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
+  } else if (vendorLock) {
     acts.appendChild(dBtn('協力業者が入力中', 'btn sm ghost inline', () => openShareScreen(repCaseId)));
   } else if (r.status === 'draft') {
     acts.appendChild(dBtn('続きを書く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
@@ -259,7 +265,7 @@ function repRowEl(r) {
     acts.appendChild(dBtn('開く', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id; }));
   }
   // 確認済みなのに送付メールの下書きが無い（確認時に下書き作成だけ失敗した）→ 作り直せるようにする
-  if (r.status === 'confirmed' && !repDrafts.some(d => d.report_id === r.id)) {
+  if (!field && r.status === 'confirmed' && !repDrafts.some(d => d.report_id === r.id)) {
     acts.appendChild(dBtn('送付メールの下書きを作る', 'btn sm inline', () => onRepCreateDraft(r)));
   }
   acts.appendChild(dBtn('PDF', 'btn sm ghost inline', () => { location.hash = '#report/' + r.id + '/pdf'; }));

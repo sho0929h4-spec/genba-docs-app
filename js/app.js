@@ -185,11 +185,19 @@ async function onInviteCopy() {
 }
 
 function openSettings() {
+  // 現場用の画面（Task 18）では ⚙️ は現場用の設定へ
+  if (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) { location.hash = '#f/settings'; return; }
   resetInviteResult();
   typeof renderSettings === 'function' && renderSettings();
   showScreen('settings');
   if (typeof openClientsCard === 'function') openClientsCard(); // 元請マスタ（js/clients-ui.js。社内の誰でも編集できる）
   if (typeof CaseTrash !== 'undefined') CaseTrash.renderCard(); // 削除した案件（管理者だけ。js/case-trash.js）
+  // 画面: 現場用／管理画面（管理者だけ。js/field-ui.js）
+  const old = $('card-view');
+  if (old) old.remove();
+  if (ctx && ctx.membership.role === 'owner' && typeof fieldViewCard === 'function') {
+    $('card-company').before(fieldViewCard('card-view'));
+  }
 }
 
 const UUID_RE = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -202,7 +210,9 @@ const CASE_NOTICES_HASH_RE = new RegExp('^#case/' + UUID_RE + '/notices$', 'i');
 const REPORT_PDF_HASH_RE = new RegExp('^#report/' + UUID_RE + '/pdf$', 'i');
 const CASE_PHASE_HASH_RE = new RegExp('^#case/' + UUID_RE + '/phase/' + UUID_RE + '$', 'i');
 function routeFromHash() {
-  const h = location.hash;
+  // 現場用の画面（#f…）と役割による入口（スタッフは現場用だけ。js/field-ui.js。Task 18）。true ならそこで開いた
+  if (typeof fieldRoute === 'function' && fieldRoute()) return;
+  const h = location.hash; // fieldRoute が書き換えることがあるので後で読む
   let m;
   if ((m = h.match(CASE_HASH_RE))) openCase(m[1]);
   else if ((m = h.match(CASE_PHASE_HASH_RE)) && typeof openCasePhase === 'function') openCasePhase(m[1], m[2]); // フェーズ詳細ページ（案件ページの「詳しく見る」・担当者への確認依頼のリンク。js/phase-detail.js）

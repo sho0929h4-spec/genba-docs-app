@@ -235,7 +235,8 @@ function nteBuild(s) {
 
   // 上部: 戻る・保存状態
   const top = mk('div', 'rep-between rep-ed-top');
-  els.back = dBtn('← 掲示一覧', 'back', async () => {
+  const fb = (typeof fieldBack === 'function' ? fieldBack(s.row.case_id) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  els.back = dBtn(fb ? fb.label : '← 掲示一覧', 'back', async () => {
     if (s.busy) return;
     await nteFlush(s);
     if (s.timer) await nteFlush(s); // 保存中に入力が続いた分
@@ -244,7 +245,7 @@ function nteBuild(s) {
       nteLsSet(s);
       if (!confirm('未保存の変更があります。この端末に残しています。\nこのまま一覧に戻りますか？')) return;
     }
-    location.hash = '#case/' + s.row.case_id + '/notices';
+    location.hash = fb ? fb.hash : '#case/' + s.row.case_id + '/notices';
   });
   top.appendChild(els.back);
   const saveBox = mk('div', 'rep-acts');
@@ -579,7 +580,8 @@ async function nteDuplicate(s) {
 function nteMessage(text, isErr, back) {
   $('notice-bar').hidden = true;
   const nodes = [];
-  if (back) nodes.push(dBtn('← 案件一覧へ', 'back', () => { location.hash = ''; }));
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
+  if (back) nodes.push(dBtn(field ? '‹ 案件' : '← 案件一覧へ', 'back', () => { location.hash = field ? '#f' : ''; }));
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   $('notice-root').replaceChildren(...nodes);
 }

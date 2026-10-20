@@ -13,13 +13,14 @@ let ntlRows = [];        // notices の行（工事日の新しい順。未定�
 let ntlBusy = false;     // 作成・複製・削除の実行中（二重実行を防ぐ）
 
 function ntlBackToCase() {
-  return dBtn('← ' + (ntlSummary ? ntlSummary.name : '案件へ'), 'back', () => {
-    location.hash = '#case/' + ntlCaseId;
+  const fb = (typeof fieldBack === 'function' ? fieldBack(ntlCaseId) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  return dBtn(fb ? fb.label : '← ' + (ntlSummary ? ntlSummary.name : '案件へ'), 'back', () => {
+    location.hash = fb ? fb.hash : '#case/' + ntlCaseId;
   });
 }
 
 function ntlMessage(text, isErr, retryId) {
-  const nodes = [dBtn('← 案件へ', 'back', () => { location.hash = '#case/' + ntlCaseId; })];
+  const nodes = [ntlBackToCase()];
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   if (retryId) nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => ntlLoad(retryId)));
   $('notices-root').replaceChildren(...nodes);
@@ -147,7 +148,7 @@ function ntlRowEl(n) {
   acts.style.marginTop = '6px';
   acts.appendChild(dBtn('開く', 'btn sm inline', () => { location.hash = '#notice/' + n.id; }));
   acts.appendChild(dBtn('複製', 'btn sm ghost inline', () => ntlDuplicate(n)));
-  acts.appendChild(dBtn('削除', 'btn sm ghost inline danger', () => ntlRemove(n)));
+  if (!(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin())) acts.appendChild(dBtn('削除', 'btn sm ghost inline danger', () => ntlRemove(n))); // 削除は管理画面だけ（Task 18）
   row.appendChild(acts);
   return row;
 }

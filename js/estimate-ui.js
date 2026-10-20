@@ -76,7 +76,8 @@ let eulSeries = [];
 let eulBusy = false;
 
 function eulMessage(text, isErr, retryId) {
-  const nodes = [dBtn('← 案件へ', 'back', () => { location.hash = '#case/' + eulCaseId; })];
+  const fb = (typeof fieldBack === 'function' ? fieldBack(eulCaseId) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  const nodes = [dBtn(fb ? fb.label : '← 案件へ', 'back', () => { location.hash = fb ? fb.hash : '#case/' + eulCaseId; })];
   nodes.push(mk('div', isErr ? 'err' : 'empty', text));
   if (retryId) nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => eulLoad(retryId)));
   $('estimates-root').replaceChildren(...nodes);
@@ -134,7 +135,8 @@ function eulBuild() {
   else eulSeries.forEach(s => list.appendChild(eulSeriesEl(s)));
   const card = mk('div', 'rep-card');
   card.append(head, acts, note, err, list);
-  const back = dBtn('← ' + (eulSummary ? eulSummary.name : '案件へ'), 'back', () => { location.hash = '#case/' + eulCaseId; });
+  const fb = (typeof fieldBack === 'function' ? fieldBack(eulCaseId) : null);
+  const back = dBtn(fb ? fb.label : '← ' + (eulSummary ? eulSummary.name : '案件へ'), 'back', () => { location.hash = fb ? fb.hash : '#case/' + eulCaseId; });
   $('estimates-root').replaceChildren(back, card);
 }
 
@@ -402,10 +404,11 @@ function eueBuild(s) {
   const set = fn => { fn(d); eueChanged(s); };
 
   const top = mk('div', 'rep-between rep-ed-top');
-  els.back = dBtn('← 見積書一覧', 'back', async () => {
+  const fb = (typeof fieldBack === 'function' ? fieldBack(s.row.case_id) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  els.back = dBtn(fb ? fb.label : '← 見積書一覧', 'back', async () => {
     if (s.busy) return;
     await eueFlush(s);
-    location.hash = '#case/' + s.row.case_id + '/estimates';
+    location.hash = fb ? fb.hash : '#case/' + s.row.case_id + '/estimates';
   });
   top.appendChild(els.back);
   const saveBox = mk('div', 'rep-acts');
@@ -597,9 +600,11 @@ function eueActsCard(s) {
   const btn = (label, id, cls, fn) => { const b = dBtn(label, cls, fn); b.id = id; row.appendChild(b); return b; };
   if (st !== 'draft') {
     card.appendChild(mk('h3', null, st === 'accepted' ? 'この版は採用版です' : st === 'superseded' ? 'この版は旧版です' : 'この版の操作'));
-    if (s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼者へ送付', 'eu-send', 'btn inline', () => eueSend(s));
+    // 「依頼者へ送付」「承諾された」は管理者のみ（現場用で開いたときは出さない。Task 18）
+    const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
+    if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼者へ送付', 'eu-send', 'btn inline', () => eueSend(s));
     if (s.latest && ['issued', 'sent'].includes(st)) {
-      btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
+      if (admin) btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
       btn('減額対応で新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
     }
   }

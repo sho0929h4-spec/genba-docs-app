@@ -21,11 +21,15 @@ function refreshStaffBanner(rows, isAlive) {
 }
 
 /* ---------- #inbox-staff ---------- */
-async function openStaffInbox() {
-  renderHeaders();
-  showScreen('inbox-staff');
+// opts.field: 現場用の画面（#f/inbox。js/field-ui.js）のタブの中に出す（opts.root に描く。戻るボタンなし・「案件を開く」は #f/case/{id}）
+async function openStaffInbox(opts) {
+  const field = !!(opts && opts.field);
+  if (!field) {
+    renderHeaders();
+    showScreen('inbox-staff');
+  }
   const seq = ++siSeq;
-  si = { seq, rows: [], loading: true, err: '', msg: '', busy: new Set() };
+  si = { seq, rows: [], loading: true, err: '', msg: '', busy: new Set(), field, root: field ? opts.root : null, opts: opts || null };
   siRender();
   await siLoad(seq);
 }
@@ -59,7 +63,12 @@ function siItemEl(it) {
   if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
   const busy = si.busy.has(p.id);
-  const open = dBtn('詳しく見る', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
+  const open = si.field
+    ? dBtn('案件を開く', 'btn sm inline si-open', () => {
+      if (typeof fdSel !== 'undefined') fdSel.set(it.caseRow.id, p.id); // その対応を選んでツールページを開く
+      location.hash = '#f/case/' + it.caseRow.id;
+    })
+    : dBtn('詳しく見る', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
   open.disabled = busy;
   acts.appendChild(open);
   if (it.type === 'notice') {
@@ -75,10 +84,10 @@ function siItemEl(it) {
 }
 
 function siRender() {
-  const root = $('staff-inbox-root');
+  const root = si && si.field ? si.root : $('staff-inbox-root');
   if (!root || !si) return;
-  const nodes = [dBtn('← 案件一覧', 'back', () => openCases())];
-  nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
+  const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
+  if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
   nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定もここに出ます'));
   const msg = mk('div', 'ob-msg', si.msg || '');
   msg.id = 'staff-inbox-msg';
@@ -87,7 +96,7 @@ function siRender() {
   if (si.loading) nodes.push(mk('div', 'empty', '読み込み中…'));
   else if (si.err) {
     nodes.push(mk('div', 'err', si.err));
-    nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox()));
+    nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox(si.opts)));
   } else {
     const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date());
     if (!items.length) {

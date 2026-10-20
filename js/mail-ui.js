@@ -27,7 +27,7 @@ const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
 // 日程連絡・リマインド・調査結果・担当者へのメール（フェーズのメール）は、そのフェーズの詳細ページ（Task 9）へ戻る
 const mlPhaseHash = s => (mlIsNote(s) && s.draft.phase_id ? '#case/' + s.draft.case_id + '/phase/' + s.draft.phase_id : null);
 const mlListHash = s => s.returnTo || mlPhaseHash(s) || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
-const mlBackLabel = s => (s.returnTo === '#outbox' ? '← 送るメール' : s.returnTo === '#tasks' ? '← やること'
+const mlBackLabel = s => (s.returnTo === '#outbox' || s.returnTo === '#f/outbox' ? '← 送るメール' : s.returnTo === '#tasks' ? '← やること'
   : mlPhaseHash(s) ? '← ' + (mlPhase(s) ? PhaseLogic.phaseTitle(mlPhase(s)) : 'フェーズ') + 'に戻る'
     : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
 const ML_EMAIL_RE = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;

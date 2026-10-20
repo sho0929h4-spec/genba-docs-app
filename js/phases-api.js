@@ -43,16 +43,17 @@ const PhasesApi = (() => {
   // 担当者の名前・メール（memberships。026）を caseRow に足す（宛名「鈴木さん」・宛先用）
   function withWorker(caseRow, workerId, members) {
     const w = (members || []).find(m => m.user_id === workerId) || null;
-    return Object.assign({}, caseRow || {}, { worker_name: w ? w.display_name || '' : '', worker_email: w ? w.email || '' : '' });
+    return Object.assign({}, caseRow || {}, { worker_name: w ? w.display_name || '' : '', worker_email: w ? w.email || '' : '',
+      worker_role: w ? w.role || '' : '' }); // worker_role: スタッフ（member）なら担当者向けのリンクは現場用の画面（Task 18）
   }
-  // カードへのリンク（担当者向けのメールに入れる）
-  const linkOf = (caseId, phaseId) => PL().phaseLink(location.origin + location.pathname, caseId, phaseId);
+  // カードへのリンク（担当者向けのメールに入れる）。cr = withWorker の値。担当者がスタッフなら現場用のツールページ #f/case/{id}
+  const linkOf = (cr, caseId, phaseId) => PL().phaseLink(location.origin + location.pathname, caseId, phaseId, { field: !!cr && cr.worker_role === 'member' });
 
   const api = {
     withWorker,
     // 社内メンバー（担当者の候補・メール）
     async members() {
-      return must(await sb.from('memberships').select('user_id, display_name, email').order('display_name')) || [];
+      return must(await sb.from('memberships').select('user_id, display_name, email, role').order('display_name')) || [];
     },
     async list(caseId) {
       return must(await sb.from('case_phases').select('*').eq('case_id', caseId).order('created_at').order('id'));
@@ -218,7 +219,7 @@ const PhasesApi = (() => {
           let body = PL().setBriefSection(d.body, lines);
           if (body == null) {
             const cr = withWorker(caseRow, row.worker_id, members);
-            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(row.case_id, row.id) };
+            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(cr, row.case_id, row.id) };
             body = (d.remind_slot ? PL().staffReminderMail(args) : PL().staffNoticeMail(args)).body;
           }
           if (body === d.body) continue;
@@ -251,7 +252,7 @@ const PhasesApi = (() => {
       const cr = withWorker(caseRow, row.worker_id, members);
       let draft = null;
       try {
-        const m = PL().staffNoticeMail({ phase: row, caseRow: cr, org: ctx.org, me: me(), link: linkOf(row.case_id, row.id) });
+        const m = PL().staffNoticeMail({ phase: row, caseRow: cr, org: ctx.org, me: me(), link: linkOf(cr, row.case_id, row.id) });
         const patch = { to_email: cr.worker_email || null, recipients: ['worker'], subject: m.subject, body: m.body, skipped_at: null };
         const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', row.id).eq('purpose', 'staff_notice')
           .eq('status', 'draft').is('remind_slot', null).order('created_at', { ascending: false })) || [];
@@ -436,7 +437,7 @@ const PhasesApi = (() => {
           const p = phases.find(x => x.id === r.phase_id);
           const caseRow = withWorker(caseOf.get(r.phase_id) || {}, p.worker_id, members);
           const caseId = caseRow.id || p.case_id;
-          const m = PL().staffReminderMail({ phase: p, caseRow, org: ctx.org, me: autoSigner(caseRow, p, members), link: linkOf(caseId, p.id) });
+          const m = PL().staffReminderMail({ phase: p, caseRow, org: ctx.org, me: autoSigner(caseRow, p, members), link: linkOf(caseRow, caseId, p.id) });
           const { data, error } = await sb.from('mail_drafts').insert({
             case_id: caseId, phase_id: r.phase_id, purpose: 'staff_notice', remind_slot: 'd1', remind_for: r.remind_for,
             worker_id: p.worker_id, // DB のトリガー（027）がフェーズの今の担当者で入れ直す。unique は担当者ごと

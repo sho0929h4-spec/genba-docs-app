@@ -2,10 +2,18 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Ctext x='32' y='46' font-size='38' font-weight='700' text-anchor='middle' fill='%23fff' font-family='Hiragino Kaku Gothic ProN,Noto Sans JP,sans-serif'%3E現%3C/text%3E%3C/svg%3E">
 <title>現場ドキュメント</title>
+<!-- ホーム画面に追加（PWA。Task 18）: 開くと全画面（アドレスバーなし）で現場用の画面 #f から始まる。Service Worker は無し（オフラインは後日） -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#1a3a5c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="現場">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root{--navy:#1a3a5c;--navy2:#22507e;--border:#dde5ef;--bg:#f0f4f8;--text:#1e293b;--muted:#64748b;--red:#c0392b;--green:#1e7e34;--amber:#b45309;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -1022,6 +1030,67 @@
   @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph.ro{grid-template-columns:80px minmax(0,1fr);} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
   @media(max-width:560px){ .af-grid{grid-template-columns:1fr;} .team-sum{display:grid;grid-template-columns:1fr 1fr;} }
   @media(max-width:480px){ .hdr .org span{display:none;} .hdr .app-name{display:none;} }
+  /* ===== 現場担当アプリ（#f。js/field-ui.js。Task 18。画面案 docs/mocks/mock-field.html） ===== */
+  #screen-field{background:var(--bg);padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));}
+  .fd-bar{position:sticky;top:0;z-index:40;background:var(--navy);color:#fff;display:flex;align-items:center;gap:8px;min-height:52px;
+    padding:calc(6px + env(safe-area-inset-top,0px)) calc(12px + env(safe-area-inset-right,0px)) 6px calc(12px + env(safe-area-inset-left,0px));}
+  .fd-bar b{flex:1;min-width:0;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .fd-back{background:rgba(255,255,255,.14);border:0;color:#fff;font:inherit;font-size:14px;font-weight:700;border-radius:9px;padding:6px 12px;min-height:40px;cursor:pointer;white-space:nowrap;}
+  .fd-who{font-size:12px;color:#c7d7ea;white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis;}
+  .fd-wrap{max-width:640px;margin:0 auto;padding:12px calc(12px + env(safe-area-inset-right,0px)) 24px calc(12px + env(safe-area-inset-left,0px));display:grid;gap:10px;}
+  .fd-wrap > *{min-width:0;}
+  .fd-tabs{position:fixed;left:0;right:0;bottom:0;z-index:45;display:flex;background:#fff;border-top:1px solid var(--border);padding-bottom:env(safe-area-inset-bottom,0px);}
+  .fd-tab{flex:1;min-height:56px;background:none;border:0;font-family:inherit;font-size:11px;color:var(--muted);display:grid;justify-items:center;align-content:center;gap:1px;cursor:pointer;}
+  .fd-tab .fd-tab-ic{font-size:19px;line-height:1.2;}
+  .fd-tab.on{color:var(--navy2);font-weight:700;}
+  .fd-h{font-size:13px;font-weight:700;color:var(--muted);}
+  .fd-bell{display:flex;align-items:center;gap:8px;width:100%;min-height:52px;border:0;border-radius:14px;background:#fdf3e4;color:#7a4a06;font-family:inherit;font-size:15px;padding:10px 14px;text-align:left;cursor:pointer;}
+  .fd-bell b{flex:1;}
+  .fd-list{display:grid;gap:10px;}
+  .fd-card{background:#fff;border:1px solid var(--border);border-radius:14px;display:grid;overflow:hidden;}
+  .fd-card.today{border-color:var(--navy2);box-shadow:0 0 0 1px var(--navy2) inset;}
+  .fd-card-main{display:grid;gap:4px;width:100%;min-height:64px;background:none;border:0;font-family:inherit;color:inherit;text-align:left;padding:12px 14px;cursor:pointer;}
+  .fd-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;}
+  .fd-sp{flex:1;}
+  .fd-when{font-size:15px;}
+  .fd-place{font-size:17px;font-weight:700;overflow-wrap:anywhere;}
+  .fd-tiny{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .fd-addr{display:block;}
+  .fd-stage{display:inline-flex;align-items:center;border-radius:999px;padding:1px 10px;font-size:12px;font-weight:700;background:#eef2f6;color:var(--muted);white-space:nowrap;}
+  .fd-stage.us{background:#fbe9e7;color:var(--red);} .fd-stage.them{background:#fdf3e4;color:var(--amber);}
+  .fd-tel{display:flex;align-items:center;min-height:44px;padding:4px 14px 8px;font-size:13px;font-weight:700;color:var(--navy2);text-decoration:none;overflow-wrap:anywhere;}
+  .fd-res{padding:0 14px 10px;}
+  .fd-info{display:grid;gap:2px;background:#fff;border:1px solid var(--border);border-radius:14px;padding:4px 0;}
+  .fd-info .fd-res{padding:8px 14px;}
+  .fd-map{display:flex;align-items:center;min-height:44px;padding:4px 14px;font-size:13px;font-weight:700;color:var(--navy2);text-decoration:none;overflow-wrap:anywhere;}
+  .fd-chips{display:flex;gap:8px;flex-wrap:wrap;}
+  .fd-chip{border:1.5px solid var(--border);background:#fff;border-radius:999px;padding:6px 14px;min-height:40px;font-family:inherit;font-size:13px;font-weight:700;color:var(--text);cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left;}
+  .fd-chip.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .fd-stage-line{font-size:13px;font-weight:700;color:var(--muted);}
+  .fd-stage-line.us{color:var(--red);} .fd-stage-line.them{color:var(--amber);}
+  .fd-brief{background:#e8eff7;border-radius:14px;padding:12px 14px;display:grid;gap:6px;font-size:14px;}
+  .fd-brief-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;}
+  .fd-brief .btn.sm{font-size:14px;min-height:40px;padding:7px 16px;background:#fff;}
+  .fd-ack-tag{font-size:13px;font-weight:700;color:var(--green);}
+  .fd-tools{display:grid;gap:10px;}
+  .fd-tool{display:flex;align-items:center;gap:14px;width:100%;min-height:80px;background:#fff;border:1.5px solid var(--border);border-radius:16px;padding:14px;font-family:inherit;color:inherit;text-align:left;cursor:pointer;}
+  .fd-tool:disabled{opacity:.6;cursor:default;}
+  .fd-tool-ic{width:50px;height:50px;border-radius:12px;background:#e8eff7;display:grid;place-items:center;font-size:25px;flex:none;}
+  .fd-tool-t{flex:1;min-width:0;display:grid;gap:2px;}
+  .fd-tool-t b{font-size:17px;}
+  .fd-tool-st{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
+  .fd-tool[data-state=draft] .fd-tool-st{color:var(--amber);font-weight:700;}
+  .fd-tool-go{font-size:24px;color:var(--muted);flex:none;}
+  .fd-note{font-size:12px;color:var(--muted);border-top:1px dashed var(--border);padding-top:8px;}
+  .fd-set{padding:12px 14px;gap:6px;}
+  .fd-steps{display:grid;gap:2px;font-size:13px;margin-top:4px;}
+  .fd-steps ol{padding-left:1.4em;color:var(--text);}
+  .fd-logout{min-height:48px;}
+  #field-root .si-item .btn.sm, #field-root .ob-item .btn.sm{font-size:14px;min-height:40px;}
+  #card-view .fd-row{margin-bottom:6px;}
+  /* 現場用から開いた共通の画面（報告書・見積書・工事掲示・送付メール）: 管理者向けの導線を隠す */
+  body.fd-mode .js-open-billing{display:none;}
+  body.fd-mode .fd-admin-only{display:none !important;}
 </style>
 </head>
 <body>
@@ -1166,6 +1235,18 @@
     </div>
   </div>
   <div class="wrap" id="staff-inbox-root"></div>
+</section>
+
+
+<!-- FIELD 現場担当アプリ（#f・#f/case/{id}・#f/inbox・#f/outbox・#f/settings。スマホ専用の現場用画面。中身は js/field-ui.js が作る） -->
+<section class="screen" id="screen-field">
+  <div class="fd-bar">
+    <button class="fd-back" id="fd-back" type="button" hidden></button>
+    <b id="fd-title">現場ドキュメント</b>
+    <span class="fd-who js-user-name"></span>
+  </div>
+  <div class="fd-wrap" id="field-root"></div>
+  <nav class="fd-tabs" id="fd-tabs" aria-label="現場用のメニュー"></nav>
 </section>
 
 <!-- BILLING 請求の一覧（#billing。月ごとの元請のまとめと単発。中身は js/billing-ui.js が作る） -->
@@ -1583,59 +1664,60 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=a6af778"></script>
-<script src="js/supabase-config.js?v=a6af778"></script>
-<script src="js/supabase.js?v=a6af778"></script>
-<script src="js/auth.js?v=a6af778"></script>
-<script src="js/storage.js?v=a6af778"></script>
-<script src="js/quota.js?v=a6af778"></script>
-<script src="js/case-logic.js?v=a6af778"></script>
-<script src="js/mail-templates.js?v=a6af778"></script>
-<script src="js/phase-logic.js?v=a6af778"></script>
-<script src="js/image.js?v=a6af778"></script>
-<script src="js/cases-api.js?v=a6af778"></script>
-<script src="js/clients-api.js?v=a6af778"></script>
-<script src="js/phases-api.js?v=a6af778"></script>
+<script src="js/crypto-util.js?v=22c7c47"></script>
+<script src="js/supabase-config.js?v=22c7c47"></script>
+<script src="js/supabase.js?v=22c7c47"></script>
+<script src="js/auth.js?v=22c7c47"></script>
+<script src="js/storage.js?v=22c7c47"></script>
+<script src="js/quota.js?v=22c7c47"></script>
+<script src="js/case-logic.js?v=22c7c47"></script>
+<script src="js/mail-templates.js?v=22c7c47"></script>
+<script src="js/phase-logic.js?v=22c7c47"></script>
+<script src="js/image.js?v=22c7c47"></script>
+<script src="js/cases-api.js?v=22c7c47"></script>
+<script src="js/clients-api.js?v=22c7c47"></script>
+<script src="js/phases-api.js?v=22c7c47"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=a6af778"></script>
-<script src="js/reports-api.js?v=a6af778"></script>
-<script src="js/photo-marks.js?v=a6af778"></script>
-<script src="js/report-pdf.js?v=a6af778"></script>
-<script src="js/notice-logic.js?v=a6af778"></script>
-<script src="js/notices-api.js?v=a6af778"></script>
-<script src="js/notice-pdf.js?v=a6af778"></script>
-<script src="js/estimate-logic.js?v=a6af778"></script>
-<script src="js/estimates-api.js?v=a6af778"></script>
-<script src="js/estimate-pdf.js?v=a6af778"></script>
-<script src="js/estimate-presets-api.js?v=a6af778"></script>
-<script src="js/estimate-presets.js?v=a6af778"></script>
-<script src="js/estimate-layout.js?v=a6af778"></script>
-<script src="js/case-list.js?v=a6af778"></script>
-<script src="js/clients-ui.js?v=a6af778"></script>
-<script src="js/case-detail.js?v=a6af778"></script>
-<script src="js/case-rooms-api.js?v=a6af778"></script>
-<script src="js/case-rooms.js?v=a6af778"></script>
-<script src="js/edit-logic.js?v=a6af778"></script>
-<script src="js/case-trash.js?v=a6af778"></script>
-<script src="js/case-undo.js?v=a6af778"></script>
-<script src="js/phase-ui.js?v=a6af778"></script>
-<script src="js/phase-detail.js?v=a6af778"></script>
-<script src="js/billing-ui.js?v=a6af778"></script>
-<script src="js/team.js?v=a6af778"></script>
-<script src="js/tasks.js?v=a6af778"></script>
-<script src="js/timeline.js?v=a6af778"></script>
-<script src="js/photo-mark-editor.js?v=a6af778"></script>
-<script src="js/report-form.js?v=a6af778"></script>
-<script src="js/report-ui.js?v=a6af778"></script>
-<script src="js/report-share.js?v=a6af778"></script>
-<script src="js/report-edit.js?v=a6af778"></script>
-<script src="js/mail-ui.js?v=a6af778"></script>
-<script src="js/outbox-ui.js?v=a6af778"></script>
-<script src="js/staff-inbox.js?v=a6af778"></script>
-<script src="js/notice-ui.js?v=a6af778"></script>
-<script src="js/notice-edit.js?v=a6af778"></script>
-<script src="js/estimate-ui.js?v=a6af778"></script>
-<script src="js/app.js?v=a6af778"></script>
+<script src="js/report-logic.js?v=22c7c47"></script>
+<script src="js/reports-api.js?v=22c7c47"></script>
+<script src="js/photo-marks.js?v=22c7c47"></script>
+<script src="js/report-pdf.js?v=22c7c47"></script>
+<script src="js/notice-logic.js?v=22c7c47"></script>
+<script src="js/notices-api.js?v=22c7c47"></script>
+<script src="js/notice-pdf.js?v=22c7c47"></script>
+<script src="js/estimate-logic.js?v=22c7c47"></script>
+<script src="js/estimates-api.js?v=22c7c47"></script>
+<script src="js/estimate-pdf.js?v=22c7c47"></script>
+<script src="js/estimate-presets-api.js?v=22c7c47"></script>
+<script src="js/estimate-presets.js?v=22c7c47"></script>
+<script src="js/estimate-layout.js?v=22c7c47"></script>
+<script src="js/case-list.js?v=22c7c47"></script>
+<script src="js/clients-ui.js?v=22c7c47"></script>
+<script src="js/case-detail.js?v=22c7c47"></script>
+<script src="js/case-rooms-api.js?v=22c7c47"></script>
+<script src="js/case-rooms.js?v=22c7c47"></script>
+<script src="js/edit-logic.js?v=22c7c47"></script>
+<script src="js/case-trash.js?v=22c7c47"></script>
+<script src="js/case-undo.js?v=22c7c47"></script>
+<script src="js/phase-ui.js?v=22c7c47"></script>
+<script src="js/phase-detail.js?v=22c7c47"></script>
+<script src="js/billing-ui.js?v=22c7c47"></script>
+<script src="js/team.js?v=22c7c47"></script>
+<script src="js/tasks.js?v=22c7c47"></script>
+<script src="js/timeline.js?v=22c7c47"></script>
+<script src="js/photo-mark-editor.js?v=22c7c47"></script>
+<script src="js/report-form.js?v=22c7c47"></script>
+<script src="js/report-ui.js?v=22c7c47"></script>
+<script src="js/report-share.js?v=22c7c47"></script>
+<script src="js/report-edit.js?v=22c7c47"></script>
+<script src="js/mail-ui.js?v=22c7c47"></script>
+<script src="js/outbox-ui.js?v=22c7c47"></script>
+<script src="js/staff-inbox.js?v=22c7c47"></script>
+<script src="js/notice-ui.js?v=22c7c47"></script>
+<script src="js/notice-edit.js?v=22c7c47"></script>
+<script src="js/estimate-ui.js?v=22c7c47"></script>
+<script src="js/field-ui.js?v=22c7c47"></script>
+<script src="js/app.js?v=22c7c47"></script>
 </body>
 </html>

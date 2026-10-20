@@ -28,7 +28,7 @@ const CasesApi = (() => {
     async listSummaries() { return must(await sb.from('case_summaries').select('*')); },
     async getSummary(id) { return must(await sb.from('case_summaries').select('*').eq('id', id).maybeSingle()); },
     async listMembers() {
-      return must(await sb.from('memberships').select('user_id, display_name, email').order('display_name'));
+      return must(await sb.from('memberships').select('user_id, display_name, email, role').order('display_name'));
     },
     async createCase(fields) {
       const q = await checkQuota(0, 1);

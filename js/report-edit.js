@@ -152,10 +152,11 @@ function edBuild(s) {
 
   // 上部: 戻る・保存状態
   const top = mk('div', 'rep-between rep-ed-top');
-  els.back = dBtn('← 報告書一覧', 'back', async () => {
+  const fb = (typeof fieldBack === 'function' ? fieldBack(s.report.case_id) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
+  els.back = dBtn(fb ? fb.label : '← 報告書一覧', 'back', async () => {
     if (s.photoBusy || s.submitting) return;
     await edFlush(s);
-    location.hash = '#case/' + s.report.case_id + '/reports';
+    location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
   });
   top.appendChild(els.back);
   const saveBox = mk('div', 'rep-acts');
@@ -400,7 +401,8 @@ async function edSubmit(s) {
     s.ro = true;
     clearTimeout(s.timer);
     edLsDel(s.id);
-    location.hash = '#case/' + s.report.case_id + '/reports';
+    const fb = (typeof fieldBack === 'function' ? fieldBack(s.report.case_id) : null);
+    location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
   } finally {
     s.submitting = false;
     edSetBarBusy(s, false);
@@ -485,7 +487,8 @@ async function openReport(id) {
   const bar = $('report-bar');
   bar.hidden = false;
   $('rep-submit').hidden = s.ro;
-  $('rep-confirm').hidden = r.status !== 'submitted'; // 提出済み（確認待ち）のときだけ「確認する」
+  // 提出済み（確認待ち）のときだけ「確認する」。現場用（Task 18）では出さない（確認・送付は管理者側）
+  $('rep-confirm').hidden = r.status !== 'submitted' || (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
   $('rep-confirm').textContent = '確認する';
   $('rep-to-pdf').onclick = () => edGoPdf(s);
   $('rep-submit').onclick = () => edSubmit(s);

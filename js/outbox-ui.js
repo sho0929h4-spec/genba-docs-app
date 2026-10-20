@@ -48,11 +48,16 @@ async function refreshOutboxBanner(rows, isAlive) {
 }
 
 /* ---------- #outbox ---------- */
-async function openOutbox() {
-  renderHeaders();
-  showScreen('outbox');
+// opts.field: 現場用の画面（#f/outbox。js/field-ui.js）のタブの中に出す（opts.root に描く。自分の担当の案件の分だけ・
+//   戻るボタンなし・「案件を開く」は #f/case/{id}・送付メールの戻り先は #f/outbox）
+async function openOutbox(opts) {
+  const field = !!(opts && opts.field);
+  if (!field) {
+    renderHeaders();
+    showScreen('outbox');
+  }
   const seq = ++obSeq;
-  ob = { seq, rows: [], drafts: [], groups: [], undo: null, busy: new Set(), loading: true, err: '' };
+  ob = { seq, rows: [], drafts: [], groups: [], undo: null, busy: new Set(), loading: true, err: '', field, root: field ? opts.root : null, opts: opts || null };
   obRender();
   await obLoad(seq);
 }
@@ -61,6 +66,7 @@ async function obLoad(seq) {
   let rows = [], drafts = [], err = '';
   try {
     rows = (await CasesApi.listSummaries()) || [];
+    if (ob && ob.field) rows = rows.filter(r => PhaseLogic.fieldMine(r, ctx && ctx.user ? ctx.user.id : null));
     drafts = (await outboxSync(rows)).drafts;
   } catch (e) { err = '送るメールを読み込めませんでした: ' + errText(e); }
   if (!ob || ob.seq !== seq || seq !== obSeq) return;
@@ -89,7 +95,7 @@ function obItemEl(it) {
   row.appendChild(mk('div', 'rep-sub', info.join(' ・ ')));
   const acts = mk('div', 'ob-acts');
   const busy = ob.busy.has(d.id);
-  const open = dBtn('確認して送る', 'btn sm inline ob-open', () => openMailDraftFrom(d.id, '#outbox'));
+  const open = dBtn('確認して送る', 'btn sm inline ob-open', () => openMailDraftFrom(d.id, ob.field ? '#f/outbox' : '#outbox'));
   open.disabled = busy;
   acts.appendChild(open);
   if (it.canSkip) {
@@ -105,10 +111,10 @@ function obItemEl(it) {
 }
 
 function obRender() {
-  const root = $('outbox-root');
+  const root = ob && ob.field ? ob.root : $('outbox-root');
   if (!root || !ob) return;
-  const nodes = [dBtn('← 案件一覧', 'back', () => openCases())];
-  nodes.push(mk('h2', 'ob-h', '✉️ 送るメール'));
+  const nodes = ob.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
+  if (!ob.field) nodes.push(mk('h2', 'ob-h', '✉️ 送るメール'));
   nodes.push(mk('div', 'rep-sub ob-lead', 'まだ送っていない連絡メール・リマインド・報告書や見積書の送付です。「確認して送る」で中身と宛先を確かめてから送ってください'));
   const msg = mk('div', 'ob-msg');
   msg.id = 'outbox-msg';
@@ -123,7 +129,7 @@ function obRender() {
   if (ob.loading) nodes.push(mk('div', 'empty', '読み込み中…'));
   else if (ob.err) {
     nodes.push(mk('div', 'err', ob.err));
-    nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openOutbox()));
+    nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openOutbox(ob.opts)));
   } else {
     const groups = PhaseLogic.groupOutbox(ob.rows, ob.drafts);
     if (!groups.length) {
@@ -136,7 +142,7 @@ function obRender() {
       card.dataset.caseId = g.caseRow.id;
       const hd = mk('div', 'ob-case-h');
       hd.appendChild(mk('b', null, g.caseRow.name || '（物件名なし）'));
-      hd.appendChild(dBtn('案件を開く', 'linkbtn', () => { location.hash = '#case/' + g.caseRow.id; }));
+      hd.appendChild(dBtn('案件を開く', 'linkbtn', () => { location.hash = (ob.field ? '#f/case/' : '#case/') + g.caseRow.id; }));
       card.appendChild(hd);
       g.items.forEach(it => card.appendChild(obItemEl(it)));
       nodes.push(card);

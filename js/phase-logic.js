@@ -926,9 +926,10 @@
       body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines) };
   }
   /* ---- 作業担当者への確認依頼（Task 6b） ---- */
-  // カードへのリンク（base: アプリの URL。# 以降は付け直す）
-  function phaseLink(base, caseId, phaseId) {
-    return `${String(base || '').split('#')[0]}#case/${caseId}/phase/${phaseId}`;
+  // カードへのリンク（base: アプリの URL。# 以降は付け直す）。opts.field: 担当者がスタッフ → 現場用のツールページ #f/case/{id}（Task 18）
+  function phaseLink(base, caseId, phaseId, opts) {
+    const b = String(base || '').split('#')[0];
+    return opts && opts.field ? `${b}#f/case/${caseId}` : `${b}#case/${caseId}/phase/${phaseId}`;
   }
   const whatOf = k => (k === 'survey' ? '調査' : kindLabel(k));
   // 担当者へのメールの結びの前の行（指示の段落はこの前に入る: setBriefSection）
@@ -1334,6 +1335,122 @@
     return lines.join('\n');
   }
 
+  /* ---------- 現場担当アプリ（Task 18。#f） ---------- */
+  // 自分の担当の案件か（案件の担当者か、どれかのフェーズの作業担当者）
+  function fieldMine(caseRow, meId) {
+    const c = caseRow || {};
+    return !!meId && (c.assignee_id === meId || listOf(c.phases).some(p => p.worker_id === meId));
+  }
+  const isToday = (at, nowAt) => !!at && jstYmd(at) === jstYmd(nowAt);
+  // 予定の日時の短い表示: '今日 9:00' / '明日 9:00' / '11/5（水）9:00' / '日時未定'
+  function fieldWhen(at, now) {
+    const nowAt = toDate(now) || new Date();
+    const p = jst(at);
+    if (!p) return '日時未定';
+    if (isToday(at, nowAt)) return `今日 ${fmtHM(p)}`;
+    if (jstYmd(at) === jstYmd(ms(nowAt) + 86400000)) return `明日 ${fmtHM(p)}`;
+    return fmtMDWHM(at);
+  }
+  // 同じ種類の何回目を付けたフェーズの一覧（case_summaries の seq が無ければ並び順で数える）
+  function withSeq(phases) {
+    const count = {};
+    return listOf(phases).map(p => { count[p.kind] = (count[p.kind] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[p.kind] }; });
+  }
+  // ツールページで最初に選ぶ対応: 今日の予定がある対応（早い順の先頭）。無ければ最新（並びの最後）。無ければ null
+  function fieldDefaultPhase(phases, now) {
+    const nowAt = toDate(now) || new Date();
+    const list = listOf(phases);
+    const today = list.filter(p => isToday(p.scheduled_at, nowAt)).sort((a, b) => ms(a.scheduled_at) - ms(b.scheduled_at));
+    return today[0] || list[list.length - 1] || null;
+  }
+  // 案件一覧のカードに出す対応: 今日の予定 → 未完了で今日より後の予定（早い順）→ 未完了の最新 → 最新
+  function fieldFocus(phases, now) {
+    const nowAt = toDate(now) || new Date();
+    const list = listOf(phases);
+    const byAt = (a, b) => ms(a.scheduled_at) - ms(b.scheduled_at);
+    const today = list.filter(p => isToday(p.scheduled_at, nowAt)).sort(byAt);
+    if (today.length) return today[0];
+    const open = list.filter(p => !p.done_at);
+    const ahead = open.filter(p => p.scheduled_at && jstYmd(p.scheduled_at) > jstYmd(nowAt)).sort(byAt);
+    return ahead[0] || open[open.length - 1] || list[list.length - 1] || null;
+  }
+  // 段階の短い文（カード・チップ向け。日付は別に出すので外す）
+  function fieldStageLabel(st) {
+    if (!st || !st.ball) return '';
+    const label = st.key === 'visit' ? '調査に行く' : st.key === 'work' ? '工事待ち' : st.key === 'issued' ? '見積書提出済み' : st.label;
+    return `${MARK[st.ball]} ${label}`;
+  }
+  // 現場用の「自分の案件一覧」: 進行中で自分の担当の案件だけ（全部の切替は無い＝Ruling）。
+  //   → [{ caseRow, phase（カードの対応・無ければ null）, title, when, stage, stageText, today, at }]
+  //   並び: 今日の予定（時刻の早い順）→ 日付のあるもの（今に近い順）→ 日付なし（物件名順）
+  function fieldCases(caseRows, meId, now) {
+    const nowAt = toDate(now) || new Date();
+    const out = [];
+    for (const c of listOf(caseRows)) {
+      if (c.status && c.status !== 'open') continue;
+      if (c.deleted_at) continue;
+      if (!fieldMine(c, meId)) continue;
+      const seqd = withSeq(c.phases);
+      const p = fieldFocus(c.phases, nowAt);
+      const seq = p ? (seqd.find(x => x.p === p) || {}).seq : null;
+      const st = p ? stage(p, null, nowAt) : null;
+      out.push({ caseRow: c, phase: p, title: p ? phaseTitle(p, seq) : '', at: p && p.scheduled_at ? p.scheduled_at : null,
+        when: p ? fieldWhen(p.scheduled_at, nowAt) : '対応なし', stage: st, stageText: fieldStageLabel(st),
+        today: !!p && isToday(p.scheduled_at, nowAt) });
+    }
+    const group = x => (x.today ? 0 : x.at ? 1 : 2);
+    const dist = x => Math.abs(ms(x.at) - ms(nowAt));
+    return out.sort((a, b) => group(a) - group(b)
+      || (group(a) === 0 ? ms(a.at) - ms(b.at) : group(a) === 1 ? dist(a) - dist(b) : 0)
+      || str(a.caseRow.name).localeCompare(str(b.caseRow.name), 'ja'));
+  }
+  // ツールページの対応の切替チップ → [{ id, phase, title, text: '調査 1回目 ・ 今日 9:00' | '原因元工事 1回目' }]
+  function fieldPhaseChips(phases, now) {
+    const nowAt = toDate(now) || new Date();
+    return withSeq(phases).map(({ p, seq }) => {
+      const title = phaseTitle(p, seq);
+      return { id: p.id, phase: p, title, text: p.scheduled_at ? `${title} ・ ${fieldWhen(p.scheduled_at, nowAt)}` : title };
+    });
+  }
+  // 3つのツールボタンの今の状態（選んだ対応の書類）。reports / estimates（全版）/ notices は表の行
+  //   → { report: { state, text, open }, estimate: {…}, notice: {…} }
+  //     state: 'none'（まだありません）/ 'draft'（下書きあり）/ 'done'（提出済み）/ 'many'（n件。工事掲示だけ）
+  //     open: 開く書類（報告書・見積書は最新、工事掲示は1件のときだけ）。none なら null
+  function fieldTools(docs) {
+    const d = docs || {};
+    const byCreated = (a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    const reports = listOf(d.reports).slice().sort(byCreated);
+    const r = reports[reports.length - 1] || null;
+    const more = (n, t) => (n > 1 ? `${t}（全${n}件）` : t);
+    let report = { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 };
+    if (r) {
+      const photos = listOf(r.photos).length;
+      report = r.status === 'draft'
+        ? { state: 'draft', text: more(reports.length, `下書きあり（写真 ${photos}枚）`) + ' ・ 続きを書く', open: r, count: reports.length }
+        : { state: 'done', text: more(reports.length, '提出済み') + ' ・ 開く', open: r, count: reports.length };
+    }
+    // 見積: 系列ごとの最新の版。一番新しい系列の最新版を開く
+    const live = liveEstimates(d.estimates);
+    const latestOf = new Map();
+    for (const e of live) {
+      const cur = latestOf.get(e.series_id);
+      if (!cur || (Number(e.version) || 0) > (Number(cur.version) || 0)) latestOf.set(e.series_id, e);
+    }
+    const series = Array.from(latestOf.values()).sort(byCreated);
+    const e = series[series.length - 1] || null;
+    let estimate = { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 };
+    if (e) {
+      estimate = e.status === 'draft'
+        ? { state: 'draft', text: more(series.length, '下書きあり') + ' ・ 続きを書く', open: e, count: series.length }
+        : { state: 'done', text: more(series.length, '提出済み') + ' ・ 開く', open: e, count: series.length };
+    }
+    const notices = listOf(d.notices).slice().sort(byCreated);
+    const notice = !notices.length ? { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 }
+      : notices.length === 1 ? { state: 'many', text: '1件 ・ 開く／複製して別の号室', open: notices[0], count: 1 }
+        : { state: 'many', text: `${notices.length}件 ・ 一覧を開く`, open: null, count: notices.length };
+    return { report, estimate, notice };
+  }
+
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
@@ -1347,7 +1464,8 @@
     reportInit, estimateNoteExtra, noticeInit,
     billingBasis, billingAmount, billToLabel, groupBilling,
     BILL_STATUS_LABEL, BILLING_MODE_LABEL, billStatus, yen, parseYen, ymLabel, addMonth, billingMonthOf, showsBilling,
-    paymentDueDefault, isOverdue, fmtYmdMD };
+    paymentDueDefault, isOverdue, fmtYmdMD,
+    fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldPhaseChips, fieldTools };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
