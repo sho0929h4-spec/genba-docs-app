@@ -399,6 +399,7 @@ function mlAttachment(s) {
 function mlHeadRow(s) {
   const row = mk('div', 'rep-between rep-ed-top');
   row.appendChild(mlBackBtn(s));
+  CaseBand.attach(row, s.els.back, s.caseRow).id = 'ml-place'; // Task 30: 物件名と号室の帯
   const box = mk('div', 'rep-acts');
   const save = mk('span', 'rep-save');
   save.id = 'ml-save';

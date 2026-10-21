@@ -248,6 +248,7 @@ function nteBuild(s) {
     location.hash = fb ? fb.hash : '#case/' + s.row.case_id + '/notices';
   });
   top.appendChild(els.back);
+  CaseBand.attach(top, els.back, s.caseRow).id = 'nt-place'; // Task 30: 物件名と号室の帯
   const saveBox = mk('div', 'rep-acts');
   els.save = mk('span', 'rep-save');
   els.save.id = 'nt-save';

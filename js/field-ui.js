@@ -402,6 +402,16 @@ function fdRenderCase() {
     info.appendChild(lb);
   }
   if (info.childNodes.length) nodes.push(info);
+  // Task 30: ① 住所・入居者 → ② 依頼内容 → ③ 関係する部屋 → ④ 現場への指示 → ⑤ 対応の切替・今の段階 → ⑥ ツール
+  const req = RequestView.build(c.request, { photoUrl: p => CasesApi.requestPhotoUrl(p), title: '📋 依頼内容', id: 'fd-request', cls: 'fd-req' });
+  if (req) nodes.push(req);
+  else {
+    const e = mk('div', 'fd-req-empty', '📋 依頼内容はまだ登録されていません');
+    e.id = 'fd-request-empty';
+    nodes.push(e);
+  }
+  const rooms = fdRoomsCard(c);
+  if (rooms) nodes.push(rooms);
   if (!phases.length) {
     const e = mk('div', 'empty', 'この案件にはまだ対応（調査・工事）がありません。管理者に登録してもらってください');
     e.id = 'fd-no-phase';
@@ -410,6 +420,8 @@ function fdRenderCase() {
     return;
   }
   const sel = fdSelected(s);
+  const brief = fdBriefCard(s, c, sel);
+  if (brief) nodes.push(brief);
   // 対応の切替チップ
   const chips = mk('div', 'fd-chips');
   chips.id = 'fd-phase-chips';
@@ -437,13 +449,6 @@ function fdRenderCase() {
     sl.id = 'fd-stage-line';
     nodes.push(sl);
   }
-  // Task 28: 依頼内容 → 関係する部屋 → 現場への指示
-  const req = RequestView.build(c.request, { photoUrl: p => CasesApi.requestPhotoUrl(p), title: '📋 依頼内容', id: 'fd-request', cls: 'fd-req' });
-  if (req) nodes.push(req);
-  const rooms = fdRoomsCard(c);
-  if (rooms) nodes.push(rooms);
-  const brief = fdBriefCard(s, c, sel);
-  if (brief) nodes.push(brief);
   const msg = mk('div', 'ob-msg', s.msg || '');
   msg.id = 'fd-msg';
   msg.setAttribute('role', 'status');

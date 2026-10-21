@@ -419,6 +419,7 @@ function eueBuild(s) {
     location.hash = fb ? fb.hash : '#case/' + s.row.case_id + '/estimates';
   });
   top.appendChild(els.back);
+  CaseBand.attach(top, els.back, s.caseRow).id = 'eu-place'; // Task 30: 物件名と号室の帯
   const saveBox = mk('div', 'rep-acts');
   els.save = mk('span', 'rep-save');
   els.save.id = 'eu-save';
@@ -1259,6 +1260,9 @@ async function openEstimatePdf(id) {
   st.logoUrl = logo || '';
 
   const back = dBtn('← 見積書に戻る', 'back', () => { location.hash = '#estimate/' + id; });
+  const top = mk('div', 'cb-row');
+  top.appendChild(back);
+  CaseBand.attach(top, back, st.caseRow).id = 'eu-pdf-place'; // Task 30: 物件名と号室の帯
   const head = mk('div', 'rep-between rep-pdf-head');
   const hl = mk('div');
   hl.append(mk('b', null, 'PDFプレビュー'), mk('div', 'rep-sub', euNumberText(est) + ' ・ ' + euYen(est.total) + '（税込）'));
@@ -1271,7 +1275,7 @@ async function openEstimatePdf(id) {
   msg.id = 'eu-pdf-msg';
   const pv = mk('div');
   pv.id = 'eu-preview';
-  $('estimate-pdf-root').replaceChildren(back, head, acts, msg, pv);
+  $('estimate-pdf-root').replaceChildren(top, head, acts, msg, pv);
   try {
     EstimatePdf.preview(pv, est, st.caseRow, ctx.org || {}, st.logoUrl);
   } catch (e) {

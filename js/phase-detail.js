@@ -57,15 +57,18 @@ async function openCasePhase(caseId, phaseId) {
   currentCase = res[0];
   caseMembers = res[1] || [];
   const c = currentCase;
+  // Task 30: 「← 案件に戻る」の行に物件名と号室の帯（sticky）
+  const top = mk('div', 'pd-top');
+  const back = pdBackBtn(caseId);
+  top.appendChild(back);
+  CaseBand.attach(top, back, c, 'pd-case').id = 'pd-place';
   const head = mk('div', 'pd-head');
-  const place = [c.name, PhaseLogic.roomLabel(c.room)].filter(Boolean).join(' ');
-  head.appendChild(mk('div', 'pd-case', place));
   const t = mk('h2', 'pd-title', 'フェーズ');
   t.id = 'pd-title';
   head.appendChild(t);
   const body = mk('div', 'pd-body');
   body.id = 'phase-detail-body';
-  root.replaceChildren(pdBackBtn(caseId), head, body);
+  root.replaceChildren(top, head, body);
   window.scrollTo(0, 0);
   return renderPhaseDetail(body, { id: phaseId }, { openWhen });
 }

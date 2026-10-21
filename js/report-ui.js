@@ -428,6 +428,7 @@ async function openReportPdf(id) {
   renderHeaders();
   setMsg('rpdf-msg', '');
   $('rpdf-back').onclick = () => { location.hash = '#report/' + id; };
+  CaseBand.set($('rpdf-place'), null); // Task 30: 物件名と号室の帯（読み込んだら入れる）
   $('rpdf-download').onclick = rpdfDownload;
   rpdfSyncControls();
   rpdfMessage('読み込み中…', false);
@@ -445,5 +446,6 @@ async function openReportPdf(id) {
   }
   if (gen !== rpdfSeq) return;
   st.opts = opts;
+  CaseBand.set($('rpdf-place'), opts.caseRow);
   rpdfRender();
 }

@@ -154,6 +154,9 @@
     $('v-logo').textContent = initial(orgName);
     $('v-org').textContent = orgName;
     $('v-hdr').hidden = false;
+    // Task 30: 物件名と号室の帯（スクロールしても見える）
+    CaseBand.set($('v-place'), info.case);
+    $('v-band').hidden = !$('v-place').textContent;
 
     const nodes = [];
     const head = el('div', 'rep-card');

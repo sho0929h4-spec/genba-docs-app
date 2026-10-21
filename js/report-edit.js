@@ -159,6 +159,7 @@ function edBuild(s) {
     location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
   });
   top.appendChild(els.back);
+  CaseBand.attach(top, els.back, s.info).id = 'rp-place'; // Task 30: 物件名と号室の帯
   const saveBox = mk('div', 'rep-acts');
   els.save = mk('span', 'rep-save');
   els.save.id = 'rp-save';
