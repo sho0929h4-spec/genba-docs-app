@@ -19,6 +19,8 @@
 //   開いたとき base とサーバーの updated_at が同じときだけ復元して保存し直す。違えばサーバー優先で破棄。
 //   hashchange / beforeunload / 非表示化 / PDFプレビュー / 提出の前に、保留中の保存を flush する。
 // 世代番号: 一覧 eulSeq・編集 eueSeq・PDF eupSeq。古い応答は捨てる。保存は1見積につき直列（s.chain）。
+// Task 36: 現場用（fieldHidesAdmin）で開いたときだけ、入力パネルの一番上に「調査の内容」の折りたたみ欄（js/survey-view.js）。
+//   どの調査かは PhaseLogic.estimateSurvey（報告書は ReportsApi.listByCase）。ページへ移る前に flush。管理画面では読み込みもしない
 
 const EU_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 // app.js より先に読み込まれるので、ルーターが使う正規表現はここで定義する
@@ -580,14 +582,16 @@ function eueBuild(s) {
   c3.appendChild(els.notesPv);
 
   // 並び（PC=上のバー＋左 入力／右 紙面、スマホ=1段＋紙面の折りたたみ）は EstimateLayout
-  EstimateLayout.mount(s, top, [head, notice].concat(reedit ? [reedit] : [], [roBox, els.val, c1, c2, c3]));
+  // Task 36: 現場用は帯の下・入力欄の上に「調査の内容」の折りたたみ欄（管理画面には出さない）
+  const sv = s.survey ? eueSurveyPanel(s) : null;
+  EstimateLayout.mount(s, top, (sv ? [sv] : []).concat([head, notice], reedit ? [reedit] : [], [roBox, els.val, c1, c2, c3]));
   eueRenderLines(s);
   eueNotesPv(s);
   eueTotals(s);
   const left = $('eu-left');
   if (ro) {
     left.querySelectorAll('input, select, textarea, button').forEach(e => {
-      if (e !== els.back && !e.closest('.eu-ver')) e.disabled = true;
+      if (e !== els.back && !e.closest('.eu-ver') && !e.closest('.sv-panel')) e.disabled = true;
     });
     add.hidden = true;
     q.hidden = true;
@@ -603,6 +607,37 @@ function eueBuild(s) {
   const links = eueLinksCard(s);
   if (links) extra.push(links);
   if (extra.length) roBox.after(...extra);
+}
+
+/* ---------- 調査の内容（現場用。Task 36） ---------- */
+// 開いた/閉じたは見積ごとにこの端末に覚える（初めは開いた状態）
+const eueSvKey = id => 'genba-docs.est-survey.' + id;
+function eueSvOpen(id) {
+  try { return localStorage.getItem(eueSvKey(id)) !== 'closed'; } catch (e) { return true; }
+}
+function eueSvSetOpen(id, open) {
+  try { if (open) localStorage.removeItem(eueSvKey(id)); else localStorage.setItem(eueSvKey(id), 'closed'); } catch (e) { /* 覚えられない端末では毎回開く */ }
+}
+// どの調査を出すか（PhaseLogic.estimateSurvey）と見積のフェーズ
+function eueSurveyOf(s, rs) {
+  const phases = Array.isArray(s.caseRow.phases) ? s.caseRow.phases : [];
+  const estPhase = phases.find(p => p.id === s.row.phase_id) || null;
+  if (rs.err) return { err: rs.err, src: null, estPhase };
+  return { err: '', src: PhaseLogic.estimateSurvey(s.caseRow, rs.list, s.row.phase_id), estPhase };
+}
+function eueSurveyPanel(s) {
+  const sv = s.survey;
+  return SurveyView.panel({
+    src: sv.src, estPhase: sv.estPhase, err: sv.err, open: eueSvOpen(s.id),
+    onToggle: open => eueSvSetOpen(s.id, open),
+    // 調査の内容ページへ（入力中の内容は移る前に保存する）
+    onPage: async () => {
+      if (s.busy) return;
+      await eueFlush(s);
+      if (eue !== s) return;
+      location.hash = '#f/case/' + String(s.row.case_id).toLowerCase() + '/phase/' + String(sv.src.phase.id).toLowerCase() + '/survey/' + String(s.id).toLowerCase();
+    }
+  });
 }
 
 /* ---------- 版の操作（提出済み以降） ---------- */
@@ -1241,14 +1276,17 @@ async function openEstimate(id) {
   if (seq !== eueSeq) return;
   eue = null;
 
-  let row, caseRow, vers = [], linked = [];
+  let row, caseRow, vers = [], linked = [], svReports = null;
+  const fieldSv = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin(); // Task 36: 現場用だけ「調査の内容」の欄
   try {
     row = await EstimatesApi.get(id);
     if (row) {
-      [caseRow, vers, linked] = await Promise.all([
+      [caseRow, vers, linked, svReports] = await Promise.all([
         typeof currentCase !== 'undefined' && currentCase && currentCase.id === row.case_id ? currentCase : CasesApi.getSummary(row.case_id),
         EstimatesApi.listVersions(row.series_id),
-        EstimatesApi.linkedRequests(row)
+        EstimatesApi.linkedRequests(row),
+        // 調査の報告書（読めなくても見積は開く。欄に読み込めなかったと出す）
+        fieldSv ? ReportsApi.listByCase(row.case_id).then(r => ({ list: r || [] }), e => ({ err: errText(e) })) : null
       ]);
     }
   } catch (e) {
@@ -1274,6 +1312,7 @@ async function openEstimate(id) {
     imp: null
   };
 
+  if (svReports) s.survey = eueSurveyOf(s, svReports);
   if (eueFlash && eueFlash.id === s.id) s.notice = eueFlash.text;
   eueFlash = null;
   let restored = false;

@@ -2320,6 +2320,71 @@
     return { state: auto ? 'auto' : 'made', text: auto ? '下書き（自動）' : '作成済み', open: list[0] };
   }
 
+
+  /* ---------- Task 36: 作業担当者の見積書入力で見る「調査の内容」 ---------- */
+  const RL = () => (inNode ? require('./report-logic.js') : root.ReportLogic);
+  // 提出済みの報告書（提出済み・確認済み・依頼元へ送付済み。下書き＝再編集中は入れない）
+  const SURVEY_REPORT_DONE = ['submitted', 'confirmed', 'sent'];
+  const reportDoneAt = r => ms(r.submitted_at) || ms(r.updated_at) || ms(r.created_at) || 0;
+  // その調査の提出済みの報告書のうち一番新しいもの（無ければ null）
+  function surveyReportOf(reports, phaseId) {
+    const list = listOf(reports).filter(r => r.phase_id === phaseId && SURVEY_REPORT_DONE.includes(r.status));
+    return list.sort((a, b) => reportDoneAt(b) - reportDoneAt(a))[0] || null;
+  }
+  // 見積書（estPhaseId のフェーズ）と一緒に見る調査 → { phase, title, report }。
+  //   調査の見積 → その調査。工事の見積 → 作られた元の調査（DB に記録が無いので使えない）→ 同じ案件の、提出済みの報告書がある一番新しい調査。
+  //   report が null = まだ調査の報告書がない（phase も null = 調査が無い）
+  function estimateSurvey(caseRow, reports, estPhaseId) {
+    const all = withSeq(caseRow && caseRow.phases);
+    const surveys = all.filter(x => x.p.kind === 'survey');
+    const pack = x => (x ? { phase: x.p, title: phaseTitle(x.p, x.seq), report: surveyReportOf(reports, x.p.id) } : { phase: null, title: '', report: null });
+    const own = all.find(x => x.p.id === estPhaseId);
+    if (own && own.p.kind === 'survey') return pack(own);
+    const done = surveys.filter(x => surveyReportOf(reports, x.p.id));
+    if (done.length) return pack(done[done.length - 1]);
+    return pack(surveys[surveys.length - 1] || null);
+  }
+  // 'YYYY-MM-DD' → '11/2（月）'（日付だけで読む）
+  function fmtYmdMDW(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return `${+m[2]}/${+m[3]}（${WEEK[d.getUTCDay()]}）`;
+  }
+  // 調査の内容の要約（見積書の入力画面の折りたたみ欄・調査の内容ページで共通）。src = estimateSurvey の戻り値（report があるとき）
+  //   estPhase: 見積のフェーズ（見積書の期限と理由を出す。任意）
+  //   → { title, date: '調査日 11/2（月）', rooms: [{ name, role, roleText, cause, damage }], reason, workItems: [], workText,
+  //       next, due: '見積書の期限 11/4（水）（理由: …）', extras: [{ label, value }]（漏水の状況・漏水時の対応・お部屋の状況）,
+  //       photos: [{ path, caption, marks }] }
+  function surveySummary(src, estPhase) {
+    const s = src || {}, p = s.phase || {}, r = s.report || {};
+    const R = RL();
+    const d = R.normalizeData(r.data);
+    const res = normalizeResult(p.result);
+    const day = fmtYmdMDW(r.work_date) || (p.scheduled_at ? fmtMDW(p.scheduled_at) : '');
+    let rooms = res.rooms.filter(resultRoomHas).map(b => ({
+      name: b.room ? roomLabel(b.room) : '号室未設定', role: b.role, roleText: b.role ? roomRoleLabel(b.role) : '',
+      cause: str(b.cause), damage: str(b.damage)
+    }));
+    const cause = R.causeText(d);
+    if (!rooms.length && cause) rooms = [{ name: roomLabel(r.room) || 'この案件の部屋', role: '', roleText: '', cause, damage: '' }];
+    const rows = R.resultRows({ work_type: r.work_type || 'investigate', data: r.data });
+    const val = label => (rows.find(x => x.label === label) || {}).value || '';
+    const ep = estPhase || {};
+    const due = /^\d{4}-\d{2}-\d{2}/.test(str(ep.estimate_due)) ? `見積書の期限 ${fmtYmdMDW(ep.estimate_due)}${estimateDueReasonText(ep)}` : '';
+    return {
+      title: s.title || phaseTitle(p), date: day ? `調査日 ${day}` : '',
+      rooms,
+      reason: str(d.reason) || str(res.why),
+      workItems: R.chipsForPdf({ work_type: r.work_type || 'investigate', data: r.data }),
+      workText: str(d.f1),
+      next: R.nextActionText(d) || str(res.scope),
+      due,
+      extras: ['漏水の状況', '漏水時の対応', 'お部屋の状況'].map(label => ({ label, value: val(label) })).filter(x => x.value),
+      photos: listOf(r.photos).filter(x => x && x.path).map(x => ({ path: String(x.path), caption: str(x.caption), marks: x.marks }))
+    };
+  }
+
   const api = { KINDS, KIND_KEYS, STEPS, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
@@ -2338,7 +2403,8 @@
     paymentDueDefault, isOverdue, fmtYmdMD,
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
-    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell };
+    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
+    SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

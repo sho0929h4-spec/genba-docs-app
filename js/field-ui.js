@@ -5,6 +5,7 @@
 //   「過去の対応履歴を参照する ›」→ #f/case/{id}/history（全フェーズを日付順・押すとその対応のツールページ）。古いリンク #f/case/{id} は
 //   自分が担当で未完了の直近の対応へ振り向ける（PhaseLogic.fieldRedirectPhase。無ければ履歴）。ツールページの1行目（帯の直下）に
 //   「🚪 今回行く部屋: …」（plan.visitRooms → Task 33 で「依頼内容」の号室ごとの行に集約）。「管理者に連絡」はタスクのタブだけ。「本日」「明日」は案件タブの見出しだけ（ほかは具体の日付）
+// Task 36: 調査の内容ページ #f/case/{id}/phase/{調査}/survey/{見積}（読むだけ。見積書の入力画面の欄から。「‹ 見積書に戻る」）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -36,6 +37,8 @@ const FD_CASE_RE = new RegExp('^#f/case/' + FD_UUID + '$', 'i');
 // Task 31: ツールページは1つの対応（フェーズ）だけ #f/case/{id}/phase/{phaseId}。過去の対応履歴 #f/case/{id}/history
 const FD_PHASE_RE = new RegExp('^#f/case/' + FD_UUID + '/phase/' + FD_UUID + '$', 'i');
 const FD_HIST_RE = new RegExp('^#f/case/' + FD_UUID + '/history$', 'i');
+// Task 36: 調査の内容ページ（読むだけ）#f/case/{id}/phase/{調査}/survey/{見積}。見積は「‹ 見積書に戻る」の戻り先（無ければその調査のツールページ）
+const FD_SURVEY_RE = new RegExp('^#f/case/' + FD_UUID + '/phase/' + FD_UUID + '/survey(?:/' + FD_UUID + ')?$', 'i');
 const fdPhaseHash = (caseId, phaseId) => '#f/case/' + String(caseId).toLowerCase() + '/phase/' + String(phaseId).toLowerCase();
 const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/history';
 const FD_TABS = [
@@ -117,6 +120,8 @@ function fdMatch(h) {
   if (mp) return { view: 'case', caseId: mp[1].toLowerCase(), phaseId: mp[2].toLowerCase() };
   const mh = h.match(FD_HIST_RE);
   if (mh) return { view: 'history', caseId: mh[1].toLowerCase() };
+  const ms = h.match(FD_SURVEY_RE);
+  if (ms) return { view: 'survey', caseId: ms[1].toLowerCase(), phaseId: ms[2].toLowerCase(), estId: ms[3] ? ms[3].toLowerCase() : null };
   return null;
 }
 // 管理画面のルート → 現場用のルート
@@ -134,7 +139,7 @@ function fieldRoute() {
   const fm = fdMatch(h);
   if (!isFieldMode()) {
     fdSetMode(false);
-    if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '') : ''); // 管理画面にしている管理者 → 管理画面
+    if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' || fm.view === 'survey' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '') : ''); // 管理画面にしている管理者 → 管理画面
     return false;
   }
   if (fm) { fdSetMode(true); openField(fm); return true; }
@@ -152,7 +157,7 @@ function openField(fm) {
   renderHeaders();
   showScreen('field');
   const seq = ++fdSeq;
-  fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
+  fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, estId: fm.estId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
   fdTabs();
   const host = $('field-root');
   host.replaceChildren();
@@ -160,6 +165,7 @@ function openField(fm) {
   if (fm.view === 'cases') { fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
   if (fm.view === 'case') { fdBar('案件', '‹ 案件', '#f'); fdRenderCase(); return fdLoadCase(seq); }
   if (fm.view === 'history') { fdBar('過去の対応履歴', '‹ 案件', '#f'); fdRenderHistory(); return fdLoadCase(seq); }
+  if (fm.view === 'survey') { fdBar('調査の内容', ...fdSurveyBack(fd)); fdRenderSurvey(); return fdLoadSurvey(seq); }
   if (fm.view === 'tasks') {
     if (location.hash === '#f/inbox') fdReplace('#f/tasks');
     fdBar('タスク');
@@ -185,7 +191,7 @@ function fdBar(title, backLabel, backHash) {
 }
 function fdTabs() {
   const nav = $('fd-tabs');
-  const active = fd && (fd.view === 'case' || fd.view === 'history') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
+  const active = fd && (fd.view === 'case' || fd.view === 'history' || fd.view === 'survey') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
       // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
@@ -522,6 +528,74 @@ function fdRenderHistory() {
     wrap.appendChild(card);
   });
   nodes.push(wrap);
+  host.replaceChildren(...nodes);
+}
+
+/* ---------- #f/case/{id}/phase/{調査}/survey/{見積} 調査の内容ページ（Task 36。読むだけ） ---------- */
+// 見積書の入力画面の「調査の内容」欄から開く。依頼内容（号室ごとの行・詳細）→ 調査の内容（号室ごとの結果・判断理由・作業内容・
+//   次の対応方針・写真すべて）。上（ヘッダー）と下に「‹ 見積書に戻る」（入力中の見積は移る前に保存済み）。再編集・提出・確認した などの操作は出さない。
+//   報告書の遅延作成（ensurePhaseReport）はしない（見るだけ）
+function fdSurveyBack(s) {
+  return s.estId ? ['‹ 見積書に戻る', '#estimate/' + s.estId] : ['‹ ツール', fdPhaseHash(s.caseId, s.phaseId)];
+}
+async function fdLoadSurvey(seq) {
+  const s = fd;
+  let res, err = '';
+  try {
+    res = await Promise.all([
+      CasesApi.getSummary(s.caseId),
+      ReportsApi.listByCase(s.caseId),
+      s.estId ? EstimatesApi.get(s.estId) : null
+    ]);
+  } catch (e) { err = '調査の内容を読み込めませんでした: ' + errText(e); }
+  if (!fd || fd.seq !== seq) return;
+  s.loading = false;
+  s.err = err;
+  if (!err) {
+    if (!res[0]) s.err = '案件が見つかりません';
+    else s.data = { caseRow: res[0], reports: res[1] || [], est: res[2] || null };
+  }
+  fdRenderSurvey();
+}
+function fdRenderSurvey() {
+  const s = fd;
+  const host = $('field-root');
+  if (s.loading) { host.replaceChildren(mk('div', 'empty', '読み込み中…')); return; }
+  const back = fdSurveyBack(s);
+  const backBtn = id => {
+    const b = dBtn(back[0], 'btn ghost fd-sv-back', () => { location.hash = back[1]; });
+    b.id = id;
+    return b;
+  };
+  if (s.err) {
+    host.replaceChildren(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'survey', caseId: s.caseId, phaseId: s.phaseId, estId: s.estId })), backBtn('fd-survey-back'));
+    return;
+  }
+  const c = s.data.caseRow;
+  const place = PhaseLogic.placeName(c) || '（物件名なし）';
+  fdBar(place, back[0], back[1]);
+  document.title = '調査の内容 ' + place + ' - 現場ドキュメント';
+  const phases = Array.isArray(c.phases) ? c.phases : [];
+  const ph = phases.find(p => p.id === s.phaseId && p.kind === 'survey');
+  const nodes = [];
+  const h = mk('div', 'fd-h', '調査の内容（見るだけ）');
+  h.id = 'fd-survey-h';
+  nodes.push(h);
+  if (!ph) {
+    const e = mk('div', 'empty', 'この調査は見つかりません（消された可能性があります）。管理者に確かめてください');
+    e.id = 'fd-survey-none';
+    nodes.push(e);
+  } else {
+    const t = PhaseLogic.fieldPhaseChips(phases, new Date()).find(x => x.id === ph.id);
+    const src = { phase: ph, title: t ? t.title : PhaseLogic.phaseTitle(ph), report: PhaseLogic.surveyReportOf(s.data.reports, ph.id) };
+    const est = s.data.est;
+    const estPhase = est ? phases.find(p => p.id === est.phase_id) || null : null;
+    const wrap = mk('div', 'fd-survey');
+    wrap.id = 'fd-survey';
+    wrap.append(...SurveyView.page({ caseRow: c, src, estPhase }));
+    nodes.push(wrap);
+  }
+  nodes.push(backBtn('fd-survey-back'));
   host.replaceChildren(...nodes);
 }
 
