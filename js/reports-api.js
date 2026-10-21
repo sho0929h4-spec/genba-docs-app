@@ -211,7 +211,7 @@ const ReportsApi = (() => {
         .eq('id', cur.id).eq('status', 'draft').select());
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
-      await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を提出した`);
+      await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を${row.reedit_count ? "再" : ""}提出した`); // Task 35: 再編集のあとは「再提出した」
       await api.syncSurveyResult(row);
       // Task 20: 調査の「次の対応方針」が原因元工事（＋見積書提案期日）なら、原因元工事フェーズの作成・estimate_due・タイムラインの記録は
       // DB のトリガー（migration 037 reports_next_action）が同じ更新の中で行う（share_submit と同じ処理。期日が無ければ DB も提出を拒否する）
@@ -268,6 +268,20 @@ const ReportsApi = (() => {
         } catch (e) { console.warn('調査結果のご報告の作り直しに失敗', e); }
       }
       return n;
+    },
+    // Task 35: 提出済み・確認済みの報告書を下書きに戻す（依頼元へ送付の前まで。DB 関数 report_reedit が権限・状態・管理者への連絡・
+    //   タイムライン・未送信の送付メールの下書きの削除・担当者URLの使い直しを1回で行う）。戻した行を返す。
+    //   送付メールの下書きに PDF リンクを用意していたら、先にそのファイルを消す（下書きの行は DB が消すので、ファイルが残らないように。失敗しても続ける）
+    async reedit(report) {
+      if (!report || !report.id) throw new Error('報告書が見つかりません');
+      try {
+        const ds = must(await sb.from('mail_drafts').select('id, status, pdf_path').eq('report_id', report.id).eq('status', 'draft')) || [];
+        for (const d of ds) if (d.pdf_path && isPublicPdfPath(d.pdf_path)) await api.revokePdfLink(d).catch(e => console.warn('PDFリンクの片付けに失敗', e));
+      } catch (e) { console.warn('送付メールの下書きの確認に失敗', e); }
+      must(await sb.rpc('report_reedit', { p_id: report.id }));
+      const row = await api.get(report.id);
+      if (!row) throw new Error('報告書が見つかりません');
+      return row;
     },
     // 確認済みにして、依頼者への送付メール下書きを作って返す
     async confirm(report, caseRow) {

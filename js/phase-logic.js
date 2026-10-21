@@ -1883,6 +1883,38 @@
     return { month: ym, monthly: groups, single, total };
   }
 
+  /* ---------- 提出後の再編集（Task 35） ---------- */
+  // 報告書・見積書の行（reports / estimates 表の行か case_summaries の要素）→ 再編集の印
+  //   { key: 'editing'（再編集中＝まだ再提出していない）| 'edited'（再編集あり＝再提出済み・管理者の確認／送付の前）| 'history'（印は消えた・回数だけ）,
+  //     short: '再編集中' | '再編集あり' | '', text: '再編集中（10/22 14:05 鈴木）' | '再編集あり（…）' | '再編集 1回', at, by, count } か null
+  function reeditMark(doc) {
+    const d = doc || {};
+    const count = Math.max(0, Number(d.reedit_count) || 0);
+    if (!count && !d.reedit_mark) return null;
+    const at = d.reedit_at || null, by = str(d.reedit_by_name);
+    const when = [at ? fmtMDHM(at) : '', by].filter(Boolean).join(' ');
+    if (d.reedit_mark) {
+      const key = d.status === 'draft' ? 'editing' : 'edited';
+      const short = key === 'editing' ? '再編集中' : '再編集あり';
+      return { key, short, text: short + (when ? `（${when}）` : ''), at, by, count };
+    }
+    return { key: 'history', short: '', text: `再編集 ${count}回`, at, by, count };
+  }
+  // 再編集に戻せるか（画面のボタン。権限は DB の関数が見る）。kind: 'report' | 'estimate'。
+  //   報告書: 提出済み・確認済み（依頼元へ送付の前）／見積書: 提出済み（issued）の最新の版（送付の前）
+  //   → { ok, reason: ok でないときの文（送付済みは「管理者に連絡」を案内）}
+  function canReedit(kind, doc, opts) {
+    const d = doc || {}, o = opts || {};
+    if (kind === 'report') {
+      if (d.status === 'submitted' || d.status === 'confirmed') return { ok: true, reason: '' };
+      if (d.status === 'sent') return { ok: false, reason: '依頼元へ送付済みのため再編集できません。直したいときは「管理者に連絡」から知らせてください' };
+      return { ok: false, reason: '' };
+    }
+    if (d.status === 'issued' && o.latest !== false) return { ok: true, reason: '' };
+    if (d.status === 'sent' || d.status === 'accepted') return { ok: false, reason: '依頼元へ送付済みのため再編集できません。直したいときは「管理者に連絡」から知らせてください' };
+    return { ok: false, reason: '' };
+  }
+
   /* ---------- 案件ページのフェーズの行（Task 9 は フェーズ名・日時・対応状況 だけ表示。Task 10 の表の列のデータもここで作る） ---------- */
   // phase: case_phases の行（か case_summaries.phases の要素）、seq: 同じ種類の何回目、
   // docs: { estimates（全版可）, reports, mails（このフェーズの mail_drafts） }（省略時は phase.estimates / phase.reports）、now
@@ -1923,20 +1955,28 @@
             : '下書き' }; // Task 28 確認: 「協力業者が入力中」等の古い文言は無い（担当者URLはいつもあるので「下書き」）
       }
     }
+    // Task 35: 再編集の印（再編集中を先に。表のセルの小さな札）
+    const rmarks = reports.map(reeditMark).filter(m => m && m.key !== 'history');
+    report.reedit = rmarks.find(m => m.key === 'editing') || rmarks[0] || null;
     // 見積: 最新の版（承諾があればそれ）
     const live = liveEstimates(estimates);
     const acc = live.filter(isAccepted).sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0))[0];
     const last = acc || live.slice().sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0)
       || String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
-    let estimate = { state: 'none', text: '未作成', version: null, amount: null };
+    let estimate = { state: 'none', text: '未作成', version: null, amount: null, cost: null, reedit: null };
     if (last) {
       const v = Number(last.version) || 1;
       const amount = last.total != null ? Number(last.total) : null;
-      if (acc) estimate = { state: 'accepted', text: `v${v} 承諾`, version: v, amount };
-      else if (last.status === 'sent') estimate = { state: 'sent', text: `v${v} 送付${last.sent_at ? ' ' + fmtMD(last.sent_at) : ''}`, version: v, amount };
+      // Task 35: 原価の税込合計（明細の原価から。明細が無い要素・原価の無い見積は null＝「原価 —」）
+      const ct = Array.isArray(last.lines) ? EL().costTotals(last.lines) : null;
+      const cost = ct ? ct.total : null;
+      const rm = reeditMark(last);
+      const reedit = rm && rm.key !== 'history' ? rm : null;
+      if (acc) estimate = { state: 'accepted', text: `v${v} 承諾`, version: v, amount, cost, reedit };
+      else if (last.status === 'sent') estimate = { state: 'sent', text: `v${v} 送付${last.sent_at ? ' ' + fmtMD(last.sent_at) : ''}`, version: v, amount, cost, reedit };
       // 提出済み（issued）は下書きと分ける（Task 23 C1。対応状況の「見積書提出済み（送付する）」と同じ）
-      else if (last.status === 'issued') estimate = { state: 'issued', text: `v${v} 提出済み（未送付）`, version: v, amount };
-      else estimate = { state: 'draft', text: `v${v} 下書き`, version: v, amount };
+      else if (last.status === 'issued') estimate = { state: 'issued', text: `v${v} 提出済み（未送付）`, version: v, amount, cost, reedit };
+      else estimate = { state: 'draft', text: `v${v} 下書き`, version: v, amount, cost, reedit };
     }
     const bs = billStatus(p);
     const bill = { state: bs, text: bs === 'unbilled' ? '未' : `請求 ${fmtMD(p.billed_at)}` };
@@ -2117,7 +2157,7 @@
       const photos = listOf(r.photos).length;
       // Task 25: 報告書はいつも担当者URL付き（「調査報告待ち」の表示はやめた）。下書きは「続きを書く」
       report = r.status === 'draft'
-        ? { state: 'draft', text: more(reports.length, `下書きあり（写真 ${photos}枚）`) + ' ・ 続きを書く', open: r, count: reports.length }
+        ? { state: 'draft', text: more(reports.length, r.reedit_mark ? `再編集中（写真 ${photos}枚）` : `下書きあり（写真 ${photos}枚）`) + (r.reedit_mark ? ' ・ 直して再提出' : ' ・ 続きを書く'), open: r, count: reports.length }
         : { state: 'done', text: more(reports.length, '提出済み') + ' ・ 開く', open: r, count: reports.length };
     }
     // 見積: 系列ごとの最新の版。一番新しい系列の最新版を開く
@@ -2132,7 +2172,7 @@
     let estimate = { state: 'none', text: 'まだありません ・ 新しく作る', open: null, count: 0 };
     if (e) {
       estimate = e.status === 'draft'
-        ? { state: 'draft', text: more(series.length, '下書きあり') + ' ・ 続きを書く', open: e, count: series.length }
+        ? { state: 'draft', text: more(series.length, e.reedit_mark ? '再編集中' : '下書きあり') + (e.reedit_mark ? ' ・ 直して再提出' : ' ・ 続きを書く'), open: e, count: series.length }
         : { state: 'done', text: more(series.length, '提出済み') + ' ・ 開く', open: e, count: series.length };
     }
     const notices = listOf(d.notices).slice().sort(byCreated);
@@ -2289,7 +2329,7 @@
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
-    scheduleForm, introLine, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
+    scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
     reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,

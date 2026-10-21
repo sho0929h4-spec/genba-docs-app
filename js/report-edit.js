@@ -182,7 +182,13 @@ function edBuild(s) {
   els.val.setAttribute('role', 'alert');
   nodes.push(els.val);
 
+  // Task 35: 再編集の印（再編集中／再編集あり（いつ・誰が）／再編集 n回）
+  const rl = edReeditLine(s);
+  if (rl) nodes.push(rl);
   if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via, L.submittedByOther(s.report, edMe())) + '」のため、内容は変更できません（読み取り専用）'));
+  // Task 35: 提出後の再編集（依頼元へ送る前まで）。現場用は「再編集して管理者に知らせる」、管理画面（管理者）は「再編集する」
+  const rc = ro ? edReeditCard(s) : null;
+  if (rc) nodes.push(rc);
 
   const info = s.info;
   nodes.push(...rfBuildForm(s, {
@@ -230,6 +236,64 @@ function edBuild(s) {
   $('report-root').replaceChildren(...nodes);
   // ro のときは入力欄を全部 disabled（リード専用）
   if (ro) $('report-root').querySelectorAll('input,select,textarea').forEach(e => { e.disabled = true; });
+}
+
+/* ---------- 提出後の再編集（Task 35） ---------- */
+function edReeditLine(s) {
+  const m = typeof PhaseLogic !== 'undefined' ? PhaseLogic.reeditMark(s.report) : null;
+  if (!m) return null;
+  const box = mk('div', 'reedit-line' + (m.key === 'history' ? ' past' : ''));
+  box.id = 'rp-reedit-mark';
+  box.dataset.key = m.key;
+  if (m.short) box.appendChild(mk('span', 'reedit-tag', m.short));
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
+  const tail = m.key === 'editing' ? '直して「提出する」を押すと、管理者に知らせます'
+    : m.key === 'edited' ? (field ? '管理者が確認すると、この印は消えます' : '内容を確かめてください（確認すると印は消えます）') : '';
+  const detail = m.key === 'history' ? m.text : [m.at ? PhaseLogic.fmtMDHM(m.at) : '', m.by].filter(Boolean).join(' ');
+  box.appendChild(mk('span', null, [detail, tail].filter(Boolean).join('。')));
+  return box;
+}
+function edReeditCard(s) {
+  const r = s.report;
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
+  const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+  const can = PhaseLogic.canReedit('report', r);
+  if (!can.ok && !(field && can.reason)) return null;
+  if (can.ok && !field && !owner) return null;
+  const card = mk('div', 'rep-card rep-reedit');
+  card.id = 'rp-reedit';
+  if (!can.ok) { card.appendChild(mk('div', 'rep-sub', can.reason)); return card; }
+  card.appendChild(mk('div', 'rep-sub', field ? '依頼元へ送る前なら、提出した後でも直せます。押すと編集できる状態に戻り、管理者に自動で知らせます（直したらもう一度「提出する」）'
+    : '依頼元へ送る前なら、提出された報告書を下書きに戻して直せます（直したらもう一度「提出する」）'));
+  const b = dBtn(field ? '再編集して管理者に知らせる' : '再編集する（下書きに戻して直す）', 'btn ghost inline', () => edReedit(s, card, b));
+  b.id = 'rp-reedit-btn';
+  const msg = mk('div', 'err');
+  msg.id = 'rp-reedit-msg';
+  msg.setAttribute('role', 'alert');
+  card.append(b, msg);
+  return card;
+}
+let edFlash = null; // 開き直した報告書に出すお知らせ { id, text }
+async function edReedit(s, card, btn) {
+  if (s.submitting || s.photoBusy) return;
+  const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
+  const ok = await askInline(card, 'この報告書を再編集にしますか？\n編集できる状態に戻ります。直して「提出する」を押すまでは「再編集中」になります。'
+    + (s.report.status === 'confirmed' ? '\n確認済みの記録と、未送信の送付メールの下書きは消えます。' : '')
+    + (field ? '\n再編集にしたことは管理者に自動で知らせます。' : ''), { okLabel: '再編集にする', id: 'rp-ask' });
+  if (!ok || ed !== s || s.submitting) return;
+  s.submitting = true;
+  btn.disabled = true;
+  edSetBarBusy(s, true);
+  let row = null, msg = '';
+  try { row = await ReportsApi.reedit(s.report); }
+  catch (e) { msg = '再編集にできませんでした: ' + errText(e); }
+  s.submitting = false;
+  if (ed !== s) return;
+  edSetBarBusy(s, false);
+  btn.disabled = false;
+  if (msg) { setMsg('rp-reedit-msg', msg); return; }
+  edFlash = { id: s.id, text: '再編集にしました。直して「提出する」を押してください' + (field ? '（管理者に知らせました）' : '') };
+  openReport(s.id);
 }
 
 /* ---------- 写真 ---------- */
@@ -456,6 +520,8 @@ async function openReport(id) {
     onDirty: edMarkDirty, alive: () => ed === s
   };
   r.photos = Array.isArray(r.photos) ? r.photos : [];
+  if (edFlash && edFlash.id === s.id) s.notice = edFlash.text;
+  edFlash = null;
 
   // 端末に退避した入力の復元（下書きのときだけ）。端末の時計は使わず、退避した時点のサーバー updated_at（base）と
   // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）ときだけ戻す。違えばサーバー優先で退避を捨てる

@@ -227,7 +227,7 @@ const EstimatesApi = (() => {
       const row = must(await sb.rpc('issue_estimate', { p_id: id }));
       const r = Array.isArray(row) ? row[0] : row;
       if (!r) throw new Error('提出できませんでした');
-      await logSystem(r.case_id, () => `見積書（${displayNumber(r)}）を提出した`);
+      await logSystem(r.case_id, () => `見積書（${displayNumber(r)}）を${r.reedit_count ? '再' : ''}提出した`); // Task 35: 再編集のあとは「再提出した」
       // Task 29: 原因元工事・復旧工事の見積を提出したら、そのフェーズに工事掲示が無ければ下書きを自動で作る（失敗しても提出は成功扱い）
       try { r.autoNotice = await api.autoNotice(r); }
       catch (e) { console.warn('工事掲示を自動で作れませんでした', e); r.autoNoticeError = e && e.message ? e.message : String(e); }
@@ -261,6 +261,32 @@ const EstimatesApi = (() => {
       const row = await api.get(newId);
       if (!row) throw new Error('作成した版が見つかりません。見積書一覧を開き直してください');
       await logSystem(est.case_id, () => `見積書（${t(est.number)}）の第${row.version}版を作成した${ids.length ? `（依頼${ids.length}件を紐付け）` : ''}`);
+      return row;
+    },
+    // Task 35 B: 「この版をやめて前の版に戻す」（管理者だけ）。まだ提出していない第2版以降の下書きを消し、前の版を旧版にする前の状態
+    //   （提出済み／送付済み）に戻す。DB 関数 cancel_estimate_version が1回で行う（紐付けた依頼の紐付けも下書きと一緒に外れる）。戻した前の版を返す
+    async cancelVersion(est) {
+      if (!est || !est.id) throw new Error('見積書が見つかりません');
+      if (est.status !== 'draft' || (Number(est.version) || 1) < 2 || est.number) throw new Error('まだ提出していない第2版以降の下書きだけ、やめて前の版に戻せます');
+      const res = must(await sb.rpc('cancel_estimate_version', { p_id: est.id }));
+      const prevId = Array.isArray(res) ? res[0] : res;
+      const row = prevId ? await api.get(prevId) : null;
+      if (!row) throw new Error('前の版が見つかりません。見積書一覧を開き直してください');
+      return row;
+    },
+    // Task 35 C: 提出済み（番号付き・送付の前）の見積を下書きに戻す。番号はそのまま・同じ版を直す（新しい版は作らない）。
+    //   DB 関数 estimate_reedit が権限・状態・管理者への連絡・タイムライン・未送信の送付メールの下書きの削除を1回で行う
+    async reedit(est) {
+      if (!est || !est.id) throw new Error('見積書が見つかりません');
+      try {
+        const ds = must(await sb.from('mail_drafts').select('id, status, pdf_path').eq('estimate_id', est.id).eq('status', 'draft')) || [];
+        if (typeof ReportsApi !== 'undefined') {
+          for (const d of ds) if (d.pdf_path && ReportsApi.isPublicPdfPath(d.pdf_path)) await ReportsApi.revokePdfLink(d).catch(e => console.warn('PDFリンクの片付けに失敗', e));
+        }
+      } catch (e) { console.warn('送付メールの下書きの確認に失敗', e); }
+      must(await sb.rpc('estimate_reedit', { p_id: est.id }));
+      const row = await api.get(est.id);
+      if (!row) throw new Error('見積書が見つかりません');
       return row;
     },
     // 系列の全版（新しい版から）

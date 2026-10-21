@@ -161,6 +161,9 @@ function eulSeriesEl(s) {
   const right = mk('div');
   right.style.textAlign = 'right';
   right.appendChild(euPill(L.status));
+  // Task 35: 再編集の印（一覧）
+  const rm = PhaseLogic.reeditMark(L);
+  if (rm && rm.short) { const t = mk('span', 'reedit-tag eu-reedit-tag', rm.short); t.title = rm.text; right.appendChild(t); }
   right.appendChild(mk('div', 'eu-series-amt eu-num', euYen(L.total)));
   h.append(left, right);
   box.appendChild(h);
@@ -216,6 +219,7 @@ async function eulCreate() {
 
 /* ======================= ⑭ 作成・編集 ======================= */
 let eue = null;     // 表示中の編集セッション
+let eueFlash = null; // Task 35: 開き直した画面に出すお知らせ { id, text }（再編集・前の版に戻したあと）
 let eueSeq = 0;
 let eueUid = 0;
 
@@ -444,6 +448,9 @@ function eueBuild(s) {
   notice.textContent = s.notice || '';
   notice.hidden = !s.notice;
 
+  // Task 35: 再編集の印（再編集中／再編集あり（いつ・誰が）／再編集 n回）
+  const reedit = eueReeditLine(s);
+
   const roBox = mk('div', 'rep-ro');
   roBox.id = 'eu-ro';
   roBox.textContent = s.row.status === 'superseded'
@@ -573,7 +580,7 @@ function eueBuild(s) {
   c3.appendChild(els.notesPv);
 
   // 並び（PC=上のバー＋左 入力／右 紙面、スマホ=1段＋紙面の折りたたみ）は EstimateLayout
-  EstimateLayout.mount(s, top, [head, notice, roBox, els.val, c1, c2, c3]);
+  EstimateLayout.mount(s, top, [head, notice].concat(reedit ? [reedit] : [], [roBox, els.val, c1, c2, c3]));
   eueRenderLines(s);
   eueNotesPv(s);
   eueTotals(s);
@@ -603,6 +610,9 @@ function eueBuild(s) {
 function eueActsCard(s) {
   const r = s.row, st = r.status, v = Number(r.version) || 1;
   if (st === 'draft' && v < 2) return null;
+  const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
+  const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+  let note = null; // Task 35: 現場用で送付済み → 「管理者に連絡」の案内
   const card = mk('div', 'rep-card eu-acts');
   card.id = 'eu-acts';
   const row = mk('div', 'rep-acts');
@@ -610,17 +620,23 @@ function eueActsCard(s) {
   if (st !== 'draft') {
     card.appendChild(mk('h3', null, st === 'accepted' ? 'この版は採用版です' : st === 'superseded' ? 'この版は旧版です' : 'この版の操作'));
     // 「依頼者へ送付」「承諾された」は管理者のみ（現場用で開いたときは出さない。Task 18）
-    const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
     if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼元へ送付', 'eu-send', 'btn inline', () => eueSend(s));
     if (s.latest && ['issued', 'sent'].includes(st)) {
       if (admin) btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
       // 減額対応の新しい版は送付済みの版を旧版にする（管理者の「発注待ち」が戻る）ので管理者だけ（Task 23 I8）
       if (admin) btn('減額対応で新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
     }
+    // Task 35 C: 提出済み（依頼元へ送る前）の最新版は、同じ番号のまま直せる（作業担当者・管理者。権限は DB の estimate_reedit が見る）
+    const can = PhaseLogic.canReedit('estimate', r, { latest: !!s.latest });
+    if (can.ok && (!admin || owner)) btn(admin ? '再編集する（同じ番号のまま直す）' : '再編集して管理者に知らせる', 'eu-reedit', 'btn ghost inline', () => eueReedit(s));
+    else if (!admin && s.latest && can.reason) note = mk('div', 'rep-sub eu-reedit-no', can.reason);
   }
+  // Task 35 B: 減額対応で作った新しい版（まだ提出していない下書き）は、やめて前の版に戻せる（管理者だけ）
+  if (st === 'draft' && v >= 2 && !r.number && admin && owner) btn('この版をやめて前の版に戻す', 'eu-cancel-ver', 'btn ghost inline', () => eueCancelVer(s));
   if (v >= 2) btn('前の版との差分', 'eu-diff-open', 'btn sm ghost inline', () => { location.hash = '#estimate/' + s.id + '/diff'; });
-  if (!row.firstChild) return null;
-  card.appendChild(row);
+  if (!row.firstChild && !note) return null;
+  if (row.firstChild) card.appendChild(row);
+  if (note) card.appendChild(note);
   const msg = mk('div', 'err');
   msg.id = 'eu-acts-msg';
   msg.setAttribute('role', 'alert');
@@ -723,6 +739,68 @@ async function eueAccept(s) {
   s.notice = '承諾（採用版）として記録しました';
   eueBuild(s);
   eueSyncBar(s);
+}
+
+// Task 35: 再編集の印の行（無ければ null）
+function eueReeditLine(s) {
+  const m = PhaseLogic.reeditMark(s.row);
+  if (!m) return null;
+  const box = mk('div', 'reedit-line' + (m.key === 'history' ? ' past' : ''));
+  box.id = 'eu-reedit-mark';
+  box.dataset.key = m.key;
+  if (m.short) box.appendChild(mk('span', 'reedit-tag', m.short));
+  const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
+  const no = EstimatesApi.displayNumber(s.row);
+  const tail = m.key === 'editing' ? '直して「提出する」を押すと、同じ番号' + (no ? '（' + no + '）' : '') + 'で提出し直し、管理者に知らせます'
+    : m.key === 'edited' ? (admin ? '内容を確かめてから依頼元へ送付してください（送付すると印は消えます）' : '管理者が依頼元へ送付すると、この印は消えます')
+      : '';
+  const detail = m.key === 'history' ? m.text : [m.at ? PhaseLogic.fmtMDHM(m.at) : '', m.by].filter(Boolean).join(' ');
+  box.appendChild(mk('span', null, [detail, tail].filter(Boolean).join('。')));
+  return box;
+}
+
+// Task 35 C: 「再編集して管理者に知らせる」（管理画面は「再編集する」）: 画面内で確かめる → EstimatesApi.reedit → 同じ版を下書きで開き直す
+async function eueReedit(s) {
+  if (s.busy) return;
+  const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
+  const ok = await askInline($('eu-acts'), 'この見積書（' + euNumberText(s.row) + '）を再編集にしますか？\n番号はそのままで、同じ版の中身を直します。直して「提出する」を押すまでは「再編集中」になります。'
+    + (admin ? '' : '\n再編集にしたことは管理者に自動で知らせます。'), { okLabel: '再編集にする', id: 'eu-ask' });
+  if (!ok || eue !== s || s.busy) return;
+  eueActsBusy(s, 'reedit');
+  setMsg('eu-acts-msg', '');
+  let row = null, msg = '';
+  try { row = await EstimatesApi.reedit(s.row); }
+  catch (e) { msg = '再編集にできませんでした: ' + errText(e); }
+  if (eue !== s) return;
+  eueActsBusy(s, '');
+  if (msg) { setMsg('eu-acts-msg', msg); return; }
+  eueFlash = { id: s.id, text: '再編集にしました。直して「提出する」を押すと、同じ番号で提出し直します' + (admin ? '' : '（管理者に知らせました）') };
+  s.left = true;
+  openEstimate(s.id);
+}
+
+// Task 35 B: 「この版をやめて前の版に戻す」（管理者だけ）: 画面内で確かめる → EstimatesApi.cancelVersion → 前の版の画面へ（「承諾された」が押せる）
+async function eueCancelVer(s) {
+  if (s.busy) return;
+  const v = Number(s.row.version) || 2;
+  const ok = await askInline($('eu-acts'), 'この第' + v + '版（下書き）をやめて、第' + (v - 1) + '版に戻しますか？\nこの下書きは消え、第' + (v - 1) + '版は旧版にする前の状態（提出済み／送付済み）に戻ります。紐付けた依頼の紐付けも外れます。',
+    { okLabel: '第' + (v - 1) + '版に戻す', danger: true, id: 'eu-ask' });
+  if (!ok || eue !== s || s.busy) return;
+  eueActsBusy(s, 'cancel');
+  setMsg('eu-acts-msg', '');
+  await eueFlush(s); // 保留中の保存を先に終わらせる（消した後に保存が走らないように）
+  let row = null, msg = '';
+  try { row = await EstimatesApi.cancelVersion(s.row); }
+  catch (e) { msg = '前の版に戻せませんでした: ' + errText(e); }
+  if (eue !== s) return;
+  eueActsBusy(s, '');
+  if (msg) { setMsg('eu-acts-msg', msg); return; }
+  eueLsDel(s.id);
+  clearTimeout(s.timer);
+  s.dirty = false;
+  s.left = true;
+  eueFlash = { id: row.id, text: '第' + v + '版をやめて、第' + row.version + '版（' + (EU_STATUS[row.status] || [''])[0] + '）に戻しました' };
+  location.hash = '#estimate/' + row.id;
 }
 
 // 「依頼者へ送付」: 未送信の下書きがあれば開き直す。無ければ EstimatesApi.createMailDraft → ⑨
@@ -1084,7 +1162,8 @@ async function eueIssue(s) {
   if (!v.ok || bad) { eueShowVal(s, v.errors.concat(bad ? [bad] : [])); return; }
   if (!s.armIssue) {
     s.armIssue = true;
-    eueShowVal(s, ['提出すると見積番号が付き、この版は編集できなくなります。よければもう一度「提出する」を押してください'], true);
+    eueShowVal(s, [s.row.number ? '提出すると同じ番号（' + EstimatesApi.displayNumber(s.row) + '）で提出し直し、この版は編集できなくなります。よければもう一度「提出する」を押してください'
+      : '提出すると見積番号が付き、この版は編集できなくなります。よければもう一度「提出する」を押してください'], true);
     clearTimeout(s.armTimer);
     s.armTimer = setTimeout(() => { if (eue === s) { eueDisarmIssue(s); s.els.val.replaceChildren(); } }, 8000);
     eueSyncBar(s);
@@ -1110,7 +1189,8 @@ async function eueIssue(s) {
   s.row = Object.assign({}, s.row, row);
   s.readOnly = true;
   s.latest = true;
-  s.notice = '提出しました（' + EstimatesApi.displayNumber(s.row) + '）。この版は編集できません'
+  s.notice = (row && row.reedit_mark ? '再提出しました（' + EstimatesApi.displayNumber(s.row) + '）。管理者に知らせました。この版は編集できません'
+    : '提出しました（' + EstimatesApi.displayNumber(s.row) + '）。この版は編集できません')
     + (row && row.autoNotice ? '。工事掲示の下書きを自動で作りました（案件ページの表の「工事掲示」から直せます）' : '')
     + (row && row.autoNoticeError ? '。工事掲示の下書きは作れませんでした（' + row.autoNoticeError + '）' : '');
   eueBuild(s);
@@ -1194,6 +1274,8 @@ async function openEstimate(id) {
     imp: null
   };
 
+  if (eueFlash && eueFlash.id === s.id) s.notice = eueFlash.text;
+  eueFlash = null;
   let restored = false;
   const ls = eueLsGet(s.id);
   if (ls && !s.readOnly) {

@@ -165,7 +165,7 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = m.source === 'report_submit' || m.source === 'late' || m.source === 'overdue'; // 052: 到着が遅れそう・053: 報告書の期限超過も自動
+  const auto = m.source === 'report_submit' || m.source === 'late' || m.source === 'overdue' || m.source === 'reedit'; // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出も自動
   head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : m.source === 'overdue' ? '自動のお知らせ' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));

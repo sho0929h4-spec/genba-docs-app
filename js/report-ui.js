@@ -243,10 +243,16 @@ function repRowEl(r) {
   const top = mk('div', 'rep-between');
   top.appendChild(mk('b', null, title));
   const me = ctx && ctx.user ? ctx.user.id : null;
-  top.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status, r.submitted_via, RL.submittedByOther(r, me))));
+  const pills = mk('span', 'rep-pills');
+  pills.appendChild(mk('span', 'rep-pill ' + (REP_PILL[r.status] || 'p-draft'), RL.statusLabel(r.status, r.submitted_via, RL.submittedByOther(r, me))));
+  // Task 35: 再編集の印（再編集中／再編集あり。いつ・誰が は下の行）
+  const rm = typeof PhaseLogic !== 'undefined' ? PhaseLogic.reeditMark(r) : null;
+  if (rm && rm.short) pills.appendChild(mk('span', 'reedit-tag rep-reedit-tag', rm.short));
+  top.appendChild(pills);
   row.appendChild(top);
 
   let sub = '作業担当者: ' + repWorkerText(r);
+  if (rm) sub += ' ・ ' + rm.text;
   if (r.status === 'draft' && r.updated_at) sub += ' ・ 最終更新 ' + repStamp(r.updated_at);
   row.appendChild(mk('div', 'rep-sub', sub));
 

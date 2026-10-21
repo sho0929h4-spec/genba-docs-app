@@ -458,14 +458,24 @@ function phTableRow(p, multi) {
   tr.appendChild(mk('span', 'ph-br'));
   // 報告書（Task 25: 無ければ報告書と担当者URLを作って開く。あればこのフェーズの一番新しい報告書を開く＝Task 23 M5）
   const rep = row.report;
-  cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : '',
+  const rb = cell('report', rep.state === 'none' ? '＋ 作る' : rep.text, rep.state === 'none' ? 'none add' : (rep.state === 'shared' || rep.state === 'viewed') ? 'ok' : '',
     'このフェーズの報告書を開く', b => phOpenReport(b, p, docs, errId), rep.state === 'none' ? '未' : '');
-  // 見積（無ければ作る／あれば一覧へ）。金額は PC だけ2段目に
+  phReeditTag(rb, rep.reedit);
+  // 見積（無ければ作る／あれば一覧へ）。Task 35: 金額は PC・スマホとも2段（売上 = 見積の税込合計／原価 = 原価の税込合計。無ければ「原価 —」）
   const est = row.estimate;
   const eb = cell('estimate', est.state === 'none' ? '＋ 作る' : est.text, est.state === 'none' ? 'none add' : est.state === 'accepted' ? 'ok' : est.state === 'sent' ? 'wait' : '',
     est.state === 'none' ? '見積書を作る' : '見積書の一覧へ',
     b => est.state === 'none' ? phMakeEstimate(b, p, errId) : (location.hash = '#case/' + s.caseId + '/estimates'), est.state === 'none' ? '未' : '');
-  if (est.amount != null) eb.appendChild(mk('span', 'ph-yen num', PhaseLogic.yen(est.amount)));
+  if (est.amount != null) {
+    eb.classList.add('ph-2amt');
+    const yen = mk('span', 'ph-yen2');
+    const sale = mk('span', 'ph-sale num', '売上 ' + PhaseLogic.yen(est.amount));
+    const cost = mk('span', 'ph-cost num' + (est.cost == null ? ' none' : ''), '原価 ' + (est.cost == null ? '—' : PhaseLogic.yen(est.cost)));
+    yen.append(sale, cost);
+    eb.appendChild(yen);
+    eb.setAttribute('aria-label', eb.getAttribute('aria-label') + '（売上 ' + PhaseLogic.yen(est.amount) + '・原価 ' + (est.cost == null ? 'なし' : PhaseLogic.yen(est.cost)) + '・税込）');
+  }
+  phReeditTag(eb, est.reedit);
   // 工事掲示（Task 29）: 調査は「—」（押せない）。無ければ作る・1件なら開く・複数なら一覧。見積の提出で自動で作った下書きは「下書き（自動）」
   const nc = PhaseLogic.noticeCell(p, docs.notices);
   const nb = cell('notice', nc.state === 'none' ? '＋ 作る' : nc.text, nc.state === 'none' ? 'none add' : nc.state === 'na' ? 'none' : nc.state === 'auto' ? 'wait' : 'ok',
@@ -498,6 +508,16 @@ function phTableRow(p, multi) {
   err.setAttribute('role', 'alert');
   tr.appendChild(err);
   return tr;
+}
+
+// Task 35: 表のセルに再編集の小さな札（「再編集中」「再編集あり」。いつ・誰がは title と読み上げ）
+function phReeditTag(b, m) {
+  if (!b || !m || !m.short) return;
+  const t = mk('span', 'reedit-tag ph-reedit', m.short);
+  t.title = m.text;
+  b.appendChild(t);
+  b.dataset.reedit = m.key;
+  b.setAttribute('aria-label', b.getAttribute('aria-label') + '（' + m.text + '）');
 }
 
 // セルの下に開く編集欄

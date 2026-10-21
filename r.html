@@ -27,6 +27,17 @@
   .v-full h1{font-size:18px;margin-bottom:8px;overflow-wrap:anywhere;}
   .v-full p{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
   .v-full .btn{margin-top:16px;}
+  /* Task 35: 提出後の再編集（依頼元へ送る前まで）。画面内の確認（confirm は使わない）・小さな札 */
+  .v-reedit{margin-top:20px;padding-top:14px;border-top:1px solid var(--border);}
+  .v-reedit p{margin-bottom:4px;}
+  .v-ask{background:#fff8e6;border:1.5px solid #f5c26b;border-radius:12px;padding:10px 12px;margin-top:12px;text-align:left;}
+  .v-ask-t{font-size:13px;white-space:pre-line;overflow-wrap:anywhere;}
+  .v-ask-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:8px;}
+  .v-ask-acts .btn{margin-top:0;min-height:40px;padding:8px 14px;font-size:14px;}
+  .v-reedit .err{color:var(--red);font-size:13px;margin-top:8px;white-space:pre-wrap;}
+  .v-reedit .err:empty{display:none;}
+  .reedit-tag{display:inline-block;background:#fef3c7;color:#92400e;border-radius:999px;padding:0 8px;font-size:11px;font-weight:700;line-height:1.7;white-space:nowrap;}
+  .v-reedit-note{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;background:#f4f7fb;border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:12px;overflow-wrap:anywhere;}
   .btn{border:0;border-radius:10px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;cursor:pointer;padding:12px 16px;min-height:44px;}
   .btn.ghost{background:#fff;color:var(--navy);border:1.5px solid var(--navy);}
   .btn.green{background:var(--green);}
@@ -209,16 +220,16 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=d554c1b"></script>
-<script src="js/supabase-config.js?v=d554c1b"></script>
-<script src="js/image.js?v=d554c1b"></script>
-<script src="js/report-logic.js?v=d554c1b"></script>
-<script src="js/phase-logic.js?v=d554c1b"></script>
-<script src="js/request-view.js?v=d554c1b"></script>
-<script src="js/case-band.js?v=d554c1b"></script>
-<script src="js/photo-marks.js?v=d554c1b"></script>
-<script src="js/photo-mark-editor.js?v=d554c1b"></script>
-<script src="js/report-form.js?v=d554c1b"></script>
-<script src="js/vendor.js?v=d554c1b"></script>
+<script src="js/crypto-util.js?v=ca1e692"></script>
+<script src="js/supabase-config.js?v=ca1e692"></script>
+<script src="js/image.js?v=ca1e692"></script>
+<script src="js/report-logic.js?v=ca1e692"></script>
+<script src="js/phase-logic.js?v=ca1e692"></script>
+<script src="js/request-view.js?v=ca1e692"></script>
+<script src="js/case-band.js?v=ca1e692"></script>
+<script src="js/photo-marks.js?v=ca1e692"></script>
+<script src="js/photo-mark-editor.js?v=ca1e692"></script>
+<script src="js/report-form.js?v=ca1e692"></script>
+<script src="js/vendor.js?v=ca1e692"></script>
 </body>
 </html>

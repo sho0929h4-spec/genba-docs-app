@@ -442,6 +442,17 @@
     const noCost = ls.filter(l => !l.postTax && !hasCost(l) && isRealLine(l) && !l.isAutoShokehi).length;
     return { cost, sell, profit, pct, overrides: ls.filter(l => l.priceOverride && hasCost(l)).length, noCost };
   }
+  // Task 35: 原価の税込合計（対応の表の「原価 ¥…」）。税の扱いは見積の合計（totals）と同じ:
+  //   原価のある税対象の行の原価の合計 → 消費税 round(×0.1) → 税対象外（postTax）の行の原価はそのまま足す。
+  //   原価のある行が1つも無ければ null（表は「原価 —」）
+  function costTotals(lines) {
+    const ls = (lines || []).filter(hasCost);
+    if (!ls.length) return null;
+    const subtotal = ls.filter(l => !l.postTax).reduce((s, l) => s + Math.round(num(l.cost)), 0);
+    const postTax = ls.filter(l => l.postTax).reduce((s, l) => s + Math.round(num(l.cost)), 0);
+    const tax = Math.round(subtotal * TAX_RATE);
+    return { subtotal, tax, postTax, total: subtotal + tax + postTax };
+  }
   // 読み取り結果（AI も文字抽出も同じ形 { items: [{description, detail, quantity, unit, amount, unit_price?}], total, totalEx, subject, notes }）
   // → 明細行（cost = 読み取った金額。amount = 原価 × 利益率）。摘要も詳細も無い行は捨てる。マイナスの行（値引き）は原価を持たない販売行に
   function importItems(items) {
@@ -667,7 +678,7 @@
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
     hankoParts, hankoCols, validate,
-    MARGIN_MAX, IMPORT_MAX_ITEMS, hasCost, normMargin, marginPrice, applyMargin, profitSummary, importItems, importToLines, mergeImported, verifyImport,
+    MARGIN_MAX, IMPORT_MAX_ITEMS, hasCost, normMargin, marginPrice, applyMargin, profitSummary, costTotals, importItems, importToLines, mergeImported, verifyImport,
     pdfTextLines, parseEstimateText, extractTotals, dedupSummary,
     PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
     PRESET_STEP, presetAmount, presetStep, stepAmount, presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
