@@ -231,7 +231,7 @@ function pdBriefBuild(bs) {
   box.dataset.phaseId = bs.id;
   bs.els = {};
   box.appendChild(mk('div', 'ph-sub', '現場に行く作業担当者への指示です（社内だけ。お客様へのメールには出ません）。' +
-    '「担当者に知らせる」の確認依頼メールと、担当者の「🔔 確認してください」・現場用のツールページに入ります'));
+    '下の「担当者に知らせる」の確認依頼メールと、担当者の「🔔 確認してください」・現場用のツールページ・担当者URLのページに入ります'));
   box.appendChild(mk('div', 'ph-cau-t', 'まず号室を選ぶ（押すと☑）'));
   const blocks = mk('div', 'pd-room-blocks');
   const addBlock = c => {
@@ -373,7 +373,9 @@ function pdBriefApply(bs) {
   if (!p) return;
   const sum = s.root.querySelector('.ph-wk-brief[data-phase-id="' + bs.id + '"]');
   if (sum && typeof phFillWorkerBrief === 'function') phFillWorkerBrief(sum, p);
-  const st = bs.el && bs.el.closest('.ph-st');
+  // Task 28: 作業担当者の段の「指示が空のまま知らせます」の注意
+  s.root.querySelectorAll('.ph-wk-empty[data-phase-id="' + bs.id + '"]').forEach(e => { e.hidden = PhaseLogic.hasBrief(bs.v); });
+  const st = bs.el && bs.el.closest('.ph-st[data-step=brief]'); // Task 28 で指示は作業担当者の段の中（段の丸は変えない）
   if (st) {
     const on = PhaseLogic.hasBrief(bs.v);
     st.className = 'ph-st ' + (on ? 'done' : 'later');

@@ -58,11 +58,11 @@ async function siLoad(seq) {
 // 管理者からの返事（Task 23）: 件名・本文の頭・「読んだ」「連絡を開く」
 function siMessageEl(it) {
   const m = it.message;
-  const row = mk('div', 'si-item message');
+  const row = mk('div', 'si-item message' + (it.nudge ? ' nudge' : ''));
   row.dataset.type = 'message';
   row.dataset.msgId = m.id;
   const top = mk('div', 'si-top');
-  top.appendChild(mk('span', 'si-reply-tag', '管理者から'));
+  top.appendChild(mk('span', 'si-reply-tag', it.nudge ? '催促' : '管理者から')); // Task 28: 管理者からの催促（source = nudge）
   if (it.phase) top.appendChild(mk('span', 'ph-kind k-' + it.phase.kind, PhaseLogic.kindLabel(it.phase.kind)));
   top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
   top.appendChild(mk('span', 'ob-ph', it.title));
@@ -129,6 +129,7 @@ function siItemEl(it) {
   } else if (it.caseRow.address) {
     row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
   }
+  if (it.request) row.appendChild(mk('div', 'si-req', '■ 依頼内容: ' + it.request)); // Task 28: 案件の依頼内容の要約（指示の前）
   if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
   const bkey = it.type === 'estimate' ? 'est-' + p.id : it.type === 'report' ? 'rep-' + p.id : p.id;

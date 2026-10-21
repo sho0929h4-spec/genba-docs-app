@@ -3,7 +3,7 @@
 // 写真は files バケットの {org}/cases/{case}/messages/{uuid}-name.jpg（ImageUtil で JPEG に縮める・容量に数える）
 const StaffMessagesApi = (() => {
   const must = ({ data, error }) => { if (error) throw error; return data; };
-  // source（047）: staff = 現場からの連絡／report_submit = 調査報告の提出で自動（画面からは作れない）
+  // source（047）: staff = 現場からの連絡／report_submit = 調査報告の提出で自動／late = 到着が遅れそうの報告で自動（052。画面からは作れない）
   const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source';
   const SUBJECT_MAX = 100;
   const BODY_MAX = 4000;

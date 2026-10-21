@@ -10,6 +10,9 @@
 // 入力内容と写真リスト（path, name, caption, phase, marks）は localStorage `share-{share_id}` に保存して再読込で復元する。
 // 写真のプレビューはこの端末で選んだ写真（blob URL）だけ。anon は Storage から読めないので、再読込後はプレビューなし。
 // PDFプレビューは出さない（anon は署名URLを作れず、ロゴ・写真を PDF に載せられないため。PDF は提出後に社内で作る）。
+// Task 28（migration 052）: 上部に「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真）と「現場への指示」（号室ごと）を出す（share_open の request / brief）。
+//   依頼内容の写真だけは anon でも署名URLを作れる（share_request_photo_ok: 依頼内容に載っていて URL が使える間）。依頼元の連絡先・金額は出さない。
+//   入居者の電話は既定で出さない。「🕒 到着が遅れそう」→ シート → share_report_late（管理者に自動の連絡）→ 入居者の電話（share_open の residents）を出す
 (() => {
   'use strict';
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -169,7 +172,21 @@
     [['物件名', info.case && info.case.name], ['現場住所', info.case && info.case.address], ['作業区分', L.WORK_TYPE_LABEL[s.f.work_type]]]
       .forEach(([k, v]) => { dl.appendChild(el('dt', null, k)); dl.appendChild(el('dd', null, v || '—')); });
     head.appendChild(dl);
+    // Task 28: 到着が遅れそう（フェーズのある報告書だけ）→ 報告後は入居者の電話
+    if (info.late_ok) {
+      s.els.late = lateBox();
+      head.appendChild(s.els.late);
+    }
     nodes.push(head);
+    // Task 28: 依頼内容・現場への指示
+    const req = RequestView.build(info.request, { photoUrl: requestPhotoUrl, title: '📋 依頼内容', id: 'v-request' });
+    if (req) {
+      const c = el('div', 'rep-card v-req');
+      c.appendChild(req);
+      nodes.push(c);
+    }
+    const brief = briefCard(info.brief);
+    if (brief) nodes.push(brief);
 
     const note = el('div', 'rep-note',
       '途中で閉じても、入力内容と写真のリストはこの端末に保存されます。提出後は変更できません。' +
@@ -202,6 +219,66 @@
     $('v-bar').hidden = false;
     $('v-submit').onclick = submit;
     syncBar();
+  }
+
+  /* ---------- 依頼内容・現場への指示・到着が遅れそう（Task 28） ---------- */
+  let signed = null; // path → Promise<url>（依頼内容の写真の署名URL。まとめて1回だけ作る）
+  function requestPhotoUrl(path) {
+    if (!signed) {
+      const paths = ((s.info.request && s.info.request.photos) || []).map(p => p.path);
+      const all = client.storage.from('files').createSignedUrls(paths, 3600).then(({ data, error }) => {
+        if (error) throw error;
+        return new Map((data || []).filter(x => x && x.signedUrl).map(x => [x.path, x.signedUrl]));
+      });
+      signed = new Map(paths.map(p => [p, all.then(m => { if (!m.get(p)) throw new Error('写真を開けませんでした'); return m.get(p); })]));
+    }
+    return signed.get(path) || Promise.reject(new Error('写真を開けませんでした'));
+  }
+  function briefCard(raw) {
+    const lines = PhaseLogic.briefLines(raw);
+    if (!lines.length) return null;
+    const card = el('div', 'rep-card v-req');
+    card.id = 'v-brief';
+    card.appendChild(el('h3', null, '📝 現場への指示'));
+    let block = null;
+    lines.forEach(l => {
+      if (!l) { block = null; return; }
+      if (/^■ /.test(l)) {
+        block = el('div', 'v-brief-room');
+        block.appendChild(el('div', 'v-brief-head', l.slice(2)));
+        card.appendChild(block);
+        return;
+      }
+      (block || card).appendChild(el('div', 'v-brief-text', l));
+    });
+    return card;
+  }
+  function lateBox() {
+    const info = s.info;
+    const box = RequestView.residentsBox({
+      id: 'v-late',
+      late: info.late_at,
+      lateText: info.late_at ? fmtDue(info.late_at) : '',
+      residents: (info.residents || []).map(x => ({ label: PhaseLogic.briefRoomHead({ room: x.room, role: x.role }), name: x.name, tel: x.tel })),
+      onLate: () => RequestView.openLateSheet({
+        title: (info.case && info.case.name) || '',
+        onSubmit: async (minutes, note) => {
+          const { data, error } = await client.rpc('share_report_late', { p_token: token, p_minutes: minutes, p_note: note });
+          if (error) throw new Error(errMsg(error));
+          return data;
+        },
+        onDone: res => {
+          if (!s || s.done || !res) return;
+          info.late_at = res.late_at;
+          info.residents = res.residents || [];
+          const nb = lateBox();
+          if (s.els.late && s.els.late.isConnected) s.els.late.replaceWith(nb);
+          s.els.late = nb;
+        }
+      })
+    });
+    box.style.marginTop = '10px';
+    return box;
   }
 
   function clearVal() { if (s.els.val && s.els.val.firstChild) s.els.val.replaceChildren(); }

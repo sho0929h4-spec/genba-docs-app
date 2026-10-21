@@ -1,4 +1,4 @@
-// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・依頼元・対応フェーズ・書類）
+// js/case-detail.js — 案件詳細画面（ヘッダ・住所と地図・依頼元・依頼内容（Task 28: js/case-request.js）・対応フェーズ・書類）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）
 // mk() は case-list.js、withBusy / setMsg / showScreen / $ は app.js のものを使う
 //
@@ -124,6 +124,7 @@ async function refreshPart(part) {
   }
   if (gen !== caseGen || seq !== casePartSeq[part]) return '';
   currentCase = data; renderHead(); renderParties();
+  if (typeof CaseRequest !== 'undefined') CaseRequest.refresh(currentCase); // 入力中は描き直さない
   return '';
 }
 
@@ -154,6 +155,13 @@ function buildDetail() {
   // 依頼元（元請／物件オーナー／入居者）。編集は案件のポップアップ
   const parties = mk('div', 'taio');
   parties.id = 'case-parties';
+
+  // 依頼内容（Task 28。依頼元の下。js/case-request.js）
+  let request = null;
+  if (typeof CaseRequest !== 'undefined') {
+    try { request = CaseRequest.section(currentCase); }
+    catch (e) { console.warn('依頼内容の欄の表示に失敗', e); }
+  }
 
   // 対応フェーズ（調査・原因元工事・復旧工事のカード。js/phase-ui.js）
   let phases = null;
@@ -210,7 +218,7 @@ function buildDetail() {
   // 一番下に小さく「この案件を削除」（管理者だけ。js/case-trash.js）
   const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.section(currentCase) : null;
   ctState = { caseId: currentCase.id, data: null, busy: '', err: '', banner: mailBanner };
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, phases, tools, mailList, tl, trash].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, request, phases, tools, mailList, tl, trash].filter(Boolean));
 
   renderHead();
   renderParties();

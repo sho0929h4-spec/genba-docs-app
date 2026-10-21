@@ -1,6 +1,7 @@
 // js/cases-api.js — 案件まわりのDBアクセス（Supabase呼び出しはここに集約）
 const CasesApi = (() => {
   const L = () => window.CaseLogic;
+  const L2 = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const safeName = n => (n || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
 
@@ -84,6 +85,37 @@ const CasesApi = (() => {
     async undoEdit(editId, label) {
       return must(await sb.rpc('undo_case_edit', { p_edit_id: editId, p_label: label || null }));
     },
+
+    /* ===== 依頼内容（cases.request。Task 28 / migration 052） ===== */
+    // 依頼元から聞いた内容。写真は files バケットの {org}/cases/{case}/request/{uuid}-name.jpg（ImageUtil で JPEG に縮める・容量に数える）
+    // 「1つ前に戻す」には記録されない（DB）。保存は画面の自動保存（js/case-request.js）から
+    async saveRequest(caseId, request) {
+      const v = L2().normalizeRequest(request);
+      const rows = must(await sb.from('cases').update({ request: v }).eq('id', caseId).select('id, request, updated_at'));
+      if (!rows || !rows.length) throw new Error('保存できませんでした（案件が見つからないか、削除されています）');
+      return rows[0];
+    },
+    // 写真を1枚アップロードする（保存は呼び出し側で saveRequest。失敗したら removeRequestFile で片付ける）→ { path, name, size, type, caption }
+    async uploadRequestPhoto(caseId, file) {
+      const p = await ImageUtil.prepareFile(file);
+      if (p.type !== 'image/jpeg') throw new Error(`「${file.name}」は写真ではありません`);
+      const q = await checkQuota(p.size, 0);
+      if (!q.ok) throw new Error(q.reason);
+      const base = String(p.name || '').replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '').replace(/^[._-]+/, '').slice(0, 60) || 'photo';
+      const path = `${ctx.org.id}/cases/${caseId}/request/${CryptoUtil.uuid()}-${base}.jpg`;
+      await AppStorage.upload(path, p.blob, { contentType: p.type });
+      return { path, name: p.name, size: p.size, type: p.type, caption: '' };
+    },
+    // 保存できた写真の使用量を足す（失敗しても成功扱い）
+    async countRequestPhoto(photo) {
+      try { await addUsage(photo.size || 0, 0); } catch (e) { console.warn('使用量の更新に失敗', e); }
+    },
+    // ファイルを消す。counted = 使用量に数え済み（保存できていた写真）なら戻す
+    async removeRequestFile(photo, counted) {
+      await AppStorage.remove(photo.path);
+      if (counted && photo.size) { try { await addUsage(-photo.size, 0); } catch (e) { console.warn('使用量の更新に失敗', e); } }
+    },
+    requestPhotoUrl(path) { return AppStorage.getUrl(path); },
 
     // 旧い次やること（case_actions）・対応履歴と精算（case_works）は対応フェーズ（case_phases）に置き換えた（2026-10-18）。
     // 表は DB に残す（読み取りのみ）が、画面からは読み書きしない

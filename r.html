@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
 <meta http-equiv="Cache-Control" content="no-cache">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://kkglrmogktnhedkcgyid.supabase.co; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/; style-src 'unsafe-inline'; img-src blob: data: https://kkglrmogktnhedkcgyid.supabase.co; connect-src https://kkglrmogktnhedkcgyid.supabase.co; base-uri 'none'; form-action 'none'">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Ctext x='32' y='46' font-size='38' font-weight='700' text-anchor='middle' fill='%23fff' font-family='Hiragino Kaku Gothic ProN,Noto Sans JP,sans-serif'%3E現%3C/text%3E%3C/svg%3E">
 <title>作業報告書の入力</title>
 <!-- ⑧ 担当者の入力ページ（URL を渡した人。ログイン不要）。URL の # 以降が合言葉（token）。中身は js/vendor.js が作る -->
@@ -121,6 +121,61 @@
   .v-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;justify-content:center;z-index:50;}
   .v-bar .btn{flex:1;max-width:320px;}
   @media(max-width:560px){ .rep-g2{grid-template-columns:minmax(0,1fr);} .rep-ph{grid-template-columns:80px minmax(0,1fr) auto;} .rep-ph-img{width:80px;height:64px;} .rep-card{padding:14px 13px;} }
+  /* 依頼内容の表示・写真の拡大・到着が遅れそう（Task 28。js/request-view.js。index.html と r.html で同じ） */
+  .rq-view{display:grid;gap:8px;min-width:0;font-size:14px;}
+  .rq-title{font-size:15px;}
+  .rq-row{display:grid;gap:3px;min-width:0;}
+  .rq-k{font-size:12px;font-weight:700;color:var(--muted);}
+  .rq-t{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;}
+  .rq-t.main{font-weight:700;}
+  .rq-t.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+  .rq-more{justify-self:start;background:none;border:0;padding:4px 0;min-height:36px;font-family:inherit;font-size:13px;font-weight:700;color:var(--navy2);cursor:pointer;}
+  .rq-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .rq-chip{display:inline-flex;align-items:center;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:#fdecea;color:#9f2a1d;overflow-wrap:anywhere;max-width:100%;}
+  .rq-thumbs{display:flex;flex-wrap:wrap;gap:6px;}
+  .rq-thumb{width:64px;height:64px;padding:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:linear-gradient(135deg,#cfdbe9,#e8eef5);cursor:zoom-in;flex:none;}
+  .rq-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .rq-thumb.none img{display:none;}
+  .pv-bg{position:fixed;inset:0;z-index:300;background:rgba(5,12,24,.92);display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);}
+  .pv-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;color:#fff;font-size:14px;}
+  .pv-x{background:rgba(255,255,255,.16);border:0;color:#fff;font-size:24px;line-height:1;min-width:44px;min-height:44px;border-radius:10px;cursor:pointer;margin-left:auto;}
+  .pv-mid{display:flex;align-items:center;justify-content:center;gap:6px;min-height:0;padding:0 6px;}
+  .pv-img{width:calc(100% - 100px);height:100%;min-width:0;object-fit:contain;display:block;}
+  .pv-nav{background:rgba(255,255,255,.16);border:0;color:#fff;font-size:28px;min-width:44px;min-height:64px;border-radius:10px;cursor:pointer;flex:none;}
+  .pv-nav:disabled{opacity:.3;cursor:default;}
+  .pv-cap{color:#fff;font-size:14px;text-align:center;padding:8px 16px 14px;overflow-wrap:anywhere;}
+  .lt-box{display:grid;gap:2px;min-width:0;}
+  .lt-btn{display:block;width:100%;min-height:48px;padding:8px 14px;border:1.5px solid #f59e0b;border-radius:12px;background:#fffbeb;color:#78350f;font-family:inherit;font-size:14px;font-weight:700;text-align:left;cursor:pointer;line-height:1.45;overflow-wrap:anywhere;}
+  .lt-btn:disabled{opacity:.6;cursor:default;}
+  .lt-done{font-size:13px;font-weight:700;color:#78350f;overflow-wrap:anywhere;}
+  .lt-tel{display:flex;align-items:center;min-height:44px;font-size:14px;font-weight:700;color:var(--navy2);text-decoration:none;overflow-wrap:anywhere;}
+  .lt-none{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .lt-bg{position:fixed;inset:0;z-index:250;background:rgba(10,25,45,.45);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;}
+  .lt-sheet{background:#fff;border-radius:16px;padding:18px 18px 20px;width:100%;max-width:440px;display:grid;gap:10px;max-height:100%;overflow-y:auto;}
+  .lt-sheet [hidden]{display:none !important;}
+  .lt-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .lt-hd h3{font-size:17px;color:var(--navy);}
+  .lt-x{background:none;border:0;font-size:24px;line-height:1;min-width:44px;min-height:44px;color:var(--muted);cursor:pointer;border-radius:10px;}
+  .lt-sub{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
+  .lt-label{font-size:12px;font-weight:700;color:var(--muted);}
+  .lt-chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
+  .lt-chip{min-height:44px;border:1.5px solid var(--border);border-radius:10px;background:#fff;color:var(--text);font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;padding:4px;}
+  .lt-chip.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .lt-f{display:grid;gap:4px;font-size:12px;font-weight:700;color:var(--muted);}
+  .lt-f input{width:100%;min-width:0;min-height:44px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
+  .lt-err{color:var(--red);font-size:13px;font-weight:700;overflow-wrap:anywhere;}
+  .lt-err:empty{display:none;}
+  .lt-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+  .lt-cancel,.lt-send{min-height:44px;padding:8px 18px;border-radius:10px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;}
+  .lt-cancel{background:#fff;color:var(--navy);border:1.5px solid var(--navy);}
+  .lt-send{background:var(--navy);color:#fff;border:0;}
+  .lt-cancel:disabled,.lt-send:disabled{opacity:.6;cursor:default;}
+  @media(max-width:560px){ .lt-bg{align-items:flex-end;padding:0;} .lt-sheet{border-radius:16px 16px 0 0;max-width:none;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));} }
+  .v-req{display:grid;gap:10px;}
+  .v-req h3{font-size:15px;margin-bottom:4px;}
+  .v-brief-room{display:grid;gap:2px;padding-top:6px;border-top:1px dashed #c4d2e3;font-size:13px;}
+  .v-brief-head{font-weight:700;font-size:14px;}
+  .v-brief-text{white-space:pre-wrap;overflow-wrap:anywhere;}
 </style>
 </head>
 <body>
@@ -133,13 +188,15 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=a01f0a2"></script>
-<script src="js/supabase-config.js?v=a01f0a2"></script>
-<script src="js/image.js?v=a01f0a2"></script>
-<script src="js/report-logic.js?v=a01f0a2"></script>
-<script src="js/photo-marks.js?v=a01f0a2"></script>
-<script src="js/photo-mark-editor.js?v=a01f0a2"></script>
-<script src="js/report-form.js?v=a01f0a2"></script>
-<script src="js/vendor.js?v=a01f0a2"></script>
+<script src="js/crypto-util.js?v=f232126"></script>
+<script src="js/supabase-config.js?v=f232126"></script>
+<script src="js/image.js?v=f232126"></script>
+<script src="js/report-logic.js?v=f232126"></script>
+<script src="js/phase-logic.js?v=f232126"></script>
+<script src="js/request-view.js?v=f232126"></script>
+<script src="js/photo-marks.js?v=f232126"></script>
+<script src="js/photo-mark-editor.js?v=f232126"></script>
+<script src="js/report-form.js?v=f232126"></script>
+<script src="js/vendor.js?v=f232126"></script>
 </body>
 </html>

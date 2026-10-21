@@ -14,7 +14,10 @@
 // ツールページ: 住所（Googleマップ）・入居者の電話・対応の切替チップ（今日の予定の対応が初期選択。無ければ最新）・
 //   「📝 現場への指示（○○さんから）」と「確認した」（既存の ack。担当者本人・知らせてもらった後だけ）・
 //   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
-// DB の変更は無い（スタッフも API では会社の全案件を読める。画面で絞るだけ）
+// Task 28: ツールページに「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真のサムネイル → 拡大）と「関係する部屋」（号室・役割・居住者）を指示の上に。
+//   入居者の電話は既定で出さない。「🕒 到着が遅れそう」（一覧のカード・ツールページ）でシート → 報告（PhasesApi.reportLate = rpc phase_report_late）
+//   すると、そのフェーズでは入居者の電話（tel:）が出る（case_summaries.phases[].late_at）。管理者の画面では今までどおり常に出す
+// DB の変更は Task 28 の migration 052 だけ（スタッフも API では会社の全案件を読める。画面で絞るだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox / makePhaseEstimate は staff-inbox.js、openFieldContact / smOpenSheet は staff-messages.js、
 // $ / showScreen / renderHeaders / withBusy は app.js
@@ -294,18 +297,25 @@ function fdCaseCard(it) {
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
   if (c.address) main.appendChild(mk('span', 'fd-tiny fd-addr', '📍 ' + c.address));
   card.appendChild(main);
-  const tel = fdTelLink(c);
-  if (tel) card.appendChild(tel);
+  if (it.phase) card.appendChild(fdLateBox(c, it.phase, () => { fieldRowsInvalidate(); if (fd && fd.view === 'cases') openField({ view: 'cases' }); }));
   return card;
 }
-// 入居者の電話（tel:）。電話番号が無ければ名前だけ、どちらも無ければ null
-function fdTelLink(c) {
-  const name = String(c.resident_name || '').trim();
-  const tel = String(c.resident_tel || '').trim();
-  if (!tel) return name ? mk('span', 'fd-tiny fd-res', '入居者 ' + name + '様') : null;
-  const a = mk('a', 'fd-tel', '☎ 入居者' + (name ? ' ' + name + '様' : '') + ' ' + tel);
-  a.href = 'tel:' + tel.replace(/[^0-9+]/g, '');
-  return a;
+// 入居者の電話（Task 28）: そのフェーズで「到着が遅れそう」を報告していれば tel: の一覧、まだなら「🕒 到着が遅れそう」のボタン
+function fdLateBox(c, p, onDone) {
+  const late = PhaseLogic.residentTelOpen(p);
+  const box = RequestView.residentsBox({
+    residents: PhaseLogic.caseResidents(c), late,
+    lateText: late ? PhaseLogic.fmtMDHM(p.late_at) : '',
+    disabled: !!(fd && fd.busy),
+    onLate: () => RequestView.openLateSheet({
+      title: (PhaseLogic.placeName(c) || '（物件名なし）') + ' ・ ' + fdTitleOf(c, p),
+      onSubmit: (minutes, note) => PhasesApi.reportLate(p.id, minutes, note),
+      onDone
+    })
+  });
+  box.dataset.phaseId = p.id;
+  box.classList.add('fd-late');
+  return box;
 }
 
 /* ---------- #f/case/{id} ツールページ ---------- */
@@ -385,11 +395,14 @@ function fdRenderCase() {
     a.rel = 'noopener';
     info.appendChild(a);
   }
-  const tel = fdTelLink(c);
-  if (tel) info.appendChild(tel);
-  if (info.childNodes.length) nodes.push(info);
-
   const phases = Array.isArray(c.phases) ? c.phases : [];
+  const sel0 = phases.length ? fdSelected(s) : null;
+  if (sel0) {
+    const lb = fdLateBox(c, sel0, () => { fieldRowsInvalidate(); if (fdAlive(s)) { s.msg = '到着の遅れを管理者に報告しました'; fdReloadCase(s); } });
+    lb.id = 'fd-late';
+    info.appendChild(lb);
+  }
+  if (info.childNodes.length) nodes.push(info);
   if (!phases.length) {
     const e = mk('div', 'empty', 'この案件にはまだ対応（調査・工事）がありません。管理者に登録してもらってください');
     e.id = 'fd-no-phase';
@@ -425,6 +438,11 @@ function fdRenderCase() {
     sl.id = 'fd-stage-line';
     nodes.push(sl);
   }
+  // Task 28: 依頼内容 → 関係する部屋 → 現場への指示
+  const req = RequestView.build(c.request, { photoUrl: p => CasesApi.requestPhotoUrl(p), title: '📋 依頼内容', id: 'fd-request', cls: 'fd-req' });
+  if (req) nodes.push(req);
+  const rooms = fdRoomsCard(c);
+  if (rooms) nodes.push(rooms);
   const brief = fdBriefCard(s, c, sel);
   if (brief) nodes.push(brief);
   const msg = mk('div', 'ob-msg', s.msg || '');
@@ -455,6 +473,28 @@ function fdRenderCase() {
   nodes.push(ct);
   nodes.push(mk('div', 'fd-note', 'ツールの中身は管理画面の報告書・見積書・工事掲示と同じです。保存すると管理者の案件ページにそのまま反映されます。'));
   host.replaceChildren(...nodes);
+}
+
+// 「🏠 関係する部屋」（Task 28）: この案件の部屋＋関係する部屋の 号室・役割・居住者（電話は出さない＝到着が遅れそうの報告の後に上の欄で）
+function fdRoomsCard(c) {
+  const list = PhaseLogic.planRoomChoices(c);
+  if (!list.length) return null;
+  const card = mk('div', 'fd-rooms');
+  card.id = 'fd-rooms';
+  card.appendChild(mk('b', null, '🏠 関係する部屋'));
+  const rs = Array.isArray(c.rooms) ? c.rooms : [];
+  list.forEach(x => {
+    const row = mk('div', 'fd-room');
+    row.dataset.room = x.room;
+    row.appendChild(mk('span', 'rm-tag ' + (x.role || 'other'), PhaseLogic.roomRoleLabel(x.role)));
+    row.appendChild(mk('b', null, PhaseLogic.roomLabel(x.room) || x.room));
+    if (x.own) row.appendChild(mk('span', 'fd-tiny', 'この案件の部屋'));
+    const r = x.own ? null : rs.find(y => String(y.room || '').trim() === x.room);
+    const name = String(x.own ? c.resident_name || '' : (r && r.resident_name) || '').trim();
+    if (name) row.appendChild(mk('span', 'fd-tiny', '居住者 ' + name + '様'));
+    card.appendChild(row);
+  });
+  return card;
 }
 
 // 「📝 現場への指示（○○さんから）」。指示が無く、知らせてもらってもいなければ出さない

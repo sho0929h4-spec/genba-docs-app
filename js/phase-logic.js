@@ -889,6 +889,111 @@
   const choiceText = (list, keys, other) => labelsOf(list, keys.filter(k => k !== 'other'))
     .concat(keys.includes('other') ? [str(other) ? `その他（${str(other)}）` : 'その他'] : []).join('・');
   const roomHasBrief = b => !!(b.suspects.length || b.tasks.length || textLines(b.note).length);
+  /* ---- 案件の依頼内容（cases.request。Task 28 / migration 052） ---- */
+  // 依頼元から聞いた内容: { text, symptoms[], symptomOther, damage, suspect, photos: [{ path, name, size, type, caption }] }
+  // 社内の画面（案件ページの「依頼内容」）・担当者への確認依頼メールと 🔔・現場用のツールページ・担当者URLのページで使う
+  const REQUEST_SYMPTOMS = [
+    { key: 'ceiling', label: '天井からの水漏れ' }, { key: 'wall', label: '壁のシミ' }, { key: 'floor', label: '床の濡れ' },
+    { key: 'downstairs', label: '階下からの申告' }, { key: 'smell', label: '異臭・カビ' }, { key: 'water_bill', label: '水道料金の増加' },
+    { key: 'other', label: 'その他' }
+  ];
+  const REQUEST_TEXT_MAX = 2000;
+  const REQUEST_FIELD_MAX = 1000;
+  const REQUEST_PHOTOS_MAX = 30;
+  const REQUEST_HEAD = '■ 依頼内容';
+  // DB の値 → 画面の形（足りないキーは空・知らない症状は落とす・並びはボタンの順・写真は path のあるものだけ・同じ写真は1回）
+  function normalizeRequest(raw) {
+    const r = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const seen = new Set();
+    const photos = (Array.isArray(r.photos) ? r.photos : []).filter(x => x && typeof x === 'object' && typeof x.path === 'string' && x.path
+      && !seen.has(x.path) && seen.add(x.path)).slice(0, REQUEST_PHOTOS_MAX).map(x => {
+      const o = { path: x.path, caption: txt(x.caption).slice(0, 200) };
+      if (typeof x.name === 'string') o.name = x.name;
+      if (typeof x.size === 'number') o.size = x.size;
+      if (typeof x.type === 'string') o.type = x.type;
+      return o;
+    });
+    return { text: txt(r.text), symptoms: pickList(r.symptoms, REQUEST_SYMPTOMS), symptomOther: txt(r.symptomOther),
+      damage: txt(r.damage), suspect: txt(r.suspect), photos };
+  }
+  const symptomText = r => choiceText(REQUEST_SYMPTOMS, r.symptoms, r.symptomOther);
+  // 文章の項目 → [{ key, label, text }]（空の項目は出さない）。依頼内容は見出しなしで先頭に
+  function requestItems(raw) {
+    const r = normalizeRequest(raw);
+    const out = [];
+    if (str(r.text)) out.push({ key: 'text', label: '依頼内容', text: textLines(r.text).join('\n') });
+    if (r.symptoms.length) out.push({ key: 'symptoms', label: '症状', text: symptomText(r) });
+    if (str(r.damage)) out.push({ key: 'damage', label: '被害箇所', text: textLines(r.damage).join('\n') });
+    if (str(r.suspect)) out.push({ key: 'suspect', label: '怪しい箇所', text: textLines(r.suspect).join('\n') });
+    return out;
+  }
+  const hasRequest = raw => requestItems(raw).length > 0 || normalizeRequest(raw).photos.length > 0;
+  // 担当者へのメールの「■ 依頼内容」の段落 → 行の配列（文章が全部空なら []。写真は枚数だけ）
+  //   ■ 依頼内容
+  //   依頼内容: 402号室の浴室下から…（2行目以降はそのまま）
+  //   症状: 天井からの水漏れ・その他（夜だけ）
+  //   被害箇所: … / 怪しい箇所: … / 写真: 3枚（アプリで見られます）
+  function requestLines(raw) {
+    const items = requestItems(raw);
+    const n = normalizeRequest(raw).photos.length;
+    if (!items.length && !n) return [];
+    const lines = [REQUEST_HEAD];
+    items.forEach(it => it.text.split('\n').forEach((l, i) => lines.push(i ? l : it.label + ': ' + l)));
+    if (n) lines.push(`写真: ${n}枚（アプリで見られます）`);
+    return lines;
+  }
+  // 1行の要約（🔔 の一覧）。空なら ''
+  function requestSummary(raw, max) {
+    const items = requestItems(raw);
+    const n = normalizeRequest(raw).photos.length;
+    const parts = items.map(it => (it.key === 'text' ? '' : it.label + ': ') + it.text.replace(/\n/g, ' '));
+    if (n) parts.push(`写真 ${n}枚`);
+    const s = parts.join(' ／ ');
+    const m = max || 120;
+    return s.length > m ? s.slice(0, m) + '…' : s;
+  }
+  // 担当者へのメールの指示の段落（■ 依頼内容 → ■ 号室ごとの指示 → ■ 当日の注意）。setBriefSection に渡す行
+  function staffSectionLines(caseRow, plan) {
+    const req = requestLines(caseRow && caseRow.request);
+    const brief = briefLines(plan);
+    return req.length && brief.length ? req.concat([''], brief) : req.concat(brief);
+  }
+
+  /* ---- 到着が遅れそう（Task 28 追加指示 / migration 052） ---- */
+  // 作業担当者の画面（現場用・担当者URL）では入居者の電話を既定で出さない。そのフェーズで「到着が遅れそう」を報告したら（late_at）出す
+  const LATE_CHOICES = [{ minutes: 15, label: '15分' }, { minutes: 30, label: '30分' }, { minutes: 60, label: '1時間' }];
+  const LATE_MAX = 600;
+  // 見込み（分）→ 約30分／約1時間／約1時間30分（DB の _late_label と同じ）
+  function lateLabel(minutes) {
+    const m = Math.round(Number(minutes));
+    if (!Number.isFinite(m) || m < 1) return '';
+    return '約' + (m < 60 ? m + '分' : m % 60 === 0 ? m / 60 + '時間' : Math.floor(m / 60) + '時間' + (m % 60) + '分');
+  }
+  // 入力 → 分（1〜600 の整数でなければ null）。その他の欄は「45」「1時間」「1時間半」「90分」を受け付ける
+  function parseLateMinutes(v) {
+    if (typeof v === 'number') return Number.isInteger(v) && v >= 1 && v <= LATE_MAX ? v : null;
+    const t = str(v).replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)).replace(/\s/g, '');
+    let m = null;
+    let x;
+    if ((x = t.match(/^(\d+)(?:分)?$/))) m = +x[1];
+    else if ((x = t.match(/^(\d+)時間(半|(\d+)分?)?$/))) m = +x[1] * 60 + (x[2] === '半' ? 30 : x[3] ? +x[3] : 0);
+    return m != null && Number.isInteger(m) && m >= 1 && m <= LATE_MAX ? m : null;
+  }
+  // 入居者（この案件の部屋 → 関係する部屋）→ [{ room, role, own, name, tel, label }]。名前も電話も無い部屋は出さない（DB の _case_residents と同じ）
+  function caseResidents(caseRow) {
+    const c = caseRow || {};
+    const out = [];
+    const push = (room, role, own, name, tel) => {
+      if (!str(name) && !str(tel)) return;
+      out.push({ room: str(room), role, own, name: str(name), tel: str(tel), label: briefRoomHead({ room: str(room), role }) });
+    };
+    push(c.room, 'damage', true, c.resident_name, c.resident_tel);
+    listOf(c.rooms).forEach(r => push(r.room, roleKey(r.role) || 'other', false, r.resident_name, r.tel));
+    return out;
+  }
+  // 作業担当者の画面で入居者の電話を出してよいか（そのフェーズで到着の遅れを報告した後）
+  const residentTelOpen = phase => !!(phase && phase.late_at);
+
   // 担当者へのメールの指示の段落 → 行の配列（全部空なら []）。号室ごとに
   //   ■ 402号室（加害部屋）
   //   怪しい箇所: 給湯給水系統・その他（天井裏）
@@ -1176,7 +1281,8 @@
     const lines = [lead, ''];
     lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
     lines.push(...placeLines(caseRow || {}));
-    const brief = briefLines(p.plan);
+    // Task 28: ■ 依頼内容（案件の依頼内容）→ ■ 号室ごとの指示 → ■ 当日の注意
+    const brief = staffSectionLines(caseRow, p.plan);
     if (brief.length) lines.push('', ...brief);
     lines.push('', tail);
     if (str(link)) lines.push(str(link));
@@ -1251,7 +1357,9 @@
       const ws = withSeq(c.phases);
       const hit = ws.find(x => x.p.id === m.phase_id);
       out.push({ type: 'message', caseRow: c, phase: hit ? hit.p : null, title: hit ? phaseTitle(hit.p, hit.seq) : '案件全体',
-        label: `📨 管理者から: ${str(m.subject)}`, message: m, due: null, late: false, from: '', fromAt: m.created_at, tomorrow: false, brief: '' });
+        // Task 28: 催促（source = nudge）は件名そのまま（⚠️ 催促: …）
+        label: m.source === 'nudge' ? str(m.subject) : `📨 管理者から: ${str(m.subject)}`, nudge: m.source === 'nudge',
+        message: m, due: null, late: false, from: '', fromAt: m.created_at, tomorrow: false, brief: '' });
     });
     for (const c of listOf(caseRows)) {
       // Task 23 M2: 進行中の案件だけ（現場用の一覧の件数と合わせる）
@@ -1281,14 +1389,16 @@
         const when = p.scheduled_at ? `${fmtMDWHM(p.scheduled_at)}〜` : '日時未定';
         const label = isTomorrow ? `明日 ${when} ${what}です` : `${when} ${p.kind === 'survey' ? '調査に行ってください' : what + 'をお願いします'}`;
         out.push({ type: notice ? 'notice' : 'tomorrow', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
-          label, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan) });
+          label, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan),
+          request: requestSummary(c.request) }); // Task 28: 案件の依頼内容の要約（指示の前に出す）
       }
     }
-    // 並び: 確認依頼 → 見積書・報告書（期限を過ぎたもの → 期限の早い順）→ 明日の予定
-    const rank = { message: -1, notice: 0, estimate: 1, report: 1, tomorrow: 2 };
+    // 並び: 催促（Task 28）→ 管理者からの返事 → 確認依頼 → 見積書・報告書（期限を過ぎたもの → 期限の早い順）→ 明日の予定
+    const rank = { nudge: -2, message: -1, notice: 0, estimate: 1, report: 1, tomorrow: 2 };
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0))
       : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
-    return out.sort((a, b) => rank[a.type] - rank[b.type] || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
+    const rk = x => (x.nudge ? rank.nudge : rank[x.type]);
+    return out.sort((a, b) => rk(a) - rk(b) || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
   }
 
   /* ---------- 現場からの連絡（staff_messages。Task 23） ---------- */
@@ -1606,7 +1716,7 @@
       st.key === 'report' && isWork(p.kind) ? '完了報告必要' :
       st.key === 'approval' ? `発注待ち${st.date && days ? ` ${days}日` : ''}` : st.label;
     const short = st.ball ? `${MARK[st.ball]} ${shortLabel}` : `✓ ${st.label}`;
-    // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 作業員が入力中 > 下書き）
+    // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 下書き）
     const rank = { draft: 0, waiting: 1, submitted: 2, ready: 3, confirmed: 3, shared: 4, viewed: 5 };
     let report = { state: 'none', text: '未作成', date: null };
     for (const r of reports) {
@@ -1621,7 +1731,7 @@
       if (report.state === 'none' || rank[s] > rank[report.state]) {
         report = { state: s, date, text: s === 'viewed' ? `確認 ${fmtMD(date)}` : s === 'shared' ? `共有${date ? ' ' + fmtMD(date) : ''}`
           : s === 'confirmed' ? '確認済み（未送付）' : s === 'ready' ? '提出済み（未送付）' : s === 'submitted' ? '提出済み・確認待ち'
-            : '下書き' };
+            : '下書き' }; // Task 28 確認: 「協力業者が入力中」等の古い文言は無い（担当者URLはいつもあるので「下書き」）
       }
     }
     // 見積: 最新の版（承諾があればそれ）
@@ -1662,6 +1772,27 @@
     }
     if (p.notified_at) return { key: 'notified', text: `知らせた ${fmtMD(p.notified_at)}`, short: '知らせた' };
     return { key: 'none', text: '未通知', short: '未通知' };
+  }
+  // Task 28: 作業担当者への催促の記録（表の確認セル）→ '催促 10/25（2回）'（無ければ ''）
+  const nudgeText = phase => (phase && phase.nudged_at ? `催促 ${fmtMD(phase.nudged_at)}（${Math.max(1, Number(phase.nudge_count) || 1)}回）` : '');
+  // Task 28: 表の「担当者」の列（作業担当者の名前・未設定）
+  function workerCol(phase, members) {
+    const p = phase || {};
+    if (!p.worker_id) return { set: false, text: '未設定' };
+    return { set: true, text: workerNameOf(p, members) || '（退会したメンバー）' };
+  }
+  // Task 28: 催促の文（作業担当者から見た今の段階）→ { text: '報告書を書いて提出（期限 10/26）', due, late（期限を過ぎて未提出）} か null（作業担当者なし）
+  //   見積書の期限（estimate_due）があれば「見積書を仕上げて提出（期限 M/D）」（🔔 と同じ）。それ以外は stage を作業担当者として見た文
+  function nudgeInfo(phase, docs, now) {
+    const p = phase || {};
+    if (!p.worker_id) return null;
+    const d = docsOf(p, docs);
+    const todo = estimateTodo(Object.assign({}, p, { estimates: d.estimates }), now);
+    if (todo) return { text: `見積書を仕上げて提出（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, late: todo.late };
+    const st = stage(p, d, now, { me: p.worker_id });
+    if (!st.label) return null;
+    const hasDue = /期限|期日/.test(st.label);
+    return { text: st.label + (st.due && !hasDue ? `（期限 ${fmtYmdMD(st.due)}）` : ''), due: st.due || null, late: !!(st.due && st.late) };
   }
 
   // 案件ページの上部の「今の状態」1行。phases はこの案件のフェーズ（各 estimates / reports 付き。stage と同じ）
@@ -1833,8 +1964,10 @@
     phaseTitle, stage, workerStage, isBlankReport, estimateTodo, reportTodo, ymdAdd, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
+    REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
+    LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
-    scheduleForm, introLine, phaseRow, workerCell, caseNow,
+    scheduleForm, introLine, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
     reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,

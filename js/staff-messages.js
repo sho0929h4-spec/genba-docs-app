@@ -5,6 +5,7 @@
 //           既読にする・返事を書く（返事は宛先のスタッフの 🔔 に出る）・案件を開く
 //   アプリ内だけ（メールは送らない＝Ruling）。タイムラインには DB のトリガーが残す
 //   Task 27: 調査報告の提出（次の対応方針が原因元工事／再調査）で DB が自動の連絡を入れる（source = report_submit。「自動」の札）。
+//   Task 28: 現場用・担当者URLの「🕒 到着が遅れそう」でも自動の連絡が入る（source = late。「自動」の札）。
 //           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // 入力のあるシートは外側クリック・Esc で閉じない（× とキャンセルだけ）
@@ -132,7 +133,7 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = m.source === 'report_submit';
+  const auto = m.source === 'report_submit' || m.source === 'late'; // 052: 到着が遅れそうの報告も自動
   head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));

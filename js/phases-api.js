@@ -56,6 +56,29 @@ const PhasesApi = (() => {
   }
   const linkOf = (cr, caseId, phaseId) => PL().phaseLink(location.origin + location.pathname, caseId, phaseId, { field: !!cr && cr.worker_role === 'member' });
 
+  // 未送信の担当者への確認依頼・前日のお知らせの下書き（このフェーズ）の「■ 依頼内容・■ 号室ごとの指示・■ 当日の注意」を今の値に直す
+  //   row: フェーズ（plan・case_id・worker_id・日時）、caseRow: 案件（request・依頼元）→ 直した下書きの配列。
+  //   段落が見つからない古い本文は作り直す（Task 9 から）
+  async function syncStaffDrafts(row, caseRow, members) {
+    const changed = [];
+    const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', row.id).eq('status', 'draft')
+      .eq('purpose', 'staff_notice')) || [];
+    const lines = PL().staffSectionLines(caseRow, row.plan); // Task 28: ■ 依頼内容 → 指示
+    for (const d of open) {
+      let body = PL().setBriefSection(d.body, lines);
+      if (body == null) {
+        const cr = withWorker(caseRow, row.worker_id, members);
+        const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(cr, row.case_id, row.id),
+          shareUrl: d.remind_slot ? '' : await phaseShareUrl(row, caseRow, '') };
+        body = (d.remind_slot ? PL().staffReminderMail(args) : PL().staffNoticeMail(args)).body;
+      }
+      if (body === d.body) continue;
+      const rows = must(await sb.from('mail_drafts').update({ body }).eq('id', d.id).eq('status', 'draft').select());
+      if (rows && rows[0]) changed.push(rows[0]);
+    }
+    return changed;
+  }
+
   const api = {
     withWorker,
     // 社内メンバー（担当者の候補・メール）
@@ -249,26 +272,33 @@ const PhasesApi = (() => {
     // 指示の段落（■ 怪しい箇所 ■ 優先して調べる ■ 指示 ■ 当日の注意）だけ差し替える（本文の手直しは残す。置き場所が分からない本文は作り直す）。
     // お客様向けのメール（日程連絡・リマインド・調査結果のご報告）には入れないので触らない。
     //   members: 社内メンバー（作り直すときの宛名・署名）。戻り値 { phase, drafts }（drafts は書き換えた mail_drafts の行）
+    // 案件の依頼内容（cases.request。Task 28）を保存した後: この案件の未送信の確認依頼・前日のお知らせの下書きの「■ 依頼内容」を直す → 直した件数
+    //   caseRow は case_summaries の行（request は保存した値・phases 付き）
+    async syncStaffNoticeDrafts(caseRow, members) {
+      const phases = Array.isArray(caseRow && caseRow.phases) ? caseRow.phases : [];
+      const open = must(await sb.from('mail_drafts').select('phase_id').eq('case_id', caseRow.id).eq('status', 'draft')
+        .eq('purpose', 'staff_notice')) || [];
+      let n = 0;
+      for (const p of phases) {
+        if (!open.some(d => d.phase_id === p.id)) continue;
+        n += (await syncStaffDrafts(Object.assign({ case_id: caseRow.id }, p), caseRow, members)).length;
+      }
+      return n;
+    },
+    // 到着が遅れそう（Task 28 / migration 052）: 管理者に自動の連絡・タイムライン・late_at（入居者の電話が出る）→ { ok, late_at, label, residents }
+    async reportLate(phaseId, minutes, note) {
+      return must(await sb.rpc('phase_report_late', { p_phase: phaseId, p_minutes: minutes, p_note: note || '' }));
+    },
+    // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
+    async nudge(phaseId, text, note) {
+      return must(await sb.rpc('phase_nudge', { p_phase: phaseId, p_text: text, p_note: note || '' }));
+    },
     async saveBrief(phase, brief, caseRow, members) {
       const v = PL().normalizeBrief(brief);
       const row = await api.update(phase.id, { plan: v });
       const changed = [];
       try {
-        const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('status', 'draft')
-          .eq('purpose', 'staff_notice')) || [];
-        const lines = PL().briefLines(v);
-        for (const d of open) {
-          let body = PL().setBriefSection(d.body, lines);
-          if (body == null) {
-            const cr = withWorker(caseRow, row.worker_id, members);
-            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(cr, row.case_id, row.id),
-              shareUrl: d.remind_slot ? '' : await phaseShareUrl(row, caseRow, '') };
-            body = (d.remind_slot ? PL().staffReminderMail(args) : PL().staffNoticeMail(args)).body;
-          }
-          if (body === d.body) continue;
-          const rows = must(await sb.from('mail_drafts').update({ body }).eq('id', d.id).eq('status', 'draft').select());
-          if (rows && rows[0]) changed.push(rows[0]);
-        }
+        changed.push(...await syncStaffDrafts(row, caseRow, members));
       } catch (e) {
         const err = new Error('指示は保存しましたが、担当者へのメールの下書きを直せませんでした: ' + (e && e.message ? e.message : e));
         err.phase = row;

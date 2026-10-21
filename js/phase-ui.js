@@ -307,11 +307,11 @@ function phDrawDetail(s, keep) {
 // DOM は1つで、CSS の grid / flex だけで形を変える（同じ id を2つ作らない）。各セルはボタンで、押すとその行の下に
 // 小さな編集欄（ph-panel）が開く。入力のある編集欄（日時・請求した・入金期限）は × とキャンセルでだけ閉じる（外側・Esc では閉じない）。
 const PH_COLS = [
-  { key: 'when', label: '日時' }, { key: 'status', label: '対応状況' }, { key: 'report', label: '報告書' },
+  { key: 'when', label: '日時' }, { key: 'status', label: '対応状況' }, { key: 'worker', label: '担当者' }, { key: 'report', label: '報告書' },
   { key: 'estimate', label: '見積' }, { key: 'bill', label: '請求' }, { key: 'pay', label: '入金日' }, { key: 'confirm', label: '確認' }
 ];
 const PH_COL_LABEL = Object.fromEntries(PH_COLS.map(c => [c.key, c.label]));
-const PH_CHIP_LABEL = { report: '報告書', estimate: '見積', bill: '請求', pay: '入金', confirm: '' }; // スマホのチップの頭
+const PH_CHIP_LABEL = { worker: '担当', report: '報告書', estimate: '見積', bill: '請求', pay: '入金', confirm: '' }; // スマホのチップの頭
 
 // 入力のある編集欄が開いているか（開いている間は、ほかのセルを押しても切り替えない）
 function phFormOpen(s) {
@@ -443,6 +443,9 @@ function phTableRow(p, multi) {
   const sb = cell('status', row.short, 'ph-c-status', '次にやること', () => phOpenCell(p, 'status'));
   sb.querySelector('.ph-cv').className = 'ph-cv ' + stCls;
   sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
+  // Task 28: 担当者（作業担当者。押すとその場でメンバーを選ぶ）。スマホは1行目に「担当 鈴木」
+  const wk = PhaseLogic.workerCol(p, phMembers());
+  cell('worker', wk.text, wk.set ? 'ph-c-worker' : 'ph-c-worker none', '作業担当者を選ぶ', () => phOpenCell(p, 'worker'));
   // スマホの改行（2行目にチップ）
   tr.appendChild(mk('span', 'ph-br'));
   // 報告書（Task 25: 無ければ報告書と担当者URLを作って開く。あればこのフェーズの一番新しい報告書を開く＝Task 23 M5）
@@ -465,10 +468,14 @@ function phTableRow(p, multi) {
     pay.state === 'paid' ? '✓ ' + PhaseLogic.fmtMD(p.paid_at) : '');
   if (pay.state === 'none') pb.disabled = true;
   if (pay.state === 'overdue') pb.title = '入金期限を過ぎています';
-  // 確認（作業担当者）
+  // 確認（作業担当者）。Task 28: 期限を過ぎて未提出・作業担当者が自分以外 →「⚠ 催促する」を赤で。催促したら「催促 M/D（n回）」
   const wc = PhaseLogic.workerCell(p, phMembers());
-  cell('confirm', wc.text, wc.key === 'ack' ? 'ok' : wc.key === 'notified' ? 'wait' : 'none', '担当者に知らせる', () => phOpenCell(p, 'confirm'), wc.short);
-  if (row.brief) tr.querySelector('[data-col=confirm]').classList.add('brief');
+  const nd = phNudgeState(p, docs);
+  const cb = cell('confirm', nd.urge ? '⚠ 催促する' : wc.text, nd.urge ? 'red ph-urge' : wc.key === 'ack' ? 'ok' : wc.key === 'notified' ? 'wait' : 'none',
+    nd.urge ? '期限を過ぎています。担当者に催促する' : '担当者に知らせる', () => phOpenCell(p, 'confirm'), nd.urge ? '⚠ 催促する' : wc.short);
+  const nt = PhaseLogic.nudgeText(p);
+  if (nt) { cb.appendChild(mk('span', 'ph-nudged', nt)); cb.dataset.nudged = String(p.nudge_count || 0); }
+  if (row.brief) cb.classList.add('brief');
 
   if (open) tr.appendChild(phPanel(p, open, docs, errId, row));
   const err = mk('div', 'err ph-row-err');
@@ -544,6 +551,9 @@ function phPanel(p, col, docs, errId, row) {
     }
   } else if (col === 'confirm') {
     phWorkerBody(p, docs, errId).forEach(el => body.appendChild(el));
+  } else if (col === 'worker') {
+    body.appendChild(phWorkerSelect(p, errId));
+    body.appendChild(mk('div', 'ph-sub', '変えると、このフェーズの未提出の報告書の作業者も同じ人になります。知らせる・催促は「確認」の欄から'));
   }
   box.appendChild(body);
   return box;
@@ -699,8 +709,8 @@ function phCard(p) {
   const add = (state, title, body) => steps.appendChild(phStep(state, ++n, title, body));
   if (isSurvey) {
     add(stateOf(0), '調査日時', phScheduleBody(p, docs, errId));
-    add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
-    phBriefStep(p, add);
+    // Task 28: 作業担当者の段 = ①選ぶ → ②現場への指示（号室ごと）→ ③担当者に知らせる
+    add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId, { brief: true }));
     add(stateOf(1), '調査した', phSurveyDoneBody(p, docs, errId).concat([phContactEl(p, docs.mails)]));
     add(stateOf(2), '調査結果', phResultBody(p, docs));
     add(stateOf(3), '報告書', phReportsBody(p, docs, errId));
@@ -711,8 +721,7 @@ function phCard(p) {
   } else {
     add(stateOf(0), '見積（この工事の分）', phEstimatesBody(p, docs, errId));
     add(stateOf(1), '工事日の調整', phScheduleBody(p, docs, errId).concat(phNoticesBody(p, docs, errId)));
-    add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId));
-    phBriefStep(p, add);
+    add(phWorkerStepState(p), '作業担当者', phWorkerBody(p, docs, errId, { brief: true }));
     // Task 16: 「完了」の段（完了にする・取り消す）は無い。報告書が提出されると完了になる
     add(stateOf(3), '完了報告（報告書）', phWorkDoneBody(p, docs, errId).concat(phReportsBody(p, docs, errId)));
     steps.appendChild(phBillTagged(phStep(stateOf(4), ++n, '請求', phBillingBody(p, docs, errId)), p));
@@ -725,12 +734,6 @@ function phCard(p) {
   return card;
 }
 
-// 現場担当への指示の段（中身は js/phase-detail.js。指示があれば済）
-function phBriefStep(p, add) {
-  if (typeof phBriefBody !== 'function') return;
-  const el = phBriefBody(p);
-  add(typeof pdBriefHas === 'function' && pdBriefHas(p) ? 'done' : 'later', '作業担当者への指示', [el]);
-}
 
 /* ---- 日時と連絡メール・リマインド ---- */
 function phScheduleBody(p, docs, errId) {
@@ -1842,7 +1845,10 @@ function phWorkerStepState(p) {
   if (p.ack_at) return 'done';
   return p.worker_id && (p.notified_at || (p.scheduled_at && !p.done_at)) ? 'now' : 'later';
 }
-function phWorkerBody(p, docs, errId) {
+// opts.brief: 詳細ページの段（Task 28: 選択 → 現場への指示（号室ごとの区画。js/phase-detail.js phBriefBody）→ 担当者に知らせる）。
+//   無ければ表の「確認」セルのポップオーバー（指示は「指示を書く（詳細ページへ）」のリンクと要約だけ）
+function phWorkerBody(p, docs, errId, opts) {
+  const withBrief = !!(opts && opts.brief) && typeof phBriefBody === 'function';
   const out = [];
   const members = phMembers();
   const st = PhaseLogic.workerState(Object.assign({}, p, {
@@ -1851,44 +1857,56 @@ function phWorkerBody(p, docs, errId) {
   const box = mk('div', 'ph-worker');
   box.dataset.state = st.key;
   const row = mk('div', 'ph-row ph-wk-row');
-  const sel = document.createElement('select');
-  sel.className = 'ph-wk-sel';
-  sel.setAttribute('aria-label', '作業担当者');
-  const none = document.createElement('option');
-  none.value = '';
-  none.textContent = '未定';
-  sel.appendChild(none);
-  members.forEach(m => {
-    const o = document.createElement('option');
-    o.value = m.user_id;
-    o.textContent = (m.display_name || '（名前なし）') + (m.user_id === phMyId() ? '（自分）' : '');
-    sel.appendChild(o);
-  });
-  if (p.worker_id && !members.some(m => m.user_id === p.worker_id)) {
-    const o = document.createElement('option');
-    o.value = p.worker_id;
-    o.textContent = '（退会したメンバー）';
-    sel.appendChild(o);
-  }
-  sel.value = p.worker_id || '';
-  sel.addEventListener('change', () => {
-    const v = sel.value || null;
-    phRun(sel, errId, '担当者の変更', () => PhasesApi.setWorker(p, v, phTitle(p), members));
-  });
-  row.appendChild(sel);
+  row.appendChild(phWorkerSelect(p, errId));
   const tag = mk('span', 'ph-wk-tag ' + st.key, st.label);
   row.appendChild(tag);
   box.appendChild(row);
 
+  // ② 現場への指示（Task 28: 知らせる前に書く）
+  const hasBrief = typeof pdBriefHas === 'function' ? pdBriefHas(p) : PhaseLogic.hasBrief(p.plan);
+  if (withBrief) {
+    const bb = mk('div', 'ph-wk-briefbox');
+    bb.appendChild(mk('div', 'ph-t2', '現場への指示（担当者に知らせる前に書く）'));
+    bb.appendChild(phBriefBody(p));
+    box.appendChild(bb);
+  } else {
+    // 現場担当への指示の要約（担当者への確認依頼のメール・🔔 の一覧にも入る）
+    const bs = mk('div', 'ph-wk-brief');
+    bs.dataset.phaseId = p.id;
+    phFillWorkerBrief(bs, p);
+    box.appendChild(bs);
+  }
+
   if (p.worker_id) {
     const acts = mk('div', 'ph-acts');
     const again = !!p.notified_at;
+    if (!withBrief) {
+      const go = dBtn('指示を書く（詳細ページへ）', 'linkbtn ph-wk-golink', () => {
+        location.hash = '#case/' + (p.case_id || (ph && ph.caseId)) + '/phase/' + p.id;
+      });
+      acts.appendChild(go);
+    }
+    // 指示が空なら1行の注意（押せる）
+    const empty = mk('div', 'ph-wk-empty', '⚠ 指示が空のまま知らせます（上の「現場への指示」に書くと、確認依頼のメールと担当者の画面に入ります）');
+    if (!withBrief) empty.textContent = '⚠ 指示が空のまま知らせます（「指示を書く」から書けます）';
+    empty.dataset.phaseId = p.id;
+    empty.hidden = hasBrief;
     acts.appendChild(dBtn(again ? 'もう一度知らせる' : '担当者に知らせる', (again ? 'btn sm ghost inline' : 'btn sm inline') + ' ph-wk-notify',
       b => phRun(b, errId, '担当者に知らせる操作', async () => {
         if (typeof pdBriefSettle === 'function') await pdBriefSettle(); // 指示の保存待ちを先に（確認依頼の本文に入るため）
         const cur = (ph && ph.data && ph.data.phases.find(x => x.id === p.id)) || p;
         return PhasesApi.notifyWorker(cur, currentCase, phTitle(p), members);
       })));
+    box.appendChild(empty);
+    // Task 28: 催促する（作業担当者が自分以外のとき。期限を過ぎて未提出なら赤）
+    if (p.worker_id !== phMyId()) {
+      const nd = phNudgeState(p, docs);
+      const nb = dBtn('催促する', 'btn sm inline ph-wk-nudge' + (nd.urge ? ' red' : ' ghost'), () => phNudgeSheet(p, nd, errId));
+      if (nd.urge) nb.title = '期限を過ぎています（' + (nd.info ? nd.info.text : '') + '）';
+      acts.appendChild(nb);
+      const nt = PhaseLogic.nudgeText(p);
+      if (nt) { const ns = mk('span', 'ph-sub ph-wk-nudged', nt); acts.appendChild(ns); }
+    }
     if (p.worker_id === phMyId() && p.notified_at && !p.ack_at) {
       acts.appendChild(dBtn('確認した', 'btn sm inline ph-wk-ack', b => phRun(b, errId, '確認した操作', () => PhasesApi.ack(p, phTitle(p)))));
     }
@@ -1913,16 +1931,114 @@ function phWorkerBody(p, docs, errId) {
       box.appendChild(ml);
     }
   }
-  // 現場担当への指示（Task 9）の要約。担当者への確認依頼のメール・🔔 の一覧にも入る
-  const bs = mk('div', 'ph-wk-brief');
-  bs.dataset.phaseId = p.id;
-  phFillWorkerBrief(bs, p);
-  box.appendChild(bs);
   box.appendChild(mk('div', 'ph-sub', p.worker_id
     ? '「担当者に知らせる」を押すと、担当者のアプリに「🔔 確認してください」が出て、メールの下書きもできます。担当者が「確認した」を押すとここに戻ってきます'
     : '作業する人を選んでください（社内メンバー）'));
   out.push(box);
   return out;
+}
+
+// 作業担当者の選択（詳細ページの段・表の「担当者」の列で共通。Task 28）。変えると報告書の作業者も DB がそろえる（migration 046）
+function phWorkerSelect(p, errId) {
+  const members = phMembers();
+  const sel = document.createElement('select');
+  sel.className = 'ph-wk-sel';
+  sel.setAttribute('aria-label', '作業担当者');
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '未定';
+  sel.appendChild(none);
+  members.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.user_id;
+    o.textContent = (m.display_name || '（名前なし）') + (m.user_id === phMyId() ? '（自分）' : '');
+    sel.appendChild(o);
+  });
+  if (p.worker_id && !members.some(m => m.user_id === p.worker_id)) {
+    const o = document.createElement('option');
+    o.value = p.worker_id;
+    o.textContent = '（退会したメンバー）';
+    sel.appendChild(o);
+  }
+  sel.value = p.worker_id || '';
+  sel.addEventListener('change', () => {
+    const v = sel.value || null;
+    phRun(sel, errId, '担当者の変更', () => PhasesApi.setWorker(p, v, phTitle(p), members));
+  });
+  return sel;
+}
+
+/* ---------- 催促（Task 28） ---------- */
+// 今の段階（作業担当者から見た文・期限）と、赤で強調するか（期限を過ぎて未提出・作業担当者が自分以外）
+function phNudgeState(p, docs) {
+  const info = p.worker_id ? PhaseLogic.nudgeInfo(p, { estimates: docs.estimates, reports: docs.reports }, new Date()) : null;
+  return { info, urge: !!(info && info.late && p.worker_id && p.worker_id !== phMyId()) };
+}
+// シート: 一言（任意）→「催促する」→ 担当者の 🔔 の一番上に「⚠️ 催促: …」。外側クリック・Esc では閉じない
+function phNudgeSheet(p, nd, errId) {
+  const prev = document.getElementById('ph-nudge-sheet');
+  if (prev) prev.remove();
+  const who = PhaseLogic.workerCol(p, phMembers()).text;
+  const text = (nd.info && nd.info.text) || '対応をお願いします';
+  const opener = document.activeElement;
+  let busy = false;
+  const bg = mk('div', 'lt-bg');
+  bg.id = 'ph-nudge-sheet';
+  const dlg = mk('div', 'lt-sheet');
+  dlg.setAttribute('role', 'dialog');
+  dlg.setAttribute('aria-modal', 'true');
+  dlg.setAttribute('aria-labelledby', 'ph-nudge-title');
+  const close = () => { if (busy) return; bg.remove(); if (opener && opener.isConnected) opener.focus(); };
+  const hd = mk('div', 'lt-hd');
+  const h = mk('h3', null, '⚠️ ' + who + 'さんに催促する');
+  h.id = 'ph-nudge-title';
+  const x = dBtn('×', 'lt-x', close);
+  x.setAttribute('aria-label', '閉じる');
+  hd.append(h, x);
+  dlg.appendChild(hd);
+  const pv = mk('div', 'ph-nudge-pv', '⚠️ 催促: ' + text);
+  pv.id = 'ph-nudge-preview';
+  dlg.appendChild(mk('div', 'lt-sub', phTitle(p) + '。' + who + 'さんの 🔔 の一番上に次の文が出ます（読んだら消えます）'));
+  dlg.appendChild(pv);
+  const note = document.createElement('input');
+  note.type = 'text';
+  note.id = 'ph-nudge-note';
+  note.maxLength = 500;
+  note.autocomplete = 'off';
+  note.placeholder = '例: 今日中にお願いします';
+  const nl = mk('label', 'lt-f', '一言（任意）');
+  nl.appendChild(note);
+  dlg.appendChild(nl);
+  const err = mk('div', 'lt-err');
+  err.id = 'ph-nudge-err';
+  err.setAttribute('role', 'alert');
+  dlg.appendChild(err);
+  const acts = mk('div', 'lt-acts');
+  const cancel = dBtn('キャンセル', 'lt-cancel', close);
+  const send = dBtn('催促する', 'lt-send ph-nudge-send', async () => {
+    if (busy) return;
+    busy = true;
+    [x, cancel, send, note].forEach(e => { e.disabled = true; });
+    send.textContent = '送っています…';
+    let e2 = '';
+    try { await PhasesApi.nudge(p.id, text, note.value.trim()); }
+    catch (e) { e2 = '催促できませんでした: ' + errText(e); }
+    busy = false;
+    if (e2) {
+      err.textContent = e2;
+      [x, cancel, send, note].forEach(e => { e.disabled = false; });
+      send.textContent = '催促する';
+      return;
+    }
+    bg.remove();
+    const s = ph;
+    if (phAlive(s)) { await phLoad(); notifyTimeline(); }
+  });
+  acts.append(cancel, send);
+  dlg.appendChild(acts);
+  bg.appendChild(dlg);
+  document.body.appendChild(bg);
+  note.focus();
 }
 
 // 作業担当者の段の「指示あり: …」（plan は入力中ならその値: js/phase-detail.js pdBriefValue）
@@ -1931,5 +2047,5 @@ function phFillWorkerBrief(el, p) {
   const sum = PhaseLogic.briefSummary(v);
   el.dataset.state = sum ? 'on' : 'off';
   el.replaceChildren(sum ? mk('span', null, '📝 指示あり: ' + sum)
-    : mk('span', 'ph-sub', '📝 作業担当者への指示はまだありません（下の「作業担当者への指示」に書くと、確認依頼のメールにも入ります）'));
+    : mk('span', 'ph-sub', '📝 現場への指示はまだありません（詳細ページの作業担当者の段で書くと、確認依頼のメールにも入ります）'));
 }
