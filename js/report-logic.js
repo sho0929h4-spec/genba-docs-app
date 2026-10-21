@@ -23,7 +23,8 @@
     { key: 'other', label: 'その他', input: 'other' }
   ];
   const CAUSE_KEYS = CAUSES.map(c => c.key);
-  // 次の対応方針（1つ選ぶ。data.nextAction = { type, estimateDue, reason, detail, other }）
+  // 次の対応方針（1つ選ぶ。data.nextAction = { type, estimateDue, reason, detail, other, estimateDueReason, estimateDueBy }）
+  //   Task 29: 見積書提案期日は通常2日以内。今日（日本時間）＋2日より先なら estimateDueReason（理由）と estimateDueBy（いつまでに提出できるか）が必須
   const NEXT_ACTIONS = [
     { key: 'cause', label: '原因元工事' },
     { key: 'resurvey', label: '再調査' },
@@ -135,6 +136,12 @@
     estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
     resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業担当者の 🔔 に「見積書を仕上げて提出（期限）」が入ります',
     resurveyReasonLabel: '再調査の理由',
+    // Task 29: 見積書提案期日が今日＋2日より先のとき
+    estimateDueWhyHead: '見積書提案期日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
+    estimateDueReasonLabel: '2日より先になる理由',
+    estimateDueReasonPlaceholder: '例：部材メーカーの見積が届くのが来週になる',
+    estimateDueByLabel: 'いつまでに提出できるか',
+    estimateDueWhyHint: '理由は案件の管理者に知らせ、案件ページの表にも出ます（依頼元には出ません）',
     resurveyDetailLabel: '再調査の内容',
     nextOtherLabel: '次の対応方針（その他）',
     selectPlaceholder: '— 選択してください —',
@@ -233,7 +240,7 @@
     if (r.residents !== null) out.push('入居者 ' + r.residents + '人');
     return out.join('・');
   }
-  const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '' });
+  const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '', estimateDueReason: '', estimateDueBy: '' });
   function emptyData() {
     return {
       items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakActionOther: '', leakRoom: '', reason: '', f2: '', f4: '',
@@ -258,9 +265,10 @@
   }
   function normalizeNext(v) {
     const n = Object.assign(emptyNext(), v && typeof v === 'object' && !Array.isArray(v) ? v : {});
-    ['type', 'estimateDue', 'reason', 'detail', 'other'].forEach(k => { n[k] = str(n[k]); });
+    ['type', 'estimateDue', 'reason', 'detail', 'other', 'estimateDueReason', 'estimateDueBy'].forEach(k => { n[k] = str(n[k]); });
     if (!NEXT_KEYS.includes(n.type)) n.type = '';
-    return { type: n.type, estimateDue: n.estimateDue, reason: n.reason, detail: n.detail, other: n.other };
+    return { type: n.type, estimateDue: n.estimateDue, reason: n.reason, detail: n.detail, other: n.other,
+      estimateDueReason: n.estimateDueReason, estimateDueBy: n.estimateDueBy };
   }
   // 欠けたキーを初期値で補う（古い下書きや協力業者の提出でも落ちないように）
   //   鍵（Task 21）: keyBorrowed / keyReturned が無い古い報告書は keyChecklist（旧3項目）と返却方法から読み替える
@@ -335,6 +343,19 @@
     return dt.getUTCFullYear() === +m[1] && dt.getUTCMonth() === +m[2] - 1 && dt.getUTCDate() === +m[3];
   };
   const mdOf = ymd => { const p = parseYmd(ymd); return p ? `${p.m}/${p.d}` : ''; };
+  // Task 29: 日本時間の今日 'YYYY-MM-DD'（端末のタイムゾーンに依存しない）と、見積書提案期日の上限（今日＋2日）
+  const ESTIMATE_DUE_DAYS = 2;
+  const jstToday = now => new Date((now instanceof Date ? now.getTime() : now != null ? new Date(now).getTime() : Date.now()) + 9 * 3600000).toISOString().slice(0, 10);
+  function ymdPlus(ymd, n) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n)).toISOString().slice(0, 10);
+  }
+  // 期日が今日＋2日より先か（理由・提出できる日が必須）。today は 'YYYY-MM-DD'（省略は日本時間の今日）
+  function estimateDueNeedsReason(due, today) {
+    if (!isYmd(due)) return false;
+    const t = isYmd(today) ? trim(today) : jstToday();
+    return trim(due) > ymdPlus(t, ESTIMATE_DUE_DAYS);
+  }
   const hasCause = (d, key) => normalizeCauses(d.causes).some(c => c.key === key);
   // 選んだ原因を定義順に「洗濯機（排水ホースの外れ）、浴室（…）」の形で連結。古い自由記載（f2）は改行して後ろに
   function causeText(data) {
@@ -446,7 +467,8 @@
   }
 
   // 旧 validate（750–771行）。物件名は案件から来るので対象外
-  function validate(report) {
+  function validate(report, opts) {
+    const o = opts || {}; // o.today: 'YYYY-MM-DD'（テスト用。省略は日本時間の今日）
     const errors = [], warnings = [];
     const cfg = modeOf(report.work_type);
     const d = normalizeData(report.data);
@@ -463,6 +485,11 @@
       if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書提案期日を入れてください'); // Task 21
       if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
       if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
+      // Task 29: 期日が今日＋2日より先なら、理由といつまでに提出できるか（日付）が必須
+      if ((n.type === 'cause' || n.type === 'resurvey') && estimateDueNeedsReason(n.estimateDue, o.today)) {
+        if (!trim(n.estimateDueReason)) errors.push('見積書提案期日が2日より先です。「理由」を入れてください');
+        if (!isYmd(n.estimateDueBy)) errors.push('見積書提案期日が2日より先です。「いつまでに提出できるか」を入れてください');
+      }
     }
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
     // Task 21: 鍵を借りたときだけ、返却のチェックと返却時の写真
@@ -627,6 +654,7 @@
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     ROOM_LUGGAGE, ROOM_PET, RESIDENTS_MAX, normalizeRoom, roomStatusText,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
+    ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
     buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote
   };

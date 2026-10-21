@@ -273,7 +273,8 @@ function refreshActiveScreen() {
       if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
       if (fd.view === 'cases') fdLoadCases(fd.seq);
       else if (fd.view === 'case') fdLoadCase(fd.seq);
-      else if (fd.view === 'inbox' && typeof si !== 'undefined' && si) siLoad(si.seq);
+      else if (fd.view === 'tasks' && typeof si !== 'undefined' && si) siLoad(si.seq);
+      else if (fd.view === 'daily' && !(fd.daily && fd.daily.busy)) fdLoadDaily(fd.seq); // Task 29（入力中の一言は残す）
       else if (fd.view === 'contact' && typeof sm !== 'undefined' && sm) smLoad(sm.seq);
     } else if (on('inbox-staff') && typeof si !== 'undefined' && si) {
       siLoad(si.seq);

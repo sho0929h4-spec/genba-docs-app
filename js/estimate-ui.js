@@ -1109,7 +1109,9 @@ async function eueIssue(s) {
   s.row = Object.assign({}, s.row, row);
   s.readOnly = true;
   s.latest = true;
-  s.notice = '提出しました（' + EstimatesApi.displayNumber(s.row) + '）。この版は編集できません';
+  s.notice = '提出しました（' + EstimatesApi.displayNumber(s.row) + '）。この版は編集できません'
+    + (row && row.autoNotice ? '。工事掲示の下書きを自動で作りました（案件ページの表の「工事掲示」から直せます）' : '')
+    + (row && row.autoNoticeError ? '。工事掲示の下書きは作れませんでした（' + row.autoNoticeError + '）' : '');
   eueBuild(s);
   eueSetSave(s, '');
   eueSyncBar(s);

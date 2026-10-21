@@ -1,23 +1,29 @@
 // js/field-ui.js — 現場担当アプリ（スマホ専用の現場用画面。対応フェーズ Task 18。画面案 docs/mocks/mock-field.html）
-// ルート: #f（自分の案件一覧）／#f/case/{id}（ツールページ）／#f/inbox（🔔 確認してください）／#f/contact（管理者に連絡。Task 23）／#f/settings（設定）。
-// 下のタブバー 案件／確認／管理者に連絡／設定（safe-area）。現場用では送付・連絡メールの下書きは出さない（Task 23 C2。#f/outbox は #f/contact へ）
+// ルート（Task 29）: #f（案件 = 本日行く現場・対応の一覧）／#f/case/{id}（ツールページ）／#f/tasks（タスク = 優先順の一覧。旧 🔔）／
+//   #f/daily（日報作成）／#f/settings（設定）／#f/contact（管理者とのやり取り。タブには出さない＝タスクとツールページのボタンから）。
+// 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
+// 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
 //   スタッフ（memberships.role = 'member'）は現場用の画面だけ。管理画面のルートを開いても現場用に戻す
-//     （#case/{id}…（フェーズ詳細・協力業者URLを含む）→ #f/case/{id}、#inbox-staff → #f/inbox、#outbox・#messages → #f/contact、それ以外 → #f）。
+//     （#case/{id}…（フェーズ詳細・協力業者URLを含む）→ #f/case/{id}、#inbox-staff → #f/tasks、#outbox・#messages → #f/contact、それ以外 → #f）。
 //   管理者（owner）は管理画面が既定。設定の「画面: 現場用／管理画面」で切替（この端末の localStorage に人ごとに記憶）。
 //     現場用にしている管理者は、空のルートで #f が開く（管理画面のリンクを開いたときはそのまま管理画面）。
 //     管理画面にしている管理者が #f… を開いたら管理画面へ（#f/case/{id} → #case/{id}）。
 //   報告書・見積書・工事掲示・送付メールの画面（共通）は現場用からも開ける。そのとき body に fd-mode を付け、
 //     ヘッダーの 💴（請求）を隠し、⚙️ は現場用の設定へ、戻るは「‹ ツール」（#f/case/{id}）にする（fieldBack）。
-// 案件一覧は自分の担当だけ（案件の担当者か、フェーズの作業担当者。「全部」は出さない＝Ruling）。並びは PhaseLogic.fieldCases。
-//   Task 27: 一覧の一番上に「🧾 見積書を提出（期限 M/D）」のカード（PhaseLogic.fieldEstimateCards。🔔 と同じ判定・過ぎたら赤）
+// 「案件」タブ（Task 29）: 自分が作業担当者（または案件の担当者）のフェーズを 今日（時刻順）→ 明日以降（日付順）→ 日時未定 →
+//   日時を過ぎて自分の番が残っているもの → 対応なし（PhaseLogic.fieldSchedule）。各行: 時刻・物件名 号室・フェーズ・対応状況・住所（地図）・
+//   入居者の電話（Task 28 の遅れ報告の決まり）。押すとその対応を選んだツールページ。上に「✅ タスク n件」（期限超過があれば赤）
+//   （Task 27 の「🧾 見積書を提出」のカードはタスクの ③ に移した）
+// 「タスク」タブ: js/staff-inbox.js の openStaffInbox({ field: true })。「日報作成」タブ: この下の fdRenderDaily
+// アプリを開いたとき（案件・タスク・日報の読み込み）に、報告書の期限超過を管理者に知らせる（overdueSync。js/staff-messages.js）
 // ツールページ: 住所（Googleマップ）・入居者の電話・対応の切替チップ（今日の予定の対応が初期選択。無ければ最新）・
 //   「📝 現場への指示（○○さんから）」と「確認した」（既存の ack。担当者本人・知らせてもらった後だけ）・
 //   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
 // Task 28: ツールページに「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真のサムネイル → 拡大）と「関係する部屋」（号室・役割・居住者）を指示の上に。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」（一覧のカード・ツールページ）でシート → 報告（PhasesApi.reportLate = rpc phase_report_late）
 //   すると、そのフェーズでは入居者の電話（tel:）が出る（case_summaries.phases[].late_at）。管理者の画面では今までどおり常に出す
-// DB の変更は Task 28 の migration 052 だけ（スタッフも API では会社の全案件を読める。画面で絞るだけ）
+// DB は migration 052・053（スタッフも API では会社の全案件を読める。画面で絞るだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox / makePhaseEstimate は staff-inbox.js、openFieldContact / smOpenSheet は staff-messages.js、
 // $ / showScreen / renderHeaders / withBusy は app.js
@@ -26,8 +32,8 @@ const FD_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
 const FD_CASE_RE = new RegExp('^#f/case/' + FD_UUID + '$', 'i');
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: '📋', label: '案件' },
-  { view: 'inbox', hash: '#f/inbox', icon: '🔔', label: '確認' },
-  { view: 'contact', hash: '#f/contact', icon: '✉️', label: '管理者に連絡' },
+  { view: 'tasks', hash: '#f/tasks', icon: '✅', label: 'タスク' },
+  { view: 'daily', hash: '#f/daily', icon: '📝', label: '日報作成' },
   { view: 'settings', hash: '#f/settings', icon: '⚙️', label: '設定' }
 ];
 // 現場用からも開く共通の画面（報告書・見積書・工事掲示・送付メール）
@@ -92,8 +98,9 @@ function fdReplace(hash) {
 }
 function fdMatch(h) {
   if (h === '#f' || h === '#f/') return { view: 'cases' };
-  if (h === '#f/inbox') return { view: 'inbox' };
-  if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡
+  if (h === '#f/tasks' || h === '#f/inbox') return { view: 'tasks' }; // Task 29: 確認（🔔）→ タスク
+  if (h === '#f/daily') return { view: 'daily' };
+  if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡（Task 29: タブには出さない）
   if (h === '#f/settings') return { view: 'settings' };
   const m = h.match(FD_CASE_RE);
   if (m) return { view: 'case', caseId: m[1].toLowerCase() };
@@ -106,7 +113,7 @@ function fdRedirectOf(h) {
     if (m[2]) fdSel.set(m[1].toLowerCase(), m[2].toLowerCase()); // フェーズ詳細のリンク → その対応を選んで開く
     return '#f/case/' + m[1].toLowerCase();
   }
-  if (h === '#inbox-staff') return '#f/inbox';
+  if (h === '#inbox-staff') return '#f/tasks';
   if (h === '#outbox' || /^#messages/.test(h)) return '#f/contact';
   return '#f';
 }
@@ -142,13 +149,15 @@ function openField(fm) {
   document.title = '現場ドキュメント';
   if (fm.view === 'cases') { fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
   if (fm.view === 'case') { fdBar('案件', '‹ 案件', '#f'); fdRenderCase(); return fdLoadCase(seq); }
-  if (fm.view === 'inbox') {
-    fdBar('確認してください');
+  if (fm.view === 'tasks') {
+    if (location.hash === '#f/inbox') fdReplace('#f/tasks');
+    fdBar('タスク');
     return openStaffInbox({ field: true, root: host });
   }
+  if (fm.view === 'daily') { fdBar('日報作成'); fdRenderDaily(); return fdLoadDaily(seq); }
   if (fm.view === 'contact') {
     if (location.hash === '#f/outbox') fdReplace('#f/contact');
-    fdBar('管理者に連絡');
+    fdBar('管理者とのやり取り', '‹ タスク', '#f/tasks');
     return openFieldContact(host);
   }
   fdBar('設定');
@@ -165,7 +174,7 @@ function fdBar(title, backLabel, backHash) {
 }
 function fdTabs() {
   const nav = $('fd-tabs');
-  const active = fd && fd.view === 'case' ? 'cases' : fd && fd.view;
+  const active = fd && fd.view === 'case' ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
       // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
@@ -179,24 +188,31 @@ function fdTabs() {
   }));
 }
 
-/* ---------- #f 自分の案件一覧 ---------- */
+/* ---------- #f 案件（本日行く現場・対応の一覧。Task 29） ---------- */
 async function fdLoadCases(seq) {
   let rows = [], err = '', msgs = [];
   try {
     rows = await fieldRows();
-    // 管理者からの返事（未読）がある案件があれば読む（🔔 の件数に入れる。Task 23）
-    if (rows.some(r => Number(r.staff_unread) > 0)) msgs = (await StaffMessagesApi.list({ toUser: fdMe(), unread: true })) || [];
+    msgs = await fdUnreadMessages(); // 管理者からの未読の連絡（タスクの件数に入れる）
   } catch (e) { err = '案件を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
   Object.assign(fd, { rows, msgs, loading: false, err });
   fdRenderCases();
+  if (err) return;
+  // 報告書の期限超過を管理者に知らせる（自分の担当の案件の分。1回だけ＝DB が判定。Task 29）
+  try { if (await overdueSync(rows.filter(r => PhaseLogic.fieldMine(r, fdMe())))) fieldRowsInvalidate(); } catch (e) { console.warn('期限超過の確認に失敗', e); }
   // 時刻を過ぎたリマインド（お客様向け・担当者向けの前日のお知らせ）の下書きを作る（管理画面の案件一覧と同じ。サーバーの定期実行は使わない）
-  if (!err && typeof outboxSync === 'function') {
+  if (typeof outboxSync === 'function') {
     // 自分の担当の案件の分だけ（Task 23 I13。現場用ではメールの一覧は出さない）
     try { await outboxSync(rows.filter(r => PhaseLogic.fieldMine(r, fdMe()))); } catch (e) { console.warn('リマインドの確認に失敗', e); }
   }
 }
+// 自分あての未読の連絡（管理者からの返事・催促・日報への返事）
+async function fdUnreadMessages() {
+  return (await StaffMessagesApi.list({ toUser: fdMe(), unread: true })) || [];
+}
 
+const FD_GROUP_LABEL = { today: '今日', later: '明日以降', tbd: '日時未定', past: '日時を過ぎた対応（まだ自分の番）', none: '対応がまだ無い案件' };
 function fdRenderCases() {
   const s = fd;
   const host = $('field-root');
@@ -207,24 +223,19 @@ function fdRenderCases() {
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'cases' })));
   } else {
     const now = new Date();
-    // Task 27: 一番上に「🧾 見積書を提出（期限 M/D）」（調査報告の次の対応方針で決まった期限。提出するまで残る・過ぎたら赤）
-    const ests = PhaseLogic.fieldEstimateCards(s.rows, fdMe(), now);
-    if (ests.length) {
-      const box = mk('div', 'fd-ests');
-      box.id = 'fd-ests';
-      ests.forEach(it => box.appendChild(fdEstimateCard(it)));
-      nodes.push(box);
-    }
-    const n = PhaseLogic.staffInbox(s.rows, fdMe(), now, { messages: s.msgs }).length;
-    if (n) {
-      const b = dBtn('', 'fd-bell', () => { location.hash = '#f/inbox'; });
+    // タスクの件数（期限超過があれば赤）→ タスクのタブへ
+    const tasks = PhaseLogic.staffInbox(s.rows, fdMe(), now, { messages: s.msgs });
+    if (tasks.length) {
+      const late = tasks.filter(x => x.late).length;
+      const b = dBtn('', 'fd-bell' + (late ? ' late' : ''), () => { location.hash = '#f/tasks'; });
       b.id = 'fd-bell';
-      b.appendChild(mk('b', null, '🔔 確認してください ' + n + '件'));
+      b.appendChild(mk('b', null, '✅ タスク ' + tasks.length + '件' + (late ? '（期限超過 ' + late + '件）' : '')));
       b.appendChild(mk('span', 'fd-tiny', '見る ›'));
       nodes.push(b);
     }
-    const list = PhaseLogic.fieldCases(s.rows, fdMe(), now);
-    const h = mk('div', 'fd-h', '自分の担当 ' + list.length + '件');
+    const list = PhaseLogic.fieldSchedule(s.rows, fdMe(), now);
+    const todayN = list.filter(x => x.group === 'today').length;
+    const h = mk('div', 'fd-h', '本日行く現場・対応 ' + todayN + '件');
     h.id = 'fd-count';
     nodes.push(h);
     if (!list.length) {
@@ -234,48 +245,24 @@ function fdRenderCases() {
     }
     const wrap = mk('div', 'fd-list');
     wrap.id = 'fd-list';
-    list.forEach(it => wrap.appendChild(fdCaseCard(it)));
+    if (list.length && !todayN) {
+      const e = mk('div', 'fd-tiny fd-no-today', '今日の予定はありません');
+      e.id = 'fd-no-today';
+      wrap.appendChild(e);
+    }
+    let group = '';
+    list.forEach(it => {
+      if (it.group !== group) {
+        group = it.group;
+        const gh = mk('div', 'fd-gh' + (group === 'today' ? ' today' : ''), FD_GROUP_LABEL[group]);
+        gh.dataset.group = group;
+        wrap.appendChild(gh);
+      }
+      wrap.appendChild(fdCaseCard(it));
+    });
     nodes.push(wrap);
   }
   host.replaceChildren(...nodes);
-}
-
-// 見積書の提出のカード（Task 27）: 押すと下書きの続き（あれば）／このフェーズで見積を作って見積書の画面へ
-function fdEstimateCard(it) {
-  const key = 'est-' + it.phase.id;
-  const wrap = mk('div', 'fd-est' + (it.late ? ' late' : ''));
-  wrap.dataset.phaseId = it.phase.id;
-  const b = dBtn('', 'fd-est-main', () => fdMakeEstimate(it));
-  b.disabled = fd.busy === key;
-  const top = mk('span', 'fd-est-top');
-  top.appendChild(mk('b', 'fd-est-label', '🧾 ' + it.label + (it.late ? '（期限を過ぎています）' : '')));
-  top.appendChild(mk('span', 'fd-est-go', fd.busy === key ? '作成中…' : it.draft ? '続きを書く ›' : '見積を作る ›'));
-  b.appendChild(top);
-  b.appendChild(mk('span', 'fd-tiny fd-est-sub', (PhaseLogic.placeName(it.caseRow) || '（物件名なし）') + ' ・ ' + it.title));
-  wrap.appendChild(b);
-  const e = mk('div', 'err', fd.busy === '' && fd.estErr && fd.estErr.key === key ? fd.estErr.text : '');
-  e.id = 'fd-est-err-' + it.phase.id;
-  wrap.appendChild(e);
-  return wrap;
-}
-async function fdMakeEstimate(it) {
-  const s = fd;
-  const key = 'est-' + it.phase.id;
-  if (!s || s.busy) return;
-  fdSel.set(it.caseRow.id, it.phase.id); // 見積書の「‹ ツール」で戻ったとき、この対応を選ぶ
-  if (it.draft) { location.hash = '#estimate/' + it.draft.id; return; }
-  s.busy = key;
-  s.estErr = null;
-  fdRenderCases();
-  let row = null, err = '';
-  try { row = await makePhaseEstimate(it.caseRow, it.phase, it.title); }
-  catch (e) { err = '見積書を作れませんでした: ' + errText(e); }
-  if (fd !== s) return;
-  s.busy = '';
-  fieldRowsInvalidate();
-  if (row) { location.hash = '#estimate/' + row.id; return; }
-  s.estErr = { key, text: err };
-  fdRenderCases();
 }
 
 function fdKindBadge(kind) {
@@ -283,21 +270,33 @@ function fdKindBadge(kind) {
 }
 function fdBallClass(st) { return st && st.ball === 'us' ? ' us' : st && st.ball === 'them' ? ' them' : ''; }
 
+// 1行（1つの対応）: 時刻・物件名 号室・フェーズ・対応状況 → 押すとその対応を選んだツールページ。住所（地図）と入居者の電話は下に
 function fdCaseCard(it) {
   const c = it.caseRow;
-  const card = mk('div', 'fd-card' + (it.today ? ' today' : ''));
+  const p = it.phase;
+  const late = !!(it.stage && it.stage.late);
+  const card = mk('div', 'fd-card' + (it.today ? ' today' : '') + (late ? ' late' : ''));
   card.dataset.caseId = c.id;
-  const main = dBtn('', 'fd-card-main', () => { location.hash = '#f/case/' + c.id; });
+  if (p) card.dataset.phaseId = p.id;
+  card.dataset.group = it.group;
+  const main = dBtn('', 'fd-card-main', () => { if (p) fdSel.set(c.id, p.id); location.hash = '#f/case/' + c.id; });
   const top = mk('div', 'fd-row');
-  if (it.phase) top.appendChild(fdKindBadge(it.phase.kind));
-  top.appendChild(mk('b', 'fd-when', it.when));
-  top.appendChild(mk('span', 'fd-sp'));
-  if (it.stageText) top.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage), it.stageText));
+  top.appendChild(mk('b', 'fd-when', it.group === 'today' ? it.time : it.group === 'none' ? '対応なし' : it.when));
+  if (p) top.appendChild(fdKindBadge(p.kind));
+  if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
-  if (c.address) main.appendChild(mk('span', 'fd-tiny fd-addr', '📍 ' + c.address));
+  if (it.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage) + (late ? ' late' : ''), it.stageText));
   card.appendChild(main);
-  if (it.phase) card.appendChild(fdLateBox(c, it.phase, () => { fieldRowsInvalidate(); if (fd && fd.view === 'cases') openField({ view: 'cases' }); }));
+  if (c.address) {
+    const a = mk('a', 'fd-tiny fd-addr fd-map', '📍 ' + c.address + '（地図）');
+    a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(c.address);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    card.appendChild(a);
+  }
+  // 入居者の電話（到着が遅れその報告の後だけ）は今日の対応だけに出す（ほかの日はツールページで）
+  if (p && it.group === 'today') card.appendChild(fdLateBox(c, p, () => { fieldRowsInvalidate(); if (fd && fd.view === 'cases') openField({ view: 'cases' }); }));
   return card;
 }
 // 入居者の電話（Task 28）: そのフェーズで「到着が遅れそう」を報告していれば tel: の一覧、まだなら「🕒 到着が遅れそう」のボタン
@@ -467,7 +466,7 @@ function fdRenderCase() {
   nodes.push(err);
   // 管理者に連絡（Task 23。この案件・対応を選んだ状態でシートを開く）
   const ct = dBtn('📨 管理者に連絡', 'btn ghost fd-contact', () => smOpenSheet({ rows: [c], caseId: c.id, phaseId: sel.id,
-    onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（「✉️ 管理者に連絡」のタブで返事を見られます）'; fdRenderCase(); } } }));
+    onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（返事は「タスク」に出ます）'; fdRenderCase(); } } }));
   ct.id = 'fd-contact';
   ct.disabled = !!s.busy;
   nodes.push(ct);
@@ -629,6 +628,166 @@ async function fdOpenNotice(s, c, p, phases, state) {
   if (r) Object.assign(data, PhaseLogic.noticeInit(r));
   const row = await NoticesApi.create(c.id, c, { phase_id: p.id, phaseTitle: fdTitleOf(c, p), data });
   if (fdAlive(s)) location.hash = '#notice/' + row.id;
+}
+
+/* ---------- #f/daily 日報作成（Task 29） ---------- */
+// その日の対応を管理者に送る。自動で埋まる: 今日行った現場・提出した報告書・提出した見積・遅れ報告（PhaseLogic.dailyReport）。
+// 手で足す: 一言・写真（任意）。「送る」→ rpc staff_daily_send（件名「日報 M/D（名前）」・管理者の「📨 現場からの連絡」に出る）。
+// 当日は直して「送り直す」（同じ1件を差し替えて管理者の未読に戻す）。送った日報と管理者からの返事は下に履歴として残る
+const FD_DAILY_NOTE_HEAD = '\n■ 一言\n';
+async function fdLoadDaily(seq) {
+  let rows = [], list = [], err = '';
+  try {
+    [rows, list] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 })]);
+  } catch (e) { err = '日報を読み込めませんでした: ' + errText(e); }
+  if (!fd || fd.seq !== seq) return;
+  const me = fdMe();
+  const mine = (list || []).filter(m => m.source === 'daily' && m.from_user === me);
+  const ids = new Set(mine.map(m => m.id));
+  const replies = (list || []).filter(m => m.reply_to && ids.has(m.reply_to));
+  const today = PhaseLogic.jstYmd(new Date());
+  const d0 = mine.find(m => m.daily_date === today) || null;
+  const prev = fd.daily || {};
+  fd.daily = { rows: rows || [], mine, replies, today: d0, files: prev.files || [],
+    keep: prev.keepTouched ? prev.keep : (d0 && Array.isArray(d0.attachments) ? d0.attachments.slice() : []), keepTouched: !!prev.keepTouched,
+    note: prev.noteTouched ? prev.note : fdDailyNoteOf(d0), noteTouched: !!prev.noteTouched, busy: false, err: '', msg: prev.msg || '' };
+  Object.assign(fd, { rows: rows || [], loading: false, err });
+  fdRenderDaily();
+  if (!err) {
+    try { if (await overdueSync((rows || []).filter(r => PhaseLogic.fieldMine(r, me)))) fieldRowsInvalidate(); } catch (e) { console.warn('期限超過の確認に失敗', e); }
+  }
+}
+// 送った日報の本文から「一言」を取り出す（送り直すときの初期値）
+function fdDailyNoteOf(m) {
+  const b = String((m && m.body) || '');
+  const i = b.indexOf(FD_DAILY_NOTE_HEAD);
+  return i >= 0 ? b.slice(i + FD_DAILY_NOTE_HEAD.length) : '';
+}
+
+function fdRenderDaily() {
+  const s = fd;
+  const host = $('field-root');
+  if (s.loading) { host.replaceChildren(mk('div', 'empty', '読み込み中…')); return; }
+  if (s.err) {
+    host.replaceChildren(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'daily' })));
+    return;
+  }
+  const d = s.daily;
+  const nodes = [];
+  const auto = PhaseLogic.dailyReport(d.rows, fdMe(), new Date());
+  const name = (ctx.membership && ctx.membership.display_name) || '';
+  const card = mk('div', 'fd-card fd-daily');
+  card.id = 'fd-daily';
+  const head = mk('div', 'fd-row');
+  head.appendChild(mk('b', 'fd-place', PhaseLogic.dailySubject(auto.ymd, name)));
+  card.appendChild(head);
+  card.appendChild(mk('span', 'fd-tiny', '下の4つは自動で入ります。一言と写真を足して「送る」を押すと、管理者の「📨 現場からの連絡」に届きます'));
+  PhaseLogic.DAILY_SECTIONS.forEach(([k, label]) => {
+    const sec = mk('div', 'fd-daily-sec');
+    sec.dataset.sec = k;
+    sec.appendChild(mk('b', null, '■ ' + label));
+    const items = auto[k];
+    if (!items.length) sec.appendChild(mk('div', 'fd-tiny fd-daily-none', 'なし'));
+    items.forEach(x => sec.appendChild(mk('div', 'fd-daily-item', '・' + x.text)));
+    card.appendChild(sec);
+  });
+  // 一言
+  const ta = document.createElement('textarea');
+  ta.id = 'fd-daily-note';
+  ta.rows = 4;
+  ta.maxLength = 1000;
+  ta.placeholder = '例: 明日は 10 時から A マンションの続きに行きます';
+  ta.value = d.note || '';
+  ta.disabled = d.busy;
+  ta.addEventListener('input', () => { d.note = ta.value; d.noteTouched = true; });
+  const lt = mk('label', 'sm-f fd-daily-f', '一言（任意）');
+  lt.appendChild(ta);
+  card.appendChild(lt);
+  // 写真（任意）
+  const file = document.createElement('input');
+  file.type = 'file';
+  file.accept = 'image/*';
+  file.multiple = true;
+  file.id = 'fd-daily-file';
+  file.className = 'sr-only';
+  const pick = dBtn('📷 写真を添付', 'btn sm ghost inline fd-daily-pick', () => file.click());
+  pick.disabled = d.busy;
+  const count = d.keep.length + d.files.length;
+  const picked = mk('span', 'rep-sub fd-daily-picked', count ? '写真 ' + count + '枚' + (d.keep.length ? '（送った写真 ' + d.keep.length + '枚を含む）' : '') : '写真なし');
+  const clear = dBtn('写真を外す', 'linkbtn fd-daily-clear', () => { d.files = []; d.keep = []; d.keepTouched = true; fdRenderDaily(); });
+  clear.hidden = !count;
+  clear.disabled = d.busy;
+  file.addEventListener('change', () => {
+    d.files = d.files.concat(Array.from(file.files || [])).slice(0, Math.max(0, StaffMessagesApi.FILES_MAX - d.keep.length));
+    file.value = '';
+    fdRenderDaily();
+  });
+  const pr = mk('div', 'sm-filerow');
+  pr.append(pick, picked, clear, file);
+  card.appendChild(pr);
+  if (d.today) {
+    const st = mk('div', 'fd-daily-sent', '✓ 今日の日報は送りました（' + PhaseLogic.fmtMDHM(d.today.created_at) + '・' + (d.today.read_at ? '既読' : '未読') + '）。直して「送り直す」を押すと、管理者の画面で未読に戻ります');
+    st.id = 'fd-daily-sent';
+    card.appendChild(st);
+  }
+  const send = dBtn(d.busy ? '送っています…' : d.today ? '送り直す' : '送る', 'btn fd-daily-send', () => fdSendDaily(s, auto));
+  send.id = 'fd-daily-send';
+  send.disabled = d.busy;
+  card.appendChild(send);
+  const err = mk('div', 'err', d.err || '');
+  err.id = 'fd-daily-err';
+  err.setAttribute('role', 'alert');
+  card.appendChild(err);
+  const msg = mk('div', 'ob-msg', d.msg || '');
+  msg.id = 'fd-daily-msg';
+  msg.setAttribute('role', 'status');
+  card.appendChild(msg);
+  nodes.push(card);
+  // 履歴（送った日報と管理者からの返事）
+  nodes.push(mk('div', 'fd-h', '送った日報 ' + d.mine.length + '件'));
+  const hist = mk('div', 'fd-list');
+  hist.id = 'fd-daily-hist';
+  if (!d.mine.length) hist.appendChild(mk('div', 'empty', 'まだ送った日報はありません'));
+  d.mine.forEach(m => {
+    const box = mk('div', 'fd-card fd-daily-h');
+    box.dataset.msgId = m.id;
+    const top = mk('div', 'fd-row');
+    top.appendChild(mk('b', null, m.subject));
+    top.appendChild(mk('span', 'fd-tiny', PhaseLogic.fmtMDHM(m.created_at) + ' ・ ' + (m.read_at ? '既読' : '未読')));
+    box.appendChild(top);
+    const body = mk('div', 'fd-daily-body', m.body);
+    box.appendChild(body);
+    const atts = Array.isArray(m.attachments) ? m.attachments : [];
+    if (atts.length) box.appendChild(mk('span', 'fd-tiny', '写真 ' + atts.length + '枚'));
+    d.replies.filter(r => r.reply_to === m.id).forEach(r => {
+      const rp = mk('div', 'fd-daily-reply');
+      rp.appendChild(mk('b', null, '管理者から（' + PhaseLogic.fmtMDHM(r.created_at) + '）'));
+      rp.appendChild(mk('div', null, r.body));
+      box.appendChild(rp);
+    });
+    hist.appendChild(box);
+  });
+  nodes.push(hist);
+  host.replaceChildren(...nodes);
+}
+
+async function fdSendDaily(s, auto) {
+  const d = s.daily;
+  if (!d || d.busy) return;
+  d.busy = true;
+  d.err = '';
+  d.msg = '';
+  fdRenderDaily();
+  let row = null, err = '';
+  try {
+    row = await StaffMessagesApi.sendDaily({ body: PhaseLogic.dailyBody(auto, d.note), keep: d.keep, files: d.files });
+  } catch (e) { err = '日報を送れませんでした: ' + errText(e); }
+  if (fd !== s || !s.daily) return;
+  d.busy = false;
+  if (err) { d.err = err; fdRenderDaily(); return; }
+  Object.assign(d, { files: [], keepTouched: false, noteTouched: false,
+    msg: (row && row.resent ? '日報を送り直しました' : '日報を送りました') + '（管理者の「📨 現場からの連絡」に出ます）' });
+  await fdLoadDaily(s.seq);
 }
 
 /* ---------- #f/settings ---------- */

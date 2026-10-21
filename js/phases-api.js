@@ -289,6 +289,10 @@ const PhasesApi = (() => {
     async reportLate(phaseId, minutes, note) {
       return must(await sb.rpc('phase_report_late', { p_phase: phaseId, p_minutes: minutes, p_note: note || '' }));
     },
+    // 報告書の期限超過を管理者に知らせる（Task 29 / migration 053）。期限を過ぎて未提出のときだけ・1回だけ（DB が判定）→ { ok, reason }
+    async reportOverdue(phaseId) {
+      return must(await sb.rpc('phase_report_overdue', { p_phase: phaseId }));
+    },
     // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
     async nudge(phaseId, text, note) {
       return must(await sb.rpc('phase_nudge', { p_phase: phaseId, p_text: text, p_note: note || '' }));

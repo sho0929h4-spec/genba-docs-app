@@ -308,10 +308,11 @@ function phDrawDetail(s, keep) {
 // 小さな編集欄（ph-panel）が開く。入力のある編集欄（日時・請求した・入金期限）は × とキャンセルでだけ閉じる（外側・Esc では閉じない）。
 const PH_COLS = [
   { key: 'when', label: '日時' }, { key: 'status', label: '対応状況' }, { key: 'worker', label: '担当者' }, { key: 'report', label: '報告書' },
-  { key: 'estimate', label: '見積' }, { key: 'bill', label: '請求' }, { key: 'pay', label: '入金日' }, { key: 'confirm', label: '確認' }
+  { key: 'estimate', label: '見積' }, { key: 'notice', label: '工事掲示' }, // Task 29: 工事掲示（見積の提出で自動の下書き）
+  { key: 'bill', label: '請求' }, { key: 'pay', label: '入金日' }, { key: 'confirm', label: '確認' }
 ];
 const PH_COL_LABEL = Object.fromEntries(PH_COLS.map(c => [c.key, c.label]));
-const PH_CHIP_LABEL = { worker: '担当', report: '報告書', estimate: '見積', bill: '請求', pay: '入金', confirm: '' }; // スマホのチップの頭
+const PH_CHIP_LABEL = { worker: '担当', report: '報告書', estimate: '見積', notice: '掲示', bill: '請求', pay: '入金', confirm: '' }; // スマホのチップの頭
 
 // 入力のある編集欄が開いているか（開いている間は、ほかのセルを押しても切り替えない）
 function phFormOpen(s) {
@@ -443,6 +444,13 @@ function phTableRow(p, multi) {
   const sb = cell('status', row.short, 'ph-c-status', '次にやること', () => phOpenCell(p, 'status'));
   sb.querySelector('.ph-cv').className = 'ph-cv ' + stCls;
   sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
+  // Task 29: 見積書提案期日が2日より先の理由（作業担当者が報告書で入れたもの）。見積がまだ送付されていない間だけ
+  const why = PhaseLogic.estimateDueReasonText(p);
+  if (why && p.estimate_due && (st.key === 'estimate' || st.key === 'issued' || PhaseLogic.estimateTodo(Object.assign({}, p, { estimates: docs.estimates }), new Date()))) {
+    const w = mk('span', 'ph-why', why);
+    sb.appendChild(w);
+    sb.title += ' ' + why;
+  }
   // Task 28: 担当者（作業担当者。押すとその場でメンバーを選ぶ）。スマホは1行目に「担当 鈴木」
   const wk = PhaseLogic.workerCol(p, phMembers());
   cell('worker', wk.text, wk.set ? 'ph-c-worker' : 'ph-c-worker none', '作業担当者を選ぶ', () => phOpenCell(p, 'worker'));
@@ -458,6 +466,13 @@ function phTableRow(p, multi) {
     est.state === 'none' ? '見積書を作る' : '見積書の一覧へ',
     b => est.state === 'none' ? phMakeEstimate(b, p, errId) : (location.hash = '#case/' + s.caseId + '/estimates'), est.state === 'none' ? '未' : '');
   if (est.amount != null) eb.appendChild(mk('span', 'ph-yen num', PhaseLogic.yen(est.amount)));
+  // 工事掲示（Task 29）: 調査は「—」（押せない）。無ければ作る・1件なら開く・複数なら一覧。見積の提出で自動で作った下書きは「下書き（自動）」
+  const nc = PhaseLogic.noticeCell(p, docs.notices);
+  const nb = cell('notice', nc.state === 'none' ? '＋ 作る' : nc.text, nc.state === 'none' ? 'none add' : nc.state === 'na' ? 'none' : nc.state === 'auto' ? 'wait' : 'ok',
+    nc.state === 'none' ? '工事掲示を作る' : nc.state === 'na' ? '調査には工事掲示はありません' : '工事掲示を開く',
+    b => nc.state === 'none' ? phMakeNotice(b, p, errId) : nc.open ? (location.hash = '#notice/' + nc.open.id) : (location.hash = '#case/' + s.caseId + '/notices'),
+    nc.state === 'none' ? '未' : nc.state === 'auto' ? '自動' : '');
+  if (nc.state === 'na') { nb.disabled = true; nb.classList.add('ph-na'); }
   // 請求
   cell('bill', row.bill.text, row.bill.state === 'unbilled' ? '' : 'ok', p.billed_at ? '請求の記録' : '請求した', () => phOpenCell(p, 'bill'),
     p.billed_at ? PhaseLogic.fmtMD(p.billed_at) : '');

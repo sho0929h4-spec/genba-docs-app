@@ -2,6 +2,10 @@
 // 案件一覧の上に「🔔 確認してください n件」（自分が作業担当者で、知らせてもらって未確認のもの ＋ 自分の明日の予定）→ #inbox-staff の一覧
 // （詳しく見る = フェーズ詳細ページ #case/{id}/phase/{phaseId}／確認した = PhasesApi.ack）。現場担当への指示（Task 9）があれば要約を出す。
 // 一覧の中身は PhaseLogic.staffInbox（日本時間で「明日」を判定）。
+// Task 29: 現場用の「タスク」タブ（#f/tasks）もここで描く（opts.field）。並び = ① 管理者からの連絡（催促・返事・日報への返事）→
+//   ② 報告書の作成・提出（期限超過が先・赤「期限超過」）→ ③ 見積書の作成（期限順）→ ④ 確認依頼 → ⑤ 明日の予定。
+//   各行に「開く」（ツールページ・連絡）と、その場で進めるボタン（報告書を書く・見積を作る・確認した・読んだ）。0件は「今やることはありません」。
+//   上に「📨 管理者に連絡」（シート）と「やり取りを見る」（#f/contact）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
 
@@ -37,9 +41,9 @@ async function openStaffInbox(opts) {
   await siLoad(seq);
 }
 
-// 自分あての未読の連絡（管理者からの返事。Task 23）。未読のある案件が無ければ読まない
+// 自分あての未読の連絡（管理者からの返事・催促。Task 23）。Task 29: 日報への返事（案件なし）もあるので、いつも読む
 async function siLoadMessages(rows) {
-  if (typeof StaffMessagesApi === 'undefined' || !(rows || []).some(r => Number(r.staff_unread) > 0)) return [];
+  if (typeof StaffMessagesApi === 'undefined') return [];
   return (await StaffMessagesApi.list({ toUser: siMyId(), unread: true })) || [];
 }
 
@@ -53,6 +57,12 @@ async function siLoad(seq) {
   if (!si || si.seq !== seq || seq !== siSeq) return;
   Object.assign(si, { rows, msgs, loading: false, err });
   siRender();
+  // Task 29: 報告書の期限超過を管理者に知らせる（現場用。自分の担当の案件の分）
+  if (!err && si.field && typeof overdueSync === 'function') {
+    try {
+      if (await overdueSync(rows.filter(r => PhaseLogic.fieldMine(r, siMyId()))) && typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+    } catch (e) { console.warn('期限超過の確認に失敗', e); }
+  }
 }
 
 // 管理者からの返事（Task 23）: 件名・本文の頭・「読んだ」「連絡を開く」
@@ -64,7 +74,7 @@ function siMessageEl(it) {
   const top = mk('div', 'si-top');
   top.appendChild(mk('span', 'si-reply-tag', it.nudge ? '催促' : '管理者から')); // Task 28: 管理者からの催促（source = nudge）
   if (it.phase) top.appendChild(mk('span', 'ph-kind k-' + it.phase.kind, PhaseLogic.kindLabel(it.phase.kind)));
-  top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
+  top.appendChild(mk('b', 'si-case', it.caseRow ? PhaseLogic.placeName(it.caseRow) || '（物件名なし）' : '📝 日報'));
   top.appendChild(mk('span', 'ob-ph', it.title));
   row.appendChild(top);
   row.appendChild(mk('div', 'si-label', it.label));
@@ -76,7 +86,13 @@ function siMessageEl(it) {
   const acts = mk('div', 'si-acts');
   const rd = dBtn('読んだ', 'btn sm inline si-msg-read', () => siReadMessage(it));
   rd.disabled = busy;
-  const op = dBtn('連絡を開く', 'btn sm ghost inline si-msg-open', () => { location.hash = si.field ? '#f/contact' : '#messages/' + it.caseRow.id; });
+  // 開く: 現場用は案件のツールページ（日報への返事は日報作成のタブ）。管理画面はその案件の連絡
+  const op = dBtn(si.field ? '開く' : '連絡を開く', 'btn sm ghost inline si-msg-open', () => {
+    if (!si.field) { location.hash = it.caseRow ? '#messages/' + it.caseRow.id : '#messages'; return; }
+    if (!it.caseRow) { location.hash = '#f/daily'; return; }
+    if (typeof fdSel !== 'undefined' && it.phase) fdSel.set(it.caseRow.id, it.phase.id);
+    location.hash = '#f/case/' + it.caseRow.id;
+  });
   op.disabled = busy;
   acts.append(rd, op);
   row.appendChild(acts);
@@ -109,7 +125,7 @@ function siItemEl(it) {
   if (it.type === 'message') return siMessageEl(it);
   const p = it.phase;
   const dueItem = it.type === 'estimate' || it.type === 'report'; // 期限のある行（Task 23。過ぎたら赤）
-  const row = mk('div', 'si-item' + (it.type === 'tomorrow' ? ' tomorrow' : '') + (dueItem ? ' estimate' + (it.late ? ' late' : '') : ''));
+  const row = mk('div', 'si-item' + (it.type === 'tomorrow' ? ' tomorrow' : '') + (dueItem ? ' estimate' + (it.late ? ' late' : '') : '') + (it.type === 'report' ? ' report' : ''));
   row.dataset.phaseId = p.id;
   row.dataset.type = it.type;
   const top = mk('div', 'si-top');
@@ -117,15 +133,17 @@ function siItemEl(it) {
   top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
   top.appendChild(mk('span', 'ob-ph', it.title));
   row.appendChild(top);
-  row.appendChild(mk('div', 'si-label', (it.type === 'tomorrow' ? '⏰ ' : it.type === 'estimate' ? '🧾 ' : it.type === 'report' ? '📋 ' : '') + it.label +
-    (dueItem && it.late ? '（期限を過ぎています）' : '')));
+  const lb = mk('div', 'si-label', (it.type === 'tomorrow' ? '⏰ ' : it.type === 'estimate' ? '🧾 ' : it.type === 'report' ? '📋 ' : '') + it.label);
+  if (dueItem && it.late) lb.appendChild(mk('span', 'si-late', '期限超過')); // Task 29: 過ぎたら赤の「期限超過」
+  row.appendChild(lb);
   if (it.type === 'notice') {
     row.appendChild(mk('div', 'rep-sub', [it.from ? it.from + 'さんから' : '', PhaseLogic.fmtMDHM(it.fromAt)].filter(Boolean).join(' ') +
       (it.tomorrow ? ' ・ 明日の予定です' : '')));
   } else if (it.type === 'estimate') {
     row.appendChild(mk('div', 'rep-sub', '調査報告の「次の対応方針」で決まった期限です。見積書を提出するまで残ります'));
   } else if (it.type === 'report') {
-    row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '調査日' : '工事日') + 'の翌日が期限です。報告書を提出するまで残ります'));
+    row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '作業が終わってから1時間以内が期限です（作業終了時間が無ければ、調査日時の3時間後を作業の終わりとみなします）'
+      : '工事日の翌日が期限です') + '。報告書を提出するまで残ります' + (it.late ? '（管理者にも知らせています）' : '')));
   } else if (it.caseRow.address) {
     row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
   }
@@ -135,7 +153,7 @@ function siItemEl(it) {
   const bkey = it.type === 'estimate' ? 'est-' + p.id : it.type === 'report' ? 'rep-' + p.id : p.id;
   const busy = si.busy.has(bkey);
   const open = si.field
-    ? dBtn('案件を開く', 'btn sm inline si-open', () => {
+    ? dBtn('開く', 'btn sm ghost inline si-open', () => {
       if (typeof fdSel !== 'undefined') fdSel.set(it.caseRow.id, p.id); // その対応を選んでツールページを開く
       location.hash = '#f/case/' + it.caseRow.id;
     })
@@ -172,7 +190,22 @@ function siRender() {
   if (!root || !si) return;
   const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
   if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
-  nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
+  nodes.push(mk('div', 'rep-sub ob-lead', si.field
+    ? '今やることを上から順に並べています（① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 明日の予定）。期限を過ぎたものは赤く出ます'
+    : 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
+  if (si.field) {
+    // 管理者に連絡（Task 29: タブから外したので、こことツールページのボタンから）
+    const bar = mk('div', 'si-contact');
+    const nb = dBtn('📨 管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
+      if (si && si.field) { si.msg = '管理者に連絡しました（返事はこのタスクに出ます）'; siRender(); }
+    } }));
+    nb.id = 'si-contact-new';
+    nb.disabled = si.loading || !!si.err;
+    const hb = dBtn('やり取りを見る ›', 'btn sm ghost inline si-contact-list', () => { location.hash = '#f/contact'; });
+    hb.id = 'si-contact-list';
+    bar.append(nb, hb);
+    nodes.push(bar);
+  }
   const msg = mk('div', 'ob-msg', si.msg || '');
   msg.id = 'staff-inbox-msg';
   msg.setAttribute('role', 'status');
@@ -184,7 +217,7 @@ function siRender() {
   } else {
     const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs });
     if (!items.length) {
-      const e = mk('div', 'empty', '確認することはありません');
+      const e = mk('div', 'empty', si.field ? '今やることはありません' : '確認することはありません');
       e.id = 'staff-inbox-empty';
       nodes.push(e);
     } else {

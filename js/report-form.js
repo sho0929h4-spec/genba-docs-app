@@ -502,12 +502,21 @@ function edNextPicker(s, parent) {
   };
   els.nextFields = {};
   // 見積書提案期日（原因元工事・再調査のどちらも必須。Task 21）。欄は1つで、選んだ方針で説明だけ変える
-  els.nextDue = edInput('rp-next-due', 'date', n.estimateDue, v => { n.estimateDue = v; rfDirty(s); });
+  els.nextDue = edInput('rp-next-due', 'date', n.estimateDue, v => { n.estimateDue = v; rfDirty(s); edApplyNext(s); });
   const dueField = edField(T.estimateDueLabel + ' *', els.nextDue, T.estimateDueHint, 'rep-ff-sub');
   els.nextDueHint = dueField.querySelector('.rep-hint');
   els.nextDueWrap = rfMk('div', 'rep-sub-fields');
   els.nextDueWrap.id = 'rp-next-due-wrap';
   els.nextDueWrap.appendChild(dueField);
+  // Task 29: 期日が今日（日本時間）＋2日より先なら「理由」「いつまでに提出できるか」（必須。ReportLogic.validate）
+  els.nextWhyReason = ta('rp-next-due-reason', 'estimateDueReason', T.estimateDueReasonPlaceholder);
+  els.nextWhyBy = edInput('rp-next-due-by', 'date', n.estimateDueBy, v => { n.estimateDueBy = v; rfDirty(s); });
+  els.nextWhyWrap = rfMk('div', 'rep-sub-fields rep-due-why');
+  els.nextWhyWrap.id = 'rp-next-due-why';
+  els.nextWhyWrap.append(rfMk('div', 'rep-due-why-head', T.estimateDueWhyHead),
+    edField(T.estimateDueReasonLabel + ' *', els.nextWhyReason, null, 'rep-ff-sub'),
+    edField(T.estimateDueByLabel + ' *', els.nextWhyBy, T.estimateDueWhyHint, 'rep-ff-sub'));
+  els.nextDueWrap.appendChild(els.nextWhyWrap);
   els.nextWrap.appendChild(els.nextDueWrap);
   els.nextFields.cause = sub('cause');
   els.nextFields.cause.hidden = true;
@@ -527,8 +536,12 @@ function edApplyNext(s) {
   const due = t === 'cause' || t === 'resurvey';
   e.nextDueWrap.hidden = !due;
   if (due) e.nextDueHint.textContent = t === 'cause' ? T.estimateDueHint : T.resurveyDueHint;
+  if (e.nextWhyWrap) e.nextWhyWrap.hidden = !(due && ReportLogic.estimateDueNeedsReason(s.f.data.nextAction.estimateDue));
   // 再調査は 期日 → 理由・内容 の順（期日の欄を再調査の欄の上に）
-  if (due) e.nextWrap.insertBefore(e.nextDueWrap, t === 'resurvey' ? e.nextFields.resurvey : e.nextFields.cause);
+  if (due) {
+    const ref = t === 'resurvey' ? e.nextFields.resurvey : e.nextFields.cause;
+    if (e.nextDueWrap.nextSibling !== ref) e.nextWrap.insertBefore(e.nextDueWrap, ref); // 入力中の欄を動かさない（フォーカスが外れる）
+  }
 }
 
 /* ---------- お部屋の状況（任意。荷物量・ペットは1つ選ぶ・入居者数は 0〜20。Task 21 追加） ---------- */

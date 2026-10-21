@@ -228,7 +228,25 @@ const EstimatesApi = (() => {
       const r = Array.isArray(row) ? row[0] : row;
       if (!r) throw new Error('提出できませんでした');
       await logSystem(r.case_id, () => `見積書（${displayNumber(r)}）を提出した`);
+      // Task 29: 原因元工事・復旧工事の見積を提出したら、そのフェーズに工事掲示が無ければ下書きを自動で作る（失敗しても提出は成功扱い）
+      try { r.autoNotice = await api.autoNotice(r); }
+      catch (e) { console.warn('工事掲示を自動で作れませんでした', e); r.autoNoticeError = e && e.message ? e.message : String(e); }
       return r;
+    },
+    // 見積から工事掲示の下書きを作る（Task 29）。工事のフェーズでまだ掲示が無いときだけ → 作った掲示 or null
+    //   中身は PhaseLogic.autoNoticeData（号室・工事名称・工事日・工事内容のチェック・排水制限の号室）。お問い合わせ先は会社マスタ（NoticesApi.create）
+    async autoNotice(est) {
+      if (!est || !est.phase_id || typeof NoticesApi === 'undefined' || typeof CasesApi === 'undefined' || typeof PhaseLogic === 'undefined') return null;
+      const c = await CasesApi.getSummary(est.case_id);
+      const phases = c && Array.isArray(c.phases) ? c.phases : [];
+      const p = phases.find(x => x.id === est.phase_id);
+      if (!p || (p.kind !== 'cause' && p.kind !== 'repair')) return null;
+      const notices = (await NoticesApi.listByCase(est.case_id)) || [];
+      if (notices.some(n => n.phase_id === p.id)) return null;
+      const data = PhaseLogic.autoNoticeData({ phase: p, caseRow: c, phases, estimate: est });
+      if (!data) return null;
+      const ch = PhaseLogic.fieldPhaseChips(phases, new Date()).find(x => x.id === p.id);
+      return NoticesApi.create(est.case_id, c, { phase_id: p.id, phaseTitle: ch ? ch.title : PhaseLogic.kindLabel(p.kind), auto: true, data });
     },
     // 提出済み/送付済みの版から次の版の下書きを作り、前の版を superseded にする。
     // DB 関数 new_estimate_version が1トランザクションで行う（系列の行をロック・最新版か検査・明細の引き継ぎ規則は

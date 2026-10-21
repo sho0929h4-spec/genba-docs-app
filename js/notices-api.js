@@ -73,9 +73,11 @@ const NoticesApi = (() => {
       if (opts && opts.data) {
         // drainRooms / otherWorkText / workTypes: 工事カードから作るときの調査結果の注意事項（作成時の初期値だけ）
         // roomNo: 号室の初期値（この案件の部屋／関係する部屋から選んだもの。Task 12）
-        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'drainRooms', 'otherWorkText', 'roomNo']) {
-          if (typeof opts.data[k] === 'string') data[k] = opts.data[k];
+        // Task 29: workName（工事名称）・workDateTbd（工事日は未定）・autoFrom（見積の提出で自動で作った印。手で保存すると消える）
+        for (const k of ['workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'drainRooms', 'otherWorkText', 'roomNo', 'workName', 'autoFrom']) {
+          if (typeof opts.data[k] === 'string' && (k !== 'workName' || opts.data[k].trim())) data[k] = opts.data[k];
         }
+        if (opts.data.workDateTbd === true) data.workDateTbd = true;
         const wt = opts.data.workTypes;
         if (wt && typeof wt === 'object') for (const k of Object.keys(data.workTypes)) if (wt[k] === true) data.workTypes[k] = true;
       }
@@ -84,7 +86,8 @@ const NoticesApi = (() => {
       const made = must(await sb.from('notices').insert(row).select().single());
       if (opts && opts.phaseTitle) { // 対応フェーズのカードから作ったときはタイムラインに記録（失敗しても作成は成功扱い）
         try {
-          must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system', body: `${opts.phaseTitle}の工事掲示を作った` }));
+          must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system',
+            body: opts.auto ? `${opts.phaseTitle}の工事掲示を自動で作った（見積書の提出から・下書き）` : `${opts.phaseTitle}の工事掲示を作った` }));
         } catch (e) { console.warn('自動記録に失敗', e); }
       }
       return made;
@@ -92,6 +95,7 @@ const NoticesApi = (() => {
     // data と一覧用の列を一緒に保存する。0行なら失敗（削除済み・権限なし）
     async save(id, data) {
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('保存する内容がありません');
+      if (data.autoFrom) { data = Object.assign({}, data); delete data.autoFrom; } // Task 29: 手で直したら「自動」の印を外す
       const rows = must(await sb.from('notices').update(patchOf(data)).eq('id', id).select());
       if (!rows || rows.length === 0) throw new Error('保存できませんでした（掲示が削除された可能性があります）');
       return rows[0];

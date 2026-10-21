@@ -64,6 +64,19 @@ async function openCases() {
     caseRows = rows;
   }
   renderCaseList();
+  // Task 29: 報告書の期限超過を管理者に知らせる（アプリを開いたとき・1回だけ＝DB が判定）。作ったら数を読み直す
+  if (!errMsg && typeof overdueSync === 'function') {
+    try {
+      if (await overdueSync(rows)) {
+        const again = (await CasesApi.listSummaries()) || [];
+        if (seq !== caseListSeq) return;
+        rows = again;
+        caseRows = rows;
+        renderCaseList();
+      }
+    } catch (e) { console.warn('報告書の期限超過の確認に失敗', e); }
+    if (seq !== caseListSeq) return;
+  }
   // 時刻を過ぎたリマインドの下書きを作り、「✉️ 送るメールが n件あります」を出す（js/outbox-ui.js）
   if (!errMsg && typeof refreshStaffBanner === 'function') refreshStaffBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active')); // 🔔 確認してください（Task 6b）
   if (!errMsg && typeof refreshMessagesBanner === 'function') refreshMessagesBanner(rows, () => seq === caseListSeq && $('screen-cases').classList.contains('active')); // 📨 現場からの連絡（Task 23）

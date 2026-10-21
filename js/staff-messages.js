@@ -1,12 +1,15 @@
 // js/staff-messages.js — 現場からの連絡（Task 23。DB は staff_messages / migration 041。API は js/messages-api.js）
-//   現場用: 下のタブ「✉️ 管理者に連絡」（#f/contact）… 自分が送った連絡と返事の一覧・「＋ 連絡する」（案件・対応・件名の候補・本文・写真）
-//           ツールページの「📨 管理者に連絡」からも同じシート（その案件・対応を選んだ状態）
+//   現場用: #f/contact（管理者とのやり取り。Task 29 でタブから外した＝タスクの「やり取りを見る」から）… 自分が送った連絡と返事の一覧・
+//           「＋ 連絡する」（案件・対応・件名の候補・本文・写真）。ツールページ・タスクの「📨 管理者に連絡」からも同じシート
 //   管理者: 案件一覧の上の「📨 現場からの連絡 n件」（#case-messages）→ #messages（案件ページの「今の状態」からは #messages/{caseId}）
 //           既読にする・返事を書く（返事は宛先のスタッフの 🔔 に出る）・案件を開く
 //   アプリ内だけ（メールは送らない＝Ruling）。タイムラインには DB のトリガーが残す
 //   Task 27: 調査報告の提出（次の対応方針が原因元工事／再調査）で DB が自動の連絡を入れる（source = report_submit。「自動」の札）。
 //   Task 28: 現場用・担当者URLの「🕒 到着が遅れそう」でも自動の連絡が入る（source = late。「自動」の札）。
 //           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
+//   Task 29: 報告書の期限超過（source = overdue。送った人なし →「自動のお知らせ」）と日報（source = daily。案件なし →「📝 日報」・返事は案件なし）。
+//           管理者の「📨 現場からの連絡 n件」は案件ごとの未読（case_summaries.staff_unread）＋案件の無い未読（日報）。
+//           overdueSync(rows): アプリを開いたときに報告書の期限超過を管理者に知らせる（PhaseLogic.overdueReports → rpc phase_report_overdue。1回だけは DB が判定）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // 入力のあるシートは外側クリック・Esc で閉じない（× とキャンセルだけ）
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
@@ -19,13 +22,41 @@ const smMe = () => (ctx && ctx.user ? ctx.user.id : null);
 const smIsOwner = () => !!(ctx && ctx.membership && ctx.membership.role === 'owner');
 
 /* ---------- 案件一覧の上部（管理者） ---------- */
-function refreshMessagesBanner(rows, isAlive) {
+async function refreshMessagesBanner(rows, isAlive) {
   const el = $('case-messages');
   if (!el) return;
   if (isAlive && !isAlive()) return;
-  const n = smIsOwner() ? (rows || []).reduce((a, r) => a + (Number(r.staff_unread) || 0), 0) : 0;
+  let n = smIsOwner() ? (rows || []).reduce((a, r) => a + (Number(r.staff_unread) || 0), 0) : 0;
+  // Task 29: 案件の無い未読（日報）も数える
+  if (smIsOwner()) {
+    try { n += (await StaffMessagesApi.list({ noCase: true, unread: true })).filter(m => PhaseLogic.messageForMe(m, smMe(), true)).length; }
+    catch (e) { console.warn('日報の読み込みに失敗', e); }
+    if (isAlive && !isAlive()) return;
+  }
   el.replaceChildren(mk('span', null, '📨 現場からの連絡 ' + n + '件'), mk('span', 'rep-sub', '見る →'));
   el.hidden = n === 0;
+}
+
+/* ---------- 報告書の期限超過（Task 29） ---------- */
+// アプリを開いたとき（案件一覧・現場用の読み込み）に、期限を過ぎて未提出の報告書を管理者に知らせる。1回だけ（DB の report_overdue_at）。
+// 1回の読み込みで10件まで（残りは次に開いたとき）。作った数を返す
+let smOverdueRunning = false;
+async function overdueSync(rows) {
+  if (smOverdueRunning || typeof PhasesApi === 'undefined' || !PhasesApi.reportOverdue) return 0;
+  const list = PhaseLogic.overdueReports(rows || [], new Date()).slice(0, 10);
+  if (!list.length) return 0;
+  smOverdueRunning = true;
+  let n = 0;
+  try {
+    for (const x of list) {
+      try {
+        const r = await PhasesApi.reportOverdue(x.phase.id);
+        if (r && r.ok) n += 1;
+        if (r && (r.ok || r.reason === 'already')) x.phase.report_overdue_at = x.phase.report_overdue_at || new Date().toISOString();
+      } catch (e) { console.warn('報告書の期限超過を知らせられませんでした', e); }
+    }
+  } finally { smOverdueRunning = false; }
+  return n;
 }
 
 /* ---------- 画面を開く ---------- */
@@ -71,12 +102,12 @@ function smPhaseTitle(c, phaseId) {
   const ch = PhaseLogic.fieldPhaseChips(c.phases, new Date()).find(x => x.id === phaseId);
   return ch ? ch.title : '案件全体';
 }
-// 現場用で見るやり取り: 自分が送ったか、自分あてのものがあるもの
+// 現場用で見るやり取り: 自分が送ったか、自分あてのものがあるもの（日報は「日報作成」のタブの履歴に出すので除く）
 function smThreads() {
   const me = smMe();
   const all = PhaseLogic.messageThreads(sm.msgs, me, smIsOwner() && !sm.field);
   if (!sm.field) return all;
-  return all.filter(g => [g.root].concat(g.replies).some(m => m.from_user === me || m.to_user === me));
+  return all.filter(g => g.root.source !== 'daily' && [g.root].concat(g.replies).some(m => m.from_user === me || m.to_user === me));
 }
 
 /* ---------- 描画 ---------- */
@@ -89,7 +120,7 @@ function smRender() {
       if (s.caseId) location.hash = '#case/' + s.caseId; else openCases();
     }));
     nodes.push(mk('h2', 'ob-h', '📨 現場からの連絡'));
-    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡と、調査報告が提出されたときの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの 🔔 に出ます。メールは送りません）'));
+    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、調査報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「タスク」に出ます。メールは送りません）'));
     if (s.caseId) {
       const c = smCaseOf(s.caseId);
       const f = mk('div', 'sm-filter');
@@ -98,7 +129,7 @@ function smRender() {
       nodes.push(f);
     }
   } else {
-    nodes.push(mk('div', 'rep-sub ob-lead', '案件の管理者に連絡できます（アプリの中だけ。メールは送りません）。返事は 🔔 とこの画面に出ます'));
+    nodes.push(mk('div', 'rep-sub ob-lead', '案件の管理者に連絡できます（アプリの中だけ。メールは送りません）。返事は「タスク」とこの画面に出ます'));
     const nb = dBtn('＋ 連絡する', 'btn sm-new-btn', () => smOpenSheet({ rows: s.rows, onSent: () => smAfterSend(s) }));
     nb.id = 'sm-new';
     nb.disabled = s.loading || !!s.err;
@@ -133,8 +164,8 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = m.source === 'report_submit' || m.source === 'late'; // 052: 到着が遅れそうの報告も自動
-  head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
+  const auto = m.source === 'report_submit' || m.source === 'late' || m.source === 'overdue'; // 052: 到着が遅れそう・053: 報告書の期限超過も自動
+  head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : m.source === 'overdue' ? '自動のお知らせ' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));
   if (PhaseLogic.messageForMe(m, me, smIsOwner() && !sm.field)) head.appendChild(mk('span', 'sm-new', '未読'));
@@ -162,11 +193,13 @@ function smThreadEl(g) {
   const s = sm;
   const r = g.root;
   const c = smCaseOf(r.case_id);
-  const card = mk('div', 'sm-thread' + (g.unread ? ' unread' : ''));
+  const daily = !r.case_id; // Task 29: 日報（案件なし）
+  const card = mk('div', 'sm-thread' + (g.unread ? ' unread' : '') + (daily ? ' daily' : '') + (r.source === 'overdue' ? ' overdue' : ''));
   card.dataset.threadId = r.id;
+  card.dataset.source = r.source || 'staff';
   const top = mk('div', 'sm-top');
-  top.appendChild(mk('b', 'sm-case', (c && PhaseLogic.placeName(c)) || '（案件）'));
-  top.appendChild(mk('span', 'ob-ph', smPhaseTitle(c, r.phase_id)));
+  top.appendChild(mk('b', 'sm-case', daily ? '📝 日報' : (c && PhaseLogic.placeName(c)) || '（案件）'));
+  if (!daily) top.appendChild(mk('span', 'ob-ph', smPhaseTitle(c, r.phase_id)));
   card.appendChild(top);
   card.appendChild(smMsgEl(r, true));
   g.replies.forEach(m => card.appendChild(smMsgEl(m, false)));
@@ -184,13 +217,15 @@ function smThreadEl(g) {
     rp.disabled = busy || (s.reply != null);
     acts.appendChild(rp);
   }
-  const open = dBtn('案件を開く', 'btn sm ghost inline sm-open', () => {
-    if (s.field) {
-      if (typeof fdSel !== 'undefined' && r.phase_id) fdSel.set(r.case_id, r.phase_id);
-      location.hash = '#f/case/' + r.case_id;
-    } else location.hash = '#case/' + r.case_id;
-  });
-  acts.appendChild(open);
+  if (!daily) {
+    const open = dBtn('案件を開く', 'btn sm ghost inline sm-open', () => {
+      if (s.field) {
+        if (typeof fdSel !== 'undefined' && r.phase_id) fdSel.set(r.case_id, r.phase_id);
+        location.hash = '#f/case/' + r.case_id;
+      } else location.hash = '#case/' + r.case_id;
+    });
+    acts.appendChild(open);
+  }
   card.appendChild(acts);
   if (s.reply === r.id) card.appendChild(smReplyForm(g));
   const err = mk('div', 'err');
@@ -280,7 +315,7 @@ async function smSendReply(g, text) {
   if (err) { s.replyErr = err; smRender(); return; }
   s.reply = null;
   s.replyDraft = null;
-  s.msg = '返事を送りました' + (s.field ? '（管理者の画面に出ます）' : '（スタッフの 🔔 に出ます）');
+  s.msg = '返事を送りました' + (s.field ? '（管理者の画面に出ます）' : '（スタッフの「タスク」に出ます）');
   await smLoad(s.seq);
 }
 
