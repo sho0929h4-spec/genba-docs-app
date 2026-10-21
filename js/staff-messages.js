@@ -220,8 +220,7 @@ function smThreadEl(g) {
   if (!daily) {
     const open = dBtn('案件を開く', 'btn sm ghost inline sm-open', () => {
       if (s.field) {
-        if (typeof fdSel !== 'undefined' && r.phase_id) fdSel.set(r.case_id, r.phase_id);
-        location.hash = '#f/case/' + r.case_id;
+        location.hash = '#f/case/' + r.case_id + (r.phase_id ? '/phase/' + r.phase_id : ''); // Task 31: その対応のツールページ
       } else location.hash = '#case/' + r.case_id;
     });
     acts.appendChild(open);

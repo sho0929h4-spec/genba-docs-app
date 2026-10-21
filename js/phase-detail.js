@@ -1,6 +1,7 @@
 // js/phase-detail.js — フェーズ詳細ページ #case/{caseId}/phase/{phaseId}（対応フェーズ Task 9）
 // 案件ページのカードに縦に並んでいた中身を全部このページに出す（描画は js/phase-ui.js の renderPhaseDetail）。
 // このファイルは ページの入口（openCasePhase: app.js の routeFromHash から）・見出し・「← 案件に戻る」と、
+// Task 31: 指示の上に「今回行く部屋」のチップ（plan.visitRooms。指示と同じ自動保存）。
 // その1区画「作業担当者への指示」（case_phases.plan。migration 028 → Task 25 で号室ごと）: まず号室を選び（この案件の部屋＋関係する部屋・
 //   ＋ 部屋を追加）、号室ごとに 怪しい箇所・具体的な指示内容（押すと☑）・自由記載（補足）、案件全体の当日の注意。
 //   入力から1.5秒で自動保存（PhasesApi.saveBrief）。保存中に入力しても失わない（次の保存に回す）。描き直しても同じ要素を使う。
@@ -112,9 +113,63 @@ const pdBriefHas = p => PhaseLogic.hasBrief(pdBriefValue(p));
 function phBriefBody(p) {
   const bs = pdBriefSession(p);
   if (!bs.el) pdBriefBuild(bs);
-  else if (bs.els.picker) bs.els.picker.repaint(); // 号室の候補（関係する部屋）が変わっていれば出し直す
+  else {
+    if (bs.els.picker) bs.els.picker.repaint(); // 号室の候補（関係する部屋）が変わっていれば出し直す
+    if (bs.els.visit) bs.els.visit.repaint();
+  }
   pdBriefSetState(bs, bs.state);
   return bs.el;
+}
+// Task 31: 「現場への指示」の上の「今回行く部屋」（指示と同じセッション・同じ自動保存。plan.visitRooms）
+function phVisitBody(p) {
+  const bs = pdBriefSession(p);
+  if (!bs.el) pdBriefBuild(bs);
+  else bs.els.visit.repaint();
+  return bs.visitEl;
+}
+
+/* ---------- 今回行く部屋（Task 31） ---------- */
+// この案件の部屋＋関係する部屋のチップ（役割の印つき・複数選択・36px）。まだ選んでいなければ初期値（指示に号室がある部屋 → この案件の部屋）が ☑。
+// 押すと plan.visitRooms に入れて 1.5秒で自動保存（指示と一緒）。下に作業担当者に出る文（今回行く部屋: …）
+function pdVisitBuild(bs) {
+  const box = mk('div', 'pd-visit');
+  box.id = 'pd-visit-' + bs.id;
+  box.dataset.phaseId = bs.id;
+  const t = mk('div', 'pd-visit-t', '🚪 今回行く部屋（押して選ぶ・複数可）');
+  const grid = mk('div', 'pd-visit-chips');
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', '今回行く部屋');
+  const line = mk('div', 'ph-sub pd-visit-line');
+  line.setAttribute('aria-live', 'polite');
+  const paint = () => {
+    const c = currentCase && currentCase.id === bs.caseId ? currentCase : bs.caseRow || {};
+    const ae = document.activeElement;
+    const focusRoom = ae && grid.contains(ae) ? ae.dataset.room : null; // 押したチップのフォーカスを描き直し後も残す
+    const sel = PhaseLogic.visitSelected(bs.v, c);
+    const choices = PhaseLogic.planRoomChoices(c).map(x => ({ room: x.room, role: x.role, label: x.label }));
+    sel.forEach(r => { if (!choices.some(x => x.room === r.room)) choices.push({ room: r.room, role: r.role, label: PhaseLogic.briefRoomHead(r) }); });
+    grid.replaceChildren(...choices.map(ch => {
+      const on = sel.some(r => r.room === ch.room);
+      const b = mk('button', 'pd-visit-chip' + (on ? ' on' : '') + (ch.role ? ' ' + ch.role : ''), (on ? '✓ ' : '') + ch.label);
+      b.type = 'button';
+      b.dataset.room = ch.room;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.addEventListener('click', () => {
+        bs.v.visitRooms = PhaseLogic.visitToggle(bs.v, c, ch, !on);
+        pdBriefChanged(bs);
+      });
+      return b;
+    }));
+    if (focusRoom != null) { const f = [...grid.children].find(x => x.dataset.room === focusRoom); if (f) f.focus(); }
+    if (!choices.length) grid.appendChild(mk('div', 'ph-sub', 'この案件の号室がありません（下の「＋ 部屋を追加」で登録できます）'));
+    const unset = !Array.isArray(bs.v.visitRooms);
+    line.textContent = PhaseLogic.visitLine(bs.v, c) + (unset ? '（まだ選んでいないので初期値）' : '');
+  };
+  box.append(t, grid, line);
+  box.repaint = paint;
+  paint();
+  bs.els.visit = box;
+  bs.visitEl = box;
 }
 
 /* ---------- 号室の選び方（指示・調査結果で共通。Task 25） ---------- */
@@ -153,6 +208,7 @@ function pdRoomPicker(o) {
           const added = PhaseLogic.planRoomChoices(currentCase).find(c => !before.has(c.room));
           if (added && o.onAdded) o.onAdded(added);
           paint();
+          pdBrief.forEach(x => { if (x.els && x.els.visit && currentCase && x.caseId === currentCase.id) x.els.visit.repaint(); });
           if (typeof notifyTimeline === 'function') notifyTimeline();
         });
       });
@@ -230,6 +286,7 @@ function pdBriefRoomsFill(bs) {
 const pdBriefBlockHas = b => !!(b.suspects.length || b.tasks.length || String(b.note || '').trim() || String(b.suspectOther || '').trim() || String(b.taskOther || '').trim());
 
 function pdBriefBuild(bs) {
+  if (currentCase && currentCase.id === bs.caseId) bs.caseRow = currentCase;
   const box = mk('div', 'ph-brief');
   box.dataset.phaseId = bs.id;
   bs.els = {};
@@ -284,6 +341,7 @@ function pdBriefBuild(bs) {
   sv.append(save, retry);
   box.appendChild(sv);
   Object.assign(bs.els, { save, retry });
+  pdVisitBuild(bs);
   bs.el = box;
 }
 
@@ -308,6 +366,7 @@ function pdBriefChanged(bs) {
   clearTimeout(bs.timer);
   bs.timer = setTimeout(() => pdBriefFlush(bs), PD_BRIEF_DELAY);
   pdBriefApply(bs); // 作業担当者の段の要約・段の丸はすぐ変える
+  if (bs.els.visit) bs.els.visit.repaint(); // Task 31: 初期値（指示の号室）が変わる・押したチップの ☑
 }
 // 保留中の保存を今すぐ実行し、終わるまで待つ（直列。失敗しても throw しない: bs.dirty が残る）
 function pdBriefFlush(bs) {

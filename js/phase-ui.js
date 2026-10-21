@@ -1881,6 +1881,7 @@ function phWorkerBody(p, docs, errId, opts) {
   const hasBrief = typeof pdBriefHas === 'function' ? pdBriefHas(p) : PhaseLogic.hasBrief(p.plan);
   if (withBrief) {
     const bb = mk('div', 'ph-wk-briefbox');
+    if (typeof phVisitBody === 'function') bb.appendChild(phVisitBody(p)); // Task 31: 指示の上に「今回行く部屋」
     bb.appendChild(mk('div', 'ph-t2', '現場への指示（担当者に知らせる前に書く）'));
     bb.appendChild(phBriefBody(p));
     box.appendChild(bb);

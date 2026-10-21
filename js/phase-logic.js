@@ -107,6 +107,7 @@
   const fmtHM = p => `${p.h}:${pad(p.min)}`;                                                           // 9:00
   const fmtMDHM = v => { const p = jst(v); return p ? `${p.m}/${p.d} ${fmtHM(p)}` : ''; };              // 10/20 9:00
   const fmtMDWHM = v => { const p = jst(v); return p ? `${p.m}/${p.d}（${p.w}）${fmtHM(p)}` : ''; };      // 10/17（土）18:00
+  const fmtMDW = v => { const p = jst(v); return p ? `${p.m}/${p.d}（${p.w}）` : ''; };                   // 10/17（土）
   const fmtLongDate = p => `${p.y}年${p.m}月${p.d}日（${p.w}）`;
   // 日付だけの値（date 列 'YYYY-MM-DD'）→ 12/7。タイムゾーンで日がずれないよう文字列のまま読む
   const fmtYmdMD = v => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || '')); return m ? `${Number(m[2])}/${Number(m[3])}` : ''; };
@@ -906,6 +907,8 @@
   ];
   const VISIT_HEAD = '■ 当日の注意';
   const BRIEF_MAX_ROOMS = 20;
+  const VISIT_MAX = 20; // 今回行く部屋（Task 31。DB の _phase_visit_ok と同じ）
+  const VISIT_ROOMS_HEAD = '■ 今回行く部屋';
   const txt = v => (typeof v === 'string' ? v : v == null ? '' : String(v));
   const pickList = (v, list) => { const set = new Set(Array.isArray(v) ? v : []); return list.map(x => x.key).filter(k => set.has(k)); };
   const labelsOf = (list, keys) => keys.map(k => (list.find(x => x.key === k) || {}).label).filter(Boolean);
@@ -939,7 +942,21 @@
         rooms = [{ room: '', role: '', suspects: sus.length ? ['other'] : [], suspectOther: sus.join('・'), tasks: [], taskOther: '', note }];
       }
     }
-    return { rooms, visitNote: txt(r.visitNote) };
+    const out = { rooms, visitNote: txt(r.visitNote) };
+    // Task 31: 今回行く部屋（キーが無い＝まだ選んでいない。[] ＝選んだが全部外した。どちらも「未設定」の扱いは visitRooms() で）
+    if (Array.isArray(r.visitRooms)) out.visitRooms = visitList(r.visitRooms);
+    return out;
+  }
+  // 今回行く部屋の配列 → [{ room, role }]（号室が空・同じ号室は落とす・20まで）
+  function visitList(v) {
+    const out = [];
+    (Array.isArray(v) ? v : []).forEach(x => {
+      const o = x && typeof x === 'object' && !Array.isArray(x) ? x : {};
+      const room = str(o.room).slice(0, 40);
+      if (!room || out.some(y => y.room === room)) return;
+      out.push({ room, role: roleKey(o.role) });
+    });
+    return out.slice(0, VISIT_MAX);
   }
   // 区画の見出し「402号室（加害部屋）」（号室が無ければ「号室未設定」）
   const briefRoomHead = b => (roomLabel(b && b.room) || '号室未設定') + (b && b.role ? `（${roomRoleLabel(b.role)}）` : '');
@@ -1011,10 +1028,10 @@
     return s.length > m ? s.slice(0, m) + '…' : s;
   }
   // 担当者へのメールの指示の段落（■ 依頼内容 → ■ 号室ごとの指示 → ■ 当日の注意）。setBriefSection に渡す行
+  //   Task 31: 先頭に ■ 今回行く部屋
   function staffSectionLines(caseRow, plan) {
-    const req = requestLines(caseRow && caseRow.request);
-    const brief = briefLines(plan);
-    return req.length && brief.length ? req.concat([''], brief) : req.concat(brief);
+    return [visitLines(plan, caseRow), requestLines(caseRow && caseRow.request), briefLines(plan)]
+      .filter(x => x.length).reduce((out, x, i) => out.concat(i ? [''] : [], x), []);
   }
 
   /* ---- 到着が遅れそう（Task 28 追加指示 / migration 052） ---- */
@@ -1106,6 +1123,60 @@
     });
     return out;
   }
+  /* ---- 今回行く部屋（Task 31。case_phases.plan.visitRooms = [{ room, role }]） ---- */
+  // 被害部屋だけ／加害部屋だけ／両方 を作業担当者がすぐ分かるように、フェーズごとに行く部屋を持つ。
+  // 初期値（まだ選んでいない）: 指示（plan.rooms）に号室がある部屋 → 無ければこの案件の部屋（cases.room）
+  function visitDefault(plan, caseRow) {
+    const c = caseRow || {};
+    const rooms = visitList(normalizeBrief(plan).rooms.map(r => ({ room: r.room, role: r.role })));
+    if (rooms.length) return { rooms, source: 'brief' };
+    if (str(c.room)) return { rooms: [{ room: str(c.room).slice(0, 40), role: 'damage' }], source: 'case' };
+    return { rooms: [], source: 'none' };
+  }
+  // 管理者のチップで ☑ にする部屋（選んだもの。まだ選んでいなければ初期値）
+  function visitSelected(plan, caseRow) {
+    const b = normalizeBrief(plan);
+    return Array.isArray(b.visitRooms) ? b.visitRooms : visitDefault(plan, caseRow).rooms;
+  }
+  // 今の行く部屋 → { rooms: [{ room, role }], source: 'set'（選んだ）| 'brief'（指示の号室）| 'case'（未設定 → この案件の部屋）| 'none' }
+  //   役割は今の部屋の役割（関係する部屋の役割を変えたら表示も変わる）。全部外したとき（[]）は未設定と同じ
+  function visitRooms(plan, caseRow) {
+    const b = normalizeBrief(plan);
+    const c = caseRow || {};
+    let v;
+    if (Array.isArray(b.visitRooms) && b.visitRooms.length) v = { rooms: b.visitRooms, source: 'set' };
+    else if (Array.isArray(b.visitRooms)) v = str(c.room) ? { rooms: [{ room: str(c.room).slice(0, 40), role: 'damage' }], source: 'case' } : { rooms: [], source: 'none' };
+    else v = visitDefault(plan, c);
+    const choices = planRoomChoices(c);
+    return { rooms: v.rooms.map(r => ({ room: r.room, role: (choices.find(x => x.room === r.room) || {}).role || r.role })), source: v.source };
+  }
+  // 「101号室（被害部屋）・201号室（加害部屋）」／未設定「この案件の部屋（101号室）」
+  function visitText(plan, caseRow) {
+    const v = visitRooms(plan, caseRow);
+    if (v.source === 'none') return 'この案件の部屋';
+    if (v.source === 'case') return `この案件の部屋（${roomLabel(v.rooms[0].room)}）`;
+    return v.rooms.map(briefRoomHead).join('・');
+  }
+  const visitLine = (plan, caseRow) => '今回行く部屋: ' + visitText(plan, caseRow);
+  // 一覧の行の短い表示「101・201号室」（号室が数字・英字で終わらないものが混ざれば「101号室・A棟」）。部屋が無ければ ''
+  function visitShort(plan, caseRow) {
+    const rooms = visitRooms(plan, caseRow).rooms.map(r => r.room);
+    if (!rooms.length) return '';
+    return rooms.every(r => roomLabel(r) === r + '号室') ? rooms.join('・') + '号室' : rooms.map(roomLabel).join('・');
+  }
+  // 担当者へのメールの段落（■ 今回行く部屋）。部屋が1つも分からなければ []
+  function visitLines(plan, caseRow) {
+    return visitRooms(plan, caseRow).source === 'none' ? [] : [VISIT_ROOMS_HEAD, visitText(plan, caseRow)];
+  }
+  // チップを押した → 新しい visitRooms（並びは号室の候補の順 → 候補に無いもの）
+  function visitToggle(plan, caseRow, choice, on) {
+    const cur = visitSelected(plan, caseRow).filter(r => r.room !== str(choice && choice.room));
+    if (on && str(choice && choice.room)) cur.push({ room: str(choice.room).slice(0, 40), role: roleKey(choice.role) });
+    const order = planRoomChoices(caseRow).map(x => x.room);
+    const idx = r => { const i = order.indexOf(r.room); return i < 0 ? order.length : i; };
+    return visitList(cur.map((r, i) => ({ r, i })).sort((a, b) => idx(a.r) - idx(b.r) || a.i - b.i).map(x => x.r));
+  }
+
   // 担当者へのメールの本文の指示の段落だけを差し替える（指示を変えたとき。本文の手直しは残る）。
   //   段落が無ければ「内容を確認したら…」「詳しくは…」の行（STAFF_TAILS）の前に入れる。置き場所が分からなければ null（呼ぶ側で作り直す）
   function setBriefSection(body, lines) {
@@ -1329,7 +1400,8 @@
   // カードへのリンク（base: アプリの URL。# 以降は付け直す）。opts.field: 担当者がスタッフ → 現場用のツールページ #f/case/{id}（Task 18）
   function phaseLink(base, caseId, phaseId, opts) {
     const b = String(base || '').split('#')[0];
-    return opts && opts.field ? `${b}#f/case/${caseId}` : `${b}#case/${caseId}/phase/${phaseId}`;
+    // Task 31: 現場用はそのフェーズのツールページ #f/case/{id}/phase/{phaseId}
+    return opts && opts.field ? `${b}#f/case/${caseId}/phase/${phaseId}` : `${b}#case/${caseId}/phase/${phaseId}`;
   }
   const whatOf = k => (k === 'survey' ? '調査' : kindLabel(k));
   // 担当者へのメールの結びの前の行（指示の段落はこの前に入る: setBriefSection）
@@ -1369,8 +1441,9 @@
     const k = p.kind;
     const place = placeName(caseRow || {});
     return {
-      subject: `【明日の予定】${[fmtMDHM(p.scheduled_at), whatOf(k), place].filter(Boolean).join(' ')}`,
-      body: staffBody(k, p, caseRow, org, me, link, `明日 ${fmtMDWHM(p.scheduled_at)}〜 ${place} の${whatOf(k)}です。`, STAFF_TAILS[1])
+      // Task 31: 「明日」は使わず具体の日付
+      subject: `【前日のお知らせ】${[fmtMDHM(p.scheduled_at), whatOf(k), place].filter(Boolean).join(' ')}`,
+      body: staffBody(k, p, caseRow, org, me, link, `${fmtMDWHM(p.scheduled_at)}〜 ${place} の${whatOf(k)}です（前日のお知らせ）。`, STAFF_TAILS[1])
     };
   }
   // 担当者向けの前日のお知らせを今作るか（アプリを開いたときに呼ぶ）→ [{ phase_id, slot: 'd1', remind_for }]
@@ -1406,7 +1479,7 @@
   //   estimate: 見積書の期限あり・まだ提出していない（estimateTodo。下書きでは消えない）
   //   notice: 自分が担当者で、知らせてもらって未確認（調査済み・完了は除く）
   //   tomorrow: 自分が担当者で、明日（日本時間）の予定（未確認の notice があればそちらに含める: tomorrow: true）
-  //   → [{ type, caseRow, phase, title, label, due, dueAt, late, from, fromAt, tomorrow, brief, request }]
+  //   → [{ type, caseRow, phase, title, label, due, dueAt, late, from, fromAt, tomorrow, brief, request, visit（Task 31: 今回行く部屋の1行。対応の無い連絡は ''） }]
   //   並び（Task 29）: ① 連絡（催促 → 新しい順）→ ② 報告書（期限超過が先 → 期限の早い順）→ ③ 見積書（期限の早い順）→ ④ 確認依頼 → ⑤ 明日の予定
   function staffInbox(caseRows, meId, now, opts) {
     const nowMs = ms(now) != null ? ms(now) : Date.now();
@@ -1449,12 +1522,15 @@
         if (!notice && !isTomorrow) continue;
         const what = whatOf(p.kind);
         const when = p.scheduled_at ? `${fmtMDWHM(p.scheduled_at)}〜` : '日時未定';
-        const label = isTomorrow ? `明日 ${when} ${what}です` : `${when} ${p.kind === 'survey' ? '調査に行ってください' : what + 'をお願いします'}`;
+        // Task 31: 「明日」は使わず具体の日付（翌日の予定は「10/22（水）10:00〜 調査です」）
+        const label = isTomorrow ? `${when} ${what}です` : `${when} ${p.kind === 'survey' ? '調査に行ってください' : what + 'をお願いします'}`;
         out.push({ type: notice ? 'notice' : 'tomorrow', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
           label, due: null, dueAt: null, late: false, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan),
           request: requestSummary(c.request) }); // Task 28: 案件の依頼内容の要約（指示の前に出す）
       }
     }
+    // Task 31: 対応のある行には「今回行く部屋: …」
+    out.forEach(x => { x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : ''; });
     const rank = { nudge: 0, message: 1, report: 2, estimate: 3, notice: 4, tomorrow: 5 };
     const dueMs = x => (x.dueAt ? ms(x.dueAt) : ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0)));
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? dueMs(x) : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
@@ -1888,14 +1964,9 @@
     return !!meId && (c.assignee_id === meId || listOf(c.phases).some(p => p.worker_id === meId));
   }
   const isToday = (at, nowAt) => !!at && jstYmd(at) === jstYmd(nowAt);
-  // 予定の日時の短い表示: '今日 9:00' / '明日 9:00' / '11/5（水）9:00' / '日時未定'
-  function fieldWhen(at, now) {
-    const nowAt = toDate(now) || new Date();
-    const p = jst(at);
-    if (!p) return '日時未定';
-    if (isToday(at, nowAt)) return `今日 ${fmtHM(p)}`;
-    if (jstYmd(at) === jstYmd(ms(nowAt) + 86400000)) return `明日 ${fmtHM(p)}`;
-    return fmtMDWHM(at);
+  // 予定の日時の短い表示: '11/5（水）9:00' / '日時未定'（Task 31: 「今日」「明日」は案件タブの見出しだけ。ほかは具体の日付）
+  function fieldWhen(at, now) { // eslint-disable-line no-unused-vars
+    return jst(at) ? fmtMDWHM(at) : '日時未定';
   }
   // 同じ種類の何回目を付けたフェーズの一覧（case_summaries の seq が無ければ並び順で数える）
   function withSeq(phases) {
@@ -2023,11 +2094,13 @@
   // 「案件」タブ: 本日行く現場・対応の一覧。自分が作業担当者（または案件の担当者）のフェーズを 日付 → 時刻 の順に。
   //   group: today（今日・時刻順）→ later（明日以降・日付順）→ tbd（日時未定・済んでいないもの）→ past（日時を過ぎて自分の番が残っているもの）→
   //   none（自分が担当の案件で対応がまだ無い）。済んだフェーズ（今日のもの以外）は出さない。進行中の案件だけ
-  //   → [{ caseRow, phase, title, group, at, when, time, stage, stageText, today }]
-  const SCHEDULE_GROUPS = ['today', 'later', 'tbd', 'past', 'none'];
+  //   → [{ caseRow, phase, title, group, at, when, time, date（'10/22（水）'）, visit（Task 31: 今回行く部屋「101・201号室」）, stage, stageText, today }]
+  // Task 31: today（本日）→ tomorrow（明日）→ later（明日以降）→ past → none → tbd（日時未定は最後）
+  const SCHEDULE_GROUPS = ['today', 'tomorrow', 'later', 'past', 'none', 'tbd'];
   function fieldSchedule(caseRows, meId, now) {
     const nowAt = toDate(now) || new Date();
     const today = jstYmd(nowAt);
+    const tomorrow = jstYmd(ms(nowAt) + 86400000);
     const out = [];
     if (!meId) return out;
     for (const c of listOf(caseRows)) {
@@ -2036,7 +2109,7 @@
       const list = withSeq(c.phases).filter(({ p }) => mineCase || p.worker_id === meId);
       if (!list.length) {
         if (mineCase && !listOf(c.phases).length) {
-          out.push({ caseRow: c, phase: null, title: '', group: 'none', at: null, when: '対応なし', time: '', stage: null, stageText: '', today: false });
+          out.push({ caseRow: c, phase: null, title: '', group: 'none', at: null, when: '対応なし', time: '', visit: '', stage: null, stageText: '', today: false });
         }
         continue;
       }
@@ -2045,19 +2118,54 @@
         const at = p.scheduled_at || null;
         let group;
         if (at && jstYmd(at) === today) group = 'today';
+        else if (at && jstYmd(at) === tomorrow) group = 'tomorrow';
         else if (at && jstYmd(at) > today) group = 'later';
         else if (!at) group = st.ball ? 'tbd' : '';
         else group = st.ball === 'us' ? 'past' : '';
         if (!group) continue;
         const pj = jst(at);
-        out.push({ caseRow: c, phase: p, title: phaseTitle(p, seq), group, at, when: fieldWhen(at, nowAt), time: pj ? fmtHM(pj) : '',
-          stage: st, stageText: fieldStageLabel(st) || (st.label ? '✓ ' + st.label : ''), today: group === 'today' });
+        out.push({ caseRow: c, phase: p, title: phaseTitle(p, seq), group, at, when: fieldWhen(at, nowAt), time: pj ? fmtHM(pj) : '', date: fmtMDW(at),
+          visit: visitShort(p.plan, c), stage: st, stageText: fieldStageLabel(st) || (st.label ? '✓ ' + st.label : ''), today: group === 'today' });
       }
     }
     const gi = x => SCHEDULE_GROUPS.indexOf(x.group);
     return out.sort((a, b) => gi(a) - gi(b)
-      || (a.group === 'today' || a.group === 'later' ? ms(a.at) - ms(b.at) : a.group === 'past' ? ms(b.at) - ms(a.at) : 0)
+      || (a.group === 'today' || a.group === 'tomorrow' || a.group === 'later' ? ms(a.at) - ms(b.at) : a.group === 'past' ? ms(b.at) - ms(a.at) : 0)
       || str(a.caseRow.name).localeCompare(str(b.caseRow.name), 'ja') || str(a.title).localeCompare(str(b.title), 'ja'));
+  }
+
+  // 案件タブの見出し（Task 31）: 本日（10/21（火））／明日（10/22（水））／明日以降／…／日時未定
+  function scheduleGroupLabel(group, now) {
+    const nowAt = toDate(now) || new Date();
+    if (group === 'today') return `本日（${fmtMDW(nowAt)}）`;
+    if (group === 'tomorrow') return `明日（${fmtMDW(ms(nowAt) + 86400000)}）`;
+    return { later: '明日以降', past: '日時を過ぎた対応（まだ自分の番）', none: '対応がまだ無い案件', tbd: '日時未定' }[group] || '';
+  }
+  // 古いリンク #f/case/{id} の行き先（Task 31）: 自分が担当（作業担当者。案件の担当者なら全部）で未完了のフェーズのうち、今に一番近い予定のもの
+  //   （日時未定は後ろ・その中では新しいもの）。無ければ null（履歴ページへ）
+  function fieldRedirectPhase(caseRow, meId, now) {
+    const c = caseRow || {};
+    const nowMs = ms(now) != null ? ms(now) : Date.now();
+    const mine = withSeq(c.phases).filter(({ p }) => !p.done_at && meId && (p.worker_id === meId || c.assignee_id === meId));
+    if (!mine.length) return null;
+    const dated = mine.filter(x => x.p.scheduled_at).sort((a, b) => Math.abs(ms(a.p.scheduled_at) - nowMs) - Math.abs(ms(b.p.scheduled_at) - nowMs));
+    return dated.length ? dated[0].p : mine[mine.length - 1].p;
+  }
+  // 「過去の対応履歴」（#f/case/{id}/history。Task 31）: この案件の全フェーズを日付順（日時未定は最後・作成順）
+  //   docs = { reports, estimates（全版）, notices }（表の行）→ [{ phase, title, when, stage, stageText, tools: fieldTools の値 }]
+  function fieldHistory(caseRow, docs, now, meId) {
+    const d = docs || {};
+    const nowAt = toDate(now) || new Date();
+    const list = withSeq(caseRow && caseRow.phases).map((x, i) => Object.assign({ i }, x));
+    list.sort((a, b) => (a.p.scheduled_at ? 0 : 1) - (b.p.scheduled_at ? 0 : 1)
+      || (a.p.scheduled_at && b.p.scheduled_at ? ms(a.p.scheduled_at) - ms(b.p.scheduled_at) : 0) || a.i - b.i);
+    return list.map(({ p, seq }) => {
+      const st = stage(p, null, nowAt, { me: meId });
+      const own = k => listOf(d[k]).filter(x => x.phase_id === p.id);
+      return { phase: p, title: phaseTitle(p, seq), when: fieldWhen(p.scheduled_at, nowAt), stage: st,
+        stageText: fieldStageLabel(st) || (st.label ? '✓ ' + st.label : ''),
+        tools: fieldTools({ reports: own('reports'), estimates: own('estimates'), notices: own('notices') }) };
+    });
   }
 
   // 報告書の期限超過で管理者に自動の連絡を入れる対象（Task 29。アプリを開いたときに判定。1回だけ = report_overdue_at が空のもの）
@@ -2111,7 +2219,7 @@
     ['sites', 'reports', 'estimates', 'lates'].forEach(k => res[k].sort((a, b) => a.at - b.at));
     return res;
   }
-  const DAILY_SECTIONS = [['sites', '今日行った現場'], ['reports', '提出した報告書'], ['estimates', '提出した見積'], ['lates', '遅れ報告']];
+  const DAILY_SECTIONS = [['sites', '行った現場'], ['reports', '提出した報告書'], ['estimates', '提出した見積'], ['lates', '遅れ報告']];
   // 日報の本文（自動の項目 ＋ 一言）。項目が無い段は「なし」
   function dailyBody(d, note) {
     const lines = [];
@@ -2179,7 +2287,7 @@
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
-    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
+    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
@@ -2189,7 +2297,7 @@
     paymentDueDefault, isOverdue, fmtYmdMD,
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
-    SCHEDULE_GROUPS, fieldSchedule, overdueReports, dailyReport, DAILY_SECTIONS, dailyBody, dailySubject, autoNoticeData, noticeCell };
+    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, dailyReport, DAILY_SECTIONS, dailyBody, dailySubject, autoNoticeData, noticeCell };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

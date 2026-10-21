@@ -90,8 +90,8 @@ function siMessageEl(it) {
   const op = dBtn(si.field ? '開く' : '連絡を開く', 'btn sm ghost inline si-msg-open', () => {
     if (!si.field) { location.hash = it.caseRow ? '#messages/' + it.caseRow.id : '#messages'; return; }
     if (!it.caseRow) { location.hash = '#f/daily'; return; }
-    if (typeof fdSel !== 'undefined' && it.phase) fdSel.set(it.caseRow.id, it.phase.id);
-    location.hash = '#f/case/' + it.caseRow.id;
+    // Task 31: 対応のある連絡はその対応のツールページ（無ければ直近の対応へ振り向ける）
+    location.hash = '#f/case/' + it.caseRow.id + (it.phase ? '/phase/' + it.phase.id : '');
   });
   op.disabled = busy;
   acts.append(rd, op);
@@ -138,7 +138,7 @@ function siItemEl(it) {
   row.appendChild(lb);
   if (it.type === 'notice') {
     row.appendChild(mk('div', 'rep-sub', [it.from ? it.from + 'さんから' : '', PhaseLogic.fmtMDHM(it.fromAt)].filter(Boolean).join(' ') +
-      (it.tomorrow ? ' ・ 明日の予定です' : '')));
+      (it.tomorrow ? ' ・ 前日のお知らせ' : '')));
   } else if (it.type === 'estimate') {
     row.appendChild(mk('div', 'rep-sub', '調査報告の「次の対応方針」で決まった期限です。見積書を提出するまで残ります'));
   } else if (it.type === 'report') {
@@ -147,6 +147,7 @@ function siItemEl(it) {
   } else if (it.caseRow.address) {
     row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
   }
+  if (it.visit) row.appendChild(mk('div', 'si-visit', '🚪 ' + it.visit)); // Task 31: 今回行く部屋
   if (it.request) row.appendChild(mk('div', 'si-req', '■ 依頼内容: ' + it.request)); // Task 28: 案件の依頼内容の要約（指示の前）
   if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
@@ -154,8 +155,7 @@ function siItemEl(it) {
   const busy = si.busy.has(bkey);
   const open = si.field
     ? dBtn('開く', 'btn sm ghost inline si-open', () => {
-      if (typeof fdSel !== 'undefined') fdSel.set(it.caseRow.id, p.id); // その対応を選んでツールページを開く
-      location.hash = '#f/case/' + it.caseRow.id;
+      location.hash = '#f/case/' + it.caseRow.id + '/phase/' + p.id; // Task 31: その対応のツールページ
     })
     : dBtn('詳しく見る', 'btn sm inline si-open', () => { location.hash = '#case/' + it.caseRow.id + '/phase/' + p.id; });
   open.disabled = busy;
@@ -191,8 +191,8 @@ function siRender() {
   const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
   if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
   nodes.push(mk('div', 'rep-sub ob-lead', si.field
-    ? '今やることを上から順に並べています（① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 明日の予定）。期限を過ぎたものは赤く出ます'
-    : 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。明日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
+    ? '今やることを上から順に並べています（① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 翌日の予定）。期限を過ぎたものは赤く出ます'
+    : 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。翌日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
   if (si.field) {
     // 管理者に連絡（Task 29: タブから外したので、こことツールページのボタンから）
     const bar = mk('div', 'si-contact');

@@ -10,6 +10,7 @@
 // 入力内容と写真リスト（path, name, caption, phase, marks）は localStorage `share-{share_id}` に保存して再読込で復元する。
 // 写真のプレビューはこの端末で選んだ写真（blob URL）だけ。anon は Storage から読めないので、再読込後はプレビューなし。
 // PDFプレビューは出さない（anon は署名URLを作れず、ロゴ・写真を PDF に載せられないため。PDF は提出後に社内で作る）。
+// Task 31: 一番上（帯の直下）に「🚪 今回行く部屋: …」（share_open の brief = plan.visitRooms。未設定は「この案件の部屋（101号室）」）。
 // Task 28（migration 052）: 上部に「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真）と「現場への指示」（号室ごと）を出す（share_open の request / brief）。
 //   依頼内容の写真だけは anon でも署名URLを作れる（share_request_photo_ok: 依頼内容に載っていて URL が使える間）。依頼元の連絡先・金額は出さない。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」→ シート → share_report_late（管理者に自動の連絡）→ 入居者の電話（share_open の residents）を出す
@@ -159,6 +160,12 @@
     $('v-band').hidden = !$('v-place').textContent;
 
     const nodes = [];
+    // Task 31: 今回行く部屋（帯の直下・一番上。フェーズのある報告書だけ。share_open の brief.visitRooms と case.room から）
+    if (info.phase) {
+      const v = el('div', 'v-visit', '🚪 ' + PhaseLogic.visitLine(info.brief, info.case));
+      v.id = 'v-visit';
+      nodes.push(v);
+    }
     const head = el('div', 'rep-card');
     const top = el('div', 'rep-between');
     const vname = el('b', null, (String(info.vendor_name || '').trim() || '担当者') + ' 様'); // 名前は任意（空なら「担当者 様」。Task 24）

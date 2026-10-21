@@ -1,6 +1,10 @@
 // js/field-ui.js — 現場担当アプリ（スマホ専用の現場用画面。対応フェーズ Task 18。画面案 docs/mocks/mock-field.html）
 // ルート（Task 29）: #f（案件 = 本日行く現場・対応の一覧）／#f/case/{id}（ツールページ）／#f/tasks（タスク = 優先順の一覧。旧 🔔）／
 //   #f/daily（日報作成）／#f/settings（設定）／#f/contact（管理者とのやり取り。タブには出さない＝タスクとツールページのボタンから）。
+// Task 31: ツールページは管理者から依頼された対応1つだけ #f/case/{id}/phase/{phaseId}（対応の切替チップは無い）。一番下に
+//   「過去の対応履歴を参照する ›」→ #f/case/{id}/history（全フェーズを日付順・押すとその対応のツールページ）。古いリンク #f/case/{id} は
+//   自分が担当で未完了の直近の対応へ振り向ける（PhaseLogic.fieldRedirectPhase。無ければ履歴）。ツールページの1行目（帯の直下）に
+//   「🚪 今回行く部屋: …」（plan.visitRooms）。「管理者に連絡」はタスクのタブだけ。「本日」「明日」は案件タブの見出しだけ（ほかは具体の日付）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -30,6 +34,11 @@
 
 const FD_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
 const FD_CASE_RE = new RegExp('^#f/case/' + FD_UUID + '$', 'i');
+// Task 31: ツールページは1つの対応（フェーズ）だけ #f/case/{id}/phase/{phaseId}。過去の対応履歴 #f/case/{id}/history
+const FD_PHASE_RE = new RegExp('^#f/case/' + FD_UUID + '/phase/' + FD_UUID + '$', 'i');
+const FD_HIST_RE = new RegExp('^#f/case/' + FD_UUID + '/history$', 'i');
+const fdPhaseHash = (caseId, phaseId) => '#f/case/' + String(caseId).toLowerCase() + '/phase/' + String(phaseId).toLowerCase();
+const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/history';
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: '📋', label: '案件' },
   { view: 'tasks', hash: '#f/tasks', icon: '✅', label: 'タスク' },
@@ -47,7 +56,7 @@ const FD_SHARED_RES = [
 
 let fd = null;          // { seq, view, caseId, rows, loading, err, data, busy, msg }
 let fdSeq = 0;
-const fdSel = new Map(); // 案件ごとに選んだ対応（この画面を開いている間だけ覚える。ツールから戻ったとき同じ対応を選ぶ）
+const fdSel = new Map(); // 案件ごとに最後に開いた対応（この画面を開いている間だけ覚える。ツールから「‹ ツール」で同じ対応のページに戻る）
 
 /* ---------- 案件の集計の使い回し（Task 23 I13） ---------- */
 // 現場用のタブ（案件・確認・管理者に連絡）を切り替えるたびに case_summaries を全部読み直さない（60秒は使い回す）。
@@ -85,7 +94,8 @@ function isFieldMode() {
 // 現場用から開いた共通の画面の「‹ ツール」（現場用でなければ null）
 function fieldBack(caseId) {
   if (!caseId || !document.body.classList.contains('fd-mode')) return null;
-  return { label: '‹ ツール', hash: '#f/case/' + String(caseId).toLowerCase() };
+  const pid = fdSel.get(String(caseId).toLowerCase());
+  return { label: '‹ ツール', hash: pid ? fdPhaseHash(caseId, pid) : '#f/case/' + String(caseId).toLowerCase() };
 }
 // 管理者向けの操作（送付・承諾・請求・削除）を出すか。現場用で開いているときは出さない
 function fieldHidesAdmin() {
@@ -103,16 +113,17 @@ function fdMatch(h) {
   if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡（Task 29: タブには出さない）
   if (h === '#f/settings') return { view: 'settings' };
   const m = h.match(FD_CASE_RE);
-  if (m) return { view: 'case', caseId: m[1].toLowerCase() };
+  if (m) return { view: 'case', caseId: m[1].toLowerCase(), phaseId: null }; // 古いリンク: 読み込んでから直近の対応へ振り向ける
+  const mp = h.match(FD_PHASE_RE);
+  if (mp) return { view: 'case', caseId: mp[1].toLowerCase(), phaseId: mp[2].toLowerCase() };
+  const mh = h.match(FD_HIST_RE);
+  if (mh) return { view: 'history', caseId: mh[1].toLowerCase() };
   return null;
 }
 // 管理画面のルート → 現場用のルート
 function fdRedirectOf(h) {
   const m = h.match(new RegExp('^#case/' + FD_UUID + '(?:/phase/' + FD_UUID + ')?', 'i'));
-  if (m) {
-    if (m[2]) fdSel.set(m[1].toLowerCase(), m[2].toLowerCase()); // フェーズ詳細のリンク → その対応を選んで開く
-    return '#f/case/' + m[1].toLowerCase();
-  }
+  if (m) return m[2] ? fdPhaseHash(m[1], m[2]) : '#f/case/' + m[1].toLowerCase(); // フェーズ詳細のリンク → その対応のツールページ
   if (h === '#inbox-staff') return '#f/tasks';
   if (h === '#outbox' || /^#messages/.test(h)) return '#f/contact';
   return '#f';
@@ -124,7 +135,7 @@ function fieldRoute() {
   const fm = fdMatch(h);
   if (!isFieldMode()) {
     fdSetMode(false);
-    if (fm) fdReplace(fm.view === 'case' ? '#case/' + fm.caseId : ''); // 管理画面にしている管理者 → 管理画面
+    if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '') : ''); // 管理画面にしている管理者 → 管理画面
     return false;
   }
   if (fm) { fdSetMode(true); openField(fm); return true; }
@@ -142,13 +153,14 @@ function openField(fm) {
   renderHeaders();
   showScreen('field');
   const seq = ++fdSeq;
-  fd = { seq, view: fm.view, caseId: fm.caseId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
+  fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
   fdTabs();
   const host = $('field-root');
   host.replaceChildren();
   document.title = '現場ドキュメント';
   if (fm.view === 'cases') { fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
   if (fm.view === 'case') { fdBar('案件', '‹ 案件', '#f'); fdRenderCase(); return fdLoadCase(seq); }
+  if (fm.view === 'history') { fdBar('過去の対応履歴', '‹ 案件', '#f'); fdRenderHistory(); return fdLoadCase(seq); }
   if (fm.view === 'tasks') {
     if (location.hash === '#f/inbox') fdReplace('#f/tasks');
     fdBar('タスク');
@@ -174,7 +186,7 @@ function fdBar(title, backLabel, backHash) {
 }
 function fdTabs() {
   const nav = $('fd-tabs');
-  const active = fd && fd.view === 'case' ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
+  const active = fd && (fd.view === 'case' || fd.view === 'history') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
       // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
@@ -212,7 +224,6 @@ async function fdUnreadMessages() {
   return (await StaffMessagesApi.list({ toUser: fdMe(), unread: true })) || [];
 }
 
-const FD_GROUP_LABEL = { today: '今日', later: '明日以降', tbd: '日時未定', past: '日時を過ぎた対応（まだ自分の番）', none: '対応がまだ無い案件' };
 function fdRenderCases() {
   const s = fd;
   const host = $('field-root');
@@ -246,7 +257,7 @@ function fdRenderCases() {
     const wrap = mk('div', 'fd-list');
     wrap.id = 'fd-list';
     if (list.length && !todayN) {
-      const e = mk('div', 'fd-tiny fd-no-today', '今日の予定はありません');
+      const e = mk('div', 'fd-tiny fd-no-today', '本日（' + PhaseLogic.fmtMDW(now) + '）の予定はありません');
       e.id = 'fd-no-today';
       wrap.appendChild(e);
     }
@@ -254,7 +265,8 @@ function fdRenderCases() {
     list.forEach(it => {
       if (it.group !== group) {
         group = it.group;
-        const gh = mk('div', 'fd-gh' + (group === 'today' ? ' today' : ''), FD_GROUP_LABEL[group]);
+        // Task 31: 見出し「本日（10/21（水））」「明日（10/22（木））」「明日以降」…「日時未定」（「本日」「明日」はここだけ）
+        const gh = mk('div', 'fd-gh' + (group === 'today' ? ' today' : ''), PhaseLogic.scheduleGroupLabel(group, now));
         gh.dataset.group = group;
         wrap.appendChild(gh);
       }
@@ -279,13 +291,17 @@ function fdCaseCard(it) {
   card.dataset.caseId = c.id;
   if (p) card.dataset.phaseId = p.id;
   card.dataset.group = it.group;
-  const main = dBtn('', 'fd-card-main', () => { if (p) fdSel.set(c.id, p.id); location.hash = '#f/case/' + c.id; });
+  // Task 31: 押すとその対応のツールページ（対応が無ければ過去の対応履歴）
+  const main = dBtn('', 'fd-card-main', () => { if (p) fdSel.set(c.id, p.id); location.hash = p ? fdPhaseHash(c.id, p.id) : fdHistHash(c.id); });
   const top = mk('div', 'fd-row');
-  top.appendChild(mk('b', 'fd-when', it.group === 'today' ? it.time : it.group === 'none' ? '対応なし' : it.when));
+  // 本日・明日の見出しの中は時刻だけ。明日以降・過ぎた対応は日付つき（10/23（金）9:00）
+  const when = it.group === 'today' || it.group === 'tomorrow' ? it.time : it.group === 'none' ? '対応なし' : it.when;
+  top.appendChild(mk('b', 'fd-when', when));
   if (p) top.appendChild(fdKindBadge(p.kind));
   if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
+  if (it.visit) main.appendChild(mk('span', 'fd-visit-short', '🚪 ' + it.visit)); // Task 31: 今回行く部屋「101・201号室」
   if (it.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage) + (late ? ' late' : ''), it.stageText));
   card.appendChild(main);
   if (c.address) {
@@ -349,6 +365,13 @@ async function fdLoadCase(seq) {
     if (!res[0]) s.err = '案件が見つかりません';
     else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [], shares };
   }
+  // Task 31: 古いリンク #f/case/{id} → 自分が担当で未完了の直近の対応のページ（無ければ過去の対応履歴）
+  if (!s.err && s.data && s.view === 'case' && !s.phaseId) {
+    const to = PhaseLogic.fieldRedirectPhase(s.data.caseRow, fdMe(), new Date());
+    if (to) { s.phaseId = to.id; fdReplace(fdPhaseHash(s.caseId, to.id)); }
+    else { s.view = 'history'; fdReplace(fdHistHash(s.caseId)); fdTabs(); }
+  }
+  if (s.view === 'history') { fdRenderHistory(); return; }
   // Task 25: 選んだ対応に報告書・担当者URLが無ければ作る（既存のフェーズの遅延作成。1回だけ）
   if (!s.ensured) s.ensured = new Set();
   const sel = !s.err && s.data ? fdSelected(s) : null;
@@ -365,11 +388,19 @@ async function fdLoadCase(seq) {
   fdRenderCase();
 }
 
+// Task 31: ページの対応（#f/case/{id}/phase/{phaseId}）。この案件に無ければ null
 function fdSelected(s) {
   const c = s.data.caseRow;
   const phases = Array.isArray(c.phases) ? c.phases : [];
-  const want = fdSel.get(c.id);
-  return phases.find(p => p.id === want) || PhaseLogic.fieldDefaultPhase(phases, new Date());
+  const p = phases.find(x => x.id === s.phaseId) || null;
+  if (p) fdSel.set(c.id, p.id);
+  return p;
+}
+// 「過去の対応履歴を参照する ›」
+function fdHistLink(c) {
+  const a = dBtn('過去の対応履歴を参照する ›', 'linkbtn fd-hist-link', () => { location.hash = fdHistHash(c.id); });
+  a.id = 'fd-hist-link';
+  return a;
 }
 
 function fdRenderCase() {
@@ -377,14 +408,26 @@ function fdRenderCase() {
   const host = $('field-root');
   if (s.loading) { host.replaceChildren(mk('div', 'empty', '読み込み中…')); return; }
   if (s.err) {
-    host.replaceChildren(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'case', caseId: s.caseId })));
+    host.replaceChildren(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'case', caseId: s.caseId, phaseId: s.phaseId })));
     return;
   }
   const c = s.data.caseRow;
   const place = PhaseLogic.placeName(c) || '（物件名なし）';
   fdBar(place, '‹ 案件', '#f');
   document.title = place + ' - 現場ドキュメント';
+  const sel = fdSelected(s);
+  if (!sel) {
+    const e = mk('div', 'empty', 'この対応は見つかりません（消された可能性があります）。管理者に確かめてください');
+    e.id = 'fd-no-phase';
+    host.replaceChildren(e, fdHistLink(c));
+    return;
+  }
   const nodes = [];
+  // Task 31: ⓪ 今回行く部屋（帯の直下・1行目・大きく）→ ① 住所・入居者 → ② 依頼内容 → ③ 関係する部屋 → ④ 現場への指示 →
+  //   ⑤ この対応（種類・日時・今の段階）→ ⑥ ツール → 過去の対応履歴へのリンク。対応の切替チップは出さない（このページは管理者から依頼された対応1つ）
+  const visit = mk('div', 'fd-visit', '🚪 ' + PhaseLogic.visitLine(sel.plan, c));
+  visit.id = 'fd-visit';
+  nodes.push(visit);
   // 住所（Googleマップ）・入居者の電話
   const info = mk('div', 'fd-info');
   if (c.address) {
@@ -394,15 +437,10 @@ function fdRenderCase() {
     a.rel = 'noopener';
     info.appendChild(a);
   }
-  const phases = Array.isArray(c.phases) ? c.phases : [];
-  const sel0 = phases.length ? fdSelected(s) : null;
-  if (sel0) {
-    const lb = fdLateBox(c, sel0, () => { fieldRowsInvalidate(); if (fdAlive(s)) { s.msg = '到着の遅れを管理者に報告しました'; fdReloadCase(s); } });
-    lb.id = 'fd-late';
-    info.appendChild(lb);
-  }
-  if (info.childNodes.length) nodes.push(info);
-  // Task 30: ① 住所・入居者 → ② 依頼内容 → ③ 関係する部屋 → ④ 現場への指示 → ⑤ 対応の切替・今の段階 → ⑥ ツール
+  const lb = fdLateBox(c, sel, () => { fieldRowsInvalidate(); if (fdAlive(s)) { s.msg = '到着の遅れを管理者に報告しました'; fdReloadCase(s); } });
+  lb.id = 'fd-late';
+  info.appendChild(lb);
+  nodes.push(info);
   const req = RequestView.build(c.request, { photoUrl: p => CasesApi.requestPhotoUrl(p), title: '📋 依頼内容', id: 'fd-request', cls: 'fd-req' });
   if (req) nodes.push(req);
   else {
@@ -412,36 +450,16 @@ function fdRenderCase() {
   }
   const rooms = fdRoomsCard(c);
   if (rooms) nodes.push(rooms);
-  if (!phases.length) {
-    const e = mk('div', 'empty', 'この案件にはまだ対応（調査・工事）がありません。管理者に登録してもらってください');
-    e.id = 'fd-no-phase';
-    nodes.push(e);
-    host.replaceChildren(...nodes);
-    return;
-  }
-  const sel = fdSelected(s);
   const brief = fdBriefCard(s, c, sel);
   if (brief) nodes.push(brief);
-  // 対応の切替チップ
-  const chips = mk('div', 'fd-chips');
-  chips.id = 'fd-phase-chips';
-  chips.setAttribute('role', 'group');
-  chips.setAttribute('aria-label', 'どの対応の分か');
-  PhaseLogic.fieldPhaseChips(phases, new Date()).forEach(ch => {
-    const on = ch.id === sel.id;
-    const b = dBtn(ch.text, 'fd-chip' + (on ? ' on' : ''), () => {
-      fdSel.set(c.id, ch.id);
-      s.toolErr = '';
-      s.msg = '';
-      // Task 25: まだ用意していない対応なら、報告書・担当者URLを確かめてから描く
-      fdRenderCase();
-      if (!s.ensured || !s.ensured.has(ch.id)) fdLoadCase(s.seq); // 読み直して描き直す（その間も今の画面のまま）
-    });
-    b.dataset.phaseId = ch.id;
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    chips.appendChild(b);
-  });
-  nodes.push(chips);
+  // この対応（種類・何回目・日時）と今の段階
+  const ph = mk('div', 'fd-phase-line');
+  ph.id = 'fd-phase-line';
+  ph.dataset.phaseId = sel.id;
+  ph.appendChild(fdKindBadge(sel.kind));
+  ph.appendChild(mk('b', null, fdTitleOf(c, sel)));
+  ph.appendChild(mk('span', 'fd-tiny', PhaseLogic.fieldWhen(sel.scheduled_at, new Date())));
+  nodes.push(ph);
   const st = PhaseLogic.stage(sel, null, new Date(), { me: fdMe() });
   const stText = PhaseLogic.fieldStageLabel(st) || (st.label ? '✓ ' + st.label : '');
   if (stText) {
@@ -454,6 +472,7 @@ function fdRenderCase() {
   msg.setAttribute('role', 'status');
   nodes.push(msg);
   // 3つのツール
+  const phases = Array.isArray(c.phases) ? c.phases : [];
   const docs = {
     reports: s.data.reports.filter(r => r.phase_id === sel.id),
     estimates: s.data.estimates.filter(e => e.phase_id === sel.id),
@@ -469,13 +488,53 @@ function fdRenderCase() {
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
   nodes.push(err);
-  // 管理者に連絡（Task 23。この案件・対応を選んだ状態でシートを開く）
-  const ct = dBtn('📨 管理者に連絡', 'btn ghost fd-contact', () => smOpenSheet({ rows: [c], caseId: c.id, phaseId: sel.id,
-    onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（返事は「タスク」に出ます）'; fdRenderCase(); } } }));
-  ct.id = 'fd-contact';
-  ct.disabled = !!s.busy;
-  nodes.push(ct);
+  // Task 31: 「管理者に連絡」のボタンはここには出さない（タスクのタブにある）
   nodes.push(mk('div', 'fd-note', 'ツールの中身は管理画面の報告書・見積書・工事掲示と同じです。保存すると管理者の案件ページにそのまま反映されます。'));
+  nodes.push(fdHistLink(c));
+  host.replaceChildren(...nodes);
+}
+
+/* ---------- #f/case/{id}/history 過去の対応履歴（Task 31） ---------- */
+// この案件の全フェーズを日付順に。各行: 種類・何回目・日時・段階・報告書／見積書／工事掲示の状態。押すとその対応のツールページ
+function fdRenderHistory() {
+  const s = fd;
+  const host = $('field-root');
+  if (s.loading) { host.replaceChildren(mk('div', 'empty', '読み込み中…')); return; }
+  if (s.err) {
+    host.replaceChildren(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'history', caseId: s.caseId })));
+    return;
+  }
+  const c = s.data.caseRow;
+  const place = PhaseLogic.placeName(c) || '（物件名なし）';
+  fdBar(place, '‹ 案件', '#f');
+  document.title = '過去の対応履歴 ' + place + ' - 現場ドキュメント';
+  const nodes = [mk('div', 'fd-h', '過去の対応履歴')];
+  const list = PhaseLogic.fieldHistory(c, s.data, new Date(), fdMe());
+  const wrap = mk('div', 'fd-list');
+  wrap.id = 'fd-history';
+  if (!list.length) {
+    const e = mk('div', 'empty', 'この案件にはまだ対応（調査・工事）がありません。管理者に登録してもらってください');
+    e.id = 'fd-no-phase';
+    wrap.appendChild(e);
+  }
+  const short = { report: '報告書', estimate: '見積書', notice: '工事掲示' };
+  const stateText = x => ({ none: 'なし', draft: '下書き', done: '提出済み' }[x.state] || (x.count ? x.count + '件' : 'なし'));
+  list.forEach(h => {
+    const card = mk('div', 'fd-card fd-hist' + (h.phase.done_at ? ' done' : ''));
+    card.dataset.phaseId = h.phase.id;
+    const main = dBtn('', 'fd-card-main', () => { fdSel.set(c.id, h.phase.id); location.hash = fdPhaseHash(c.id, h.phase.id); });
+    const top = mk('div', 'fd-row');
+    top.appendChild(fdKindBadge(h.phase.kind));
+    top.appendChild(mk('b', null, h.title));
+    top.appendChild(mk('span', 'fd-tiny', h.when));
+    main.appendChild(top);
+    if (h.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(h.stage), h.stageText));
+    const docs = mk('span', 'fd-tiny fd-hist-docs', ['report', 'estimate', 'notice'].map(k => short[k] + ' ' + stateText(h.tools[k])).join(' ・ '));
+    main.appendChild(docs);
+    card.appendChild(main);
+    wrap.appendChild(card);
+  });
+  nodes.push(wrap);
   host.replaceChildren(...nodes);
 }
 
@@ -701,7 +760,7 @@ function fdRenderDaily() {
   ta.id = 'fd-daily-note';
   ta.rows = 4;
   ta.maxLength = 1000;
-  ta.placeholder = '例: 明日は 10 時から A マンションの続きに行きます';
+  ta.placeholder = '例: 10/22 は 10 時から A マンションの続きに行きます';
   ta.value = d.note || '';
   ta.disabled = d.busy;
   ta.addEventListener('input', () => { d.note = ta.value; d.noteTouched = true; });
@@ -731,7 +790,7 @@ function fdRenderDaily() {
   pr.append(pick, picked, clear, file);
   card.appendChild(pr);
   if (d.today) {
-    const st = mk('div', 'fd-daily-sent', '✓ 今日の日報は送りました（' + PhaseLogic.fmtMDHM(d.today.created_at) + '・' + (d.today.read_at ? '既読' : '未読') + '）。直して「送り直す」を押すと、管理者の画面で未読に戻ります');
+    const st = mk('div', 'fd-daily-sent', '✓ ' + PhaseLogic.fmtMDW(new Date()) + 'の日報は送りました（' + PhaseLogic.fmtMDHM(d.today.created_at) + '・' + (d.today.read_at ? '既読' : '未読') + '）。直して「送り直す」を押すと、管理者の画面で未読に戻ります');
     st.id = 'fd-daily-sent';
     card.appendChild(st);
   }
