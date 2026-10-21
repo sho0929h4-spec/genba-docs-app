@@ -92,6 +92,43 @@ const RequestView = (() => {
     return box;
   }
 
+  // Task 33: 「📋 依頼内容」の一番上の、訪問する号室ごとの1行（PhaseLogic.visitTaskRows）＋当日の注意
+  //   402号室（加害部屋）→ 原因調査・耐圧テスト
+  //     怪しい箇所: 給湯給水系統／補足: 浴室の下を先に（小さく）
+  //   当日の注意: …
+  //   o: { id }
+  function visitRows(plan, caseRow, kind, o) {
+    const v = L().visitTaskRows(plan, caseRow, kind);
+    const box = el('div', 'rq-visit');
+    if (o && o.id) box.id = o.id;
+    v.rows.forEach(r => {
+      const row = el('div', 'rq-vrow' + (r.extra ? ' extra' : ''));
+      row.dataset.room = r.room;
+      row.dataset.from = r.mustFrom;
+      // 号室（太字）＋役割の小さなタグ（加害部屋／被害部屋／その他。既存の .rm-tag）＋「→ 必要な対応」
+      const head = el('div', 'rq-vhead');
+      head.appendChild(el('b', 'rq-vroom', r.name));
+      if (r.roleText) {
+        const tag = el('span', 'rm-tag ' + (r.role || 'other'), r.roleText);
+        head.appendChild(document.createTextNode(' '));
+        head.appendChild(tag);
+      }
+      head.appendChild(document.createTextNode(' '));
+      head.appendChild(el('span', 'rq-vmust', '→ ' + r.must));
+      row.appendChild(head);
+      if (r.extra) row.appendChild(el('div', 'rq-vsub', '今回行く部屋には入っていません'));
+      if (r.sub) row.appendChild(el('div', 'rq-vsub', r.sub));
+      box.appendChild(row);
+    });
+    if (v.note) {
+      const n = el('div', 'rq-vnote');
+      n.appendChild(el('b', null, '当日の注意: '));
+      n.appendChild(document.createTextNode(v.note));
+      box.appendChild(n);
+    }
+    return box;
+  }
+
   /* ---------- 写真の拡大 ---------- */
   function openViewer(photos, index, getUrl) {
     const prev = document.getElementById('pv-bg');
@@ -281,5 +318,5 @@ const RequestView = (() => {
     if (first) first.focus();
   }
 
-  return { build, thumbs, openViewer, residentsBox, openLateSheet, LATE_BTN };
+  return { build, visitRows, thumbs, openViewer, residentsBox, openLateSheet, LATE_BTN };
 })();

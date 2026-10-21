@@ -128,6 +128,21 @@
   .rq-title{font-size:15px;}
   .rq-row{display:grid;gap:3px;min-width:0;}
   .rq-k{font-size:12px;font-weight:700;color:var(--muted);}
+  /* Task 33: 依頼内容の一番上の号室ごとの1行（js/request-view.js visitRows。index.html と r.html で同じ） */
+  .rq-visit{display:grid;gap:6px;min-width:0;padding-bottom:10px;border-bottom:1px dashed var(--border);}
+  .rq-vrow{display:grid;gap:2px;min-width:0;background:#e6eef8;border-radius:10px;padding:8px 10px;}
+  .rq-vrow.extra{background:#f4f7fb;}
+  .rq-vhead .rm-tag{vertical-align:2px;}
+  .rq-vrow .rm-tag.damage{background:#fff;}
+  .rm-tag{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .rm-tag.cause{background:#fdecec;color:#b42318;}
+  .rm-tag.damage{background:#e8f0fb;color:#1d4f91;}
+  .rm-tag.other{background:#f1f3f5;color:#475467;}
+  .rq-vhead{font-size:16px;line-height:1.45;color:var(--navy);overflow-wrap:anywhere;}
+  .rq-vroom{font-weight:800;}
+  .rq-vmust{font-weight:700;}
+  .rq-vsub{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .rq-vnote{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;background:#fff7ed;border:1px solid #fde3c4;border-radius:8px;padding:6px 10px;}
   .rq-t{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;}
   .rq-t.main{font-weight:700;}
   .rq-t.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
@@ -175,10 +190,7 @@
   @media(max-width:560px){ .lt-bg{align-items:flex-end;padding:0;} .lt-sheet{border-radius:16px 16px 0 0;max-width:none;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));} }
   .v-req{display:grid;gap:10px;}
   .v-req h3{font-size:15px;margin-bottom:4px;}
-  .v-brief-room{display:grid;gap:2px;padding-top:6px;border-top:1px dashed #c4d2e3;font-size:13px;}
-  .v-brief-head{font-weight:700;font-size:14px;}
-  .v-brief-text{white-space:pre-wrap;overflow-wrap:anywhere;}
-  .v-visit{font-size:19px;font-weight:800;line-height:1.4;color:var(--navy);background:#e6eef8;border:2px solid var(--navy);border-radius:14px;padding:10px 14px;overflow-wrap:anywhere;}
+  .v-req-empty{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
   /* Task 30: 物件名と号室の帯（sticky・1行。上の切り欠きは body::before で塗る） */
   body::before{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:#fff;z-index:60;pointer-events:none;}
   .cb-row{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;min-height:36px;
@@ -197,16 +209,16 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=295a456"></script>
-<script src="js/supabase-config.js?v=295a456"></script>
-<script src="js/image.js?v=295a456"></script>
-<script src="js/report-logic.js?v=295a456"></script>
-<script src="js/phase-logic.js?v=295a456"></script>
-<script src="js/request-view.js?v=295a456"></script>
-<script src="js/case-band.js?v=295a456"></script>
-<script src="js/photo-marks.js?v=295a456"></script>
-<script src="js/photo-mark-editor.js?v=295a456"></script>
-<script src="js/report-form.js?v=295a456"></script>
-<script src="js/vendor.js?v=295a456"></script>
+<script src="js/crypto-util.js?v=d554c1b"></script>
+<script src="js/supabase-config.js?v=d554c1b"></script>
+<script src="js/image.js?v=d554c1b"></script>
+<script src="js/report-logic.js?v=d554c1b"></script>
+<script src="js/phase-logic.js?v=d554c1b"></script>
+<script src="js/request-view.js?v=d554c1b"></script>
+<script src="js/case-band.js?v=d554c1b"></script>
+<script src="js/photo-marks.js?v=d554c1b"></script>
+<script src="js/photo-mark-editor.js?v=d554c1b"></script>
+<script src="js/report-form.js?v=d554c1b"></script>
+<script src="js/vendor.js?v=d554c1b"></script>
 </body>
 </html>

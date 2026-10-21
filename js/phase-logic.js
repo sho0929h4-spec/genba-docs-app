@@ -1168,6 +1168,38 @@
   function visitLines(plan, caseRow) {
     return visitRooms(plan, caseRow).source === 'none' ? [] : [VISIT_ROOMS_HEAD, visitText(plan, caseRow)];
   }
+  // Task 33: ツールページ・担当者URLのページの「📋 依頼内容」の一番上の、訪問する号室ごとの1行
+  //   訪問する号室 = visitRooms（plan.visitRooms → 指示のある号室 → この案件の部屋）。部屋が1つも分からなければ「この案件の部屋」の1行
+  //   → { rows: [{ room, role, head:'402号室（加害部屋）', name:'402号室', roleText:'加害部屋', must:'原因調査・耐圧テスト', mustFrom:'brief'|'kind', sub:'怪しい箇所: …／補足: …',
+  //                line:'402号室（加害部屋）→ 原因調査・耐圧テスト', extra }], note:'当日の注意（行は改行区切り）' }
+  //   必要な対応 = その号室の指示（tasks・その他）。無ければフェーズ名（調査・原因元工事・復旧工事）。
+  //   行く部屋に入っていない号室でも中身のある指示があれば、後ろに extra: true で出す（指示を見落とさないように。号室未設定の旧 plan も）
+  function visitTaskRows(plan, caseRow, kind) {
+    const b = normalizeBrief(plan);
+    const v = visitRooms(plan, caseRow);
+    const kindText = kindLabel(kind) || '対応';
+    const mkRow = (room, role, br, extra) => {
+      const head = room ? briefRoomHead({ room, role }) : br ? briefRoomHead(br) : 'この案件の部屋';
+      const name = room ? roomLabel(room) : br ? '号室未設定' : 'この案件の部屋'; // 画面では号室＋役割のタグ（roleText）
+      const tasks = br && br.tasks.length ? choiceText(BRIEF_TASKS, br.tasks, br.taskOther) : '';
+      const sub = [];
+      if (br && br.suspects.length) sub.push('怪しい箇所: ' + choiceText(BRIEF_SUSPECTS, br.suspects, br.suspectOther));
+      if (br && textLines(br.note).length) sub.push('補足: ' + textLines(br.note).join(' '));
+      const must = tasks || kindText;
+      const rl = room ? role : br ? br.role : '';
+      return { room, role, head, name, roleText: rl ? roomRoleLabel(rl) : '', must, mustFrom: tasks ? 'brief' : 'kind', sub: sub.join('／'), line: `${head}→ ${must}`, extra: !!extra };
+    };
+    const rows = v.rooms.map(r => {
+      const br = b.rooms.find(x => x.room === r.room);
+      return mkRow(r.room, r.role || (br && br.role) || '', br, false);
+    });
+    if (!rows.length) rows.push(mkRow('', '', null, false));
+    b.rooms.filter(roomHasBrief).forEach(br => {
+      if (br.room && v.rooms.some(r => r.room === br.room)) return;
+      rows.push(mkRow(br.room, br.role, br, true));
+    });
+    return { rows, note: textLines(b.visitNote).join('\n') };
+  }
   // チップを押した → 新しい visitRooms（並びは号室の候補の順 → 候補に無いもの）
   function visitToggle(plan, caseRow, choice, on) {
     const cur = visitSelected(plan, caseRow).filter(r => r.room !== str(choice && choice.room));
@@ -1265,6 +1297,26 @@
     };
   }
 
+  // Task 33 追加: 現場用の「タスク」タブの1行（4項目だけ）。staffInbox の1件 → { place, kind, kindText, todo, due, late }
+  //   place: 物件名 号室（日報への返事は「📝 日報」）／kind: フェーズの種類（無ければ ''）／todo: やること（短い言葉）／
+  //   due: 報告書・見積書は「10/22（木）まで」（調査の報告書は時刻つき「10/21（水）15:00まで」）・超過は「…まで・超過」（late）、
+  //        確認依頼・翌日の予定は「10/22（木）13:00〜」（日時未定）、管理者からの連絡は届いた時刻「10/21（水）14:05」
+  const TASK_TODO = { report: '報告書作成', estimate: '見積書作成', notice: '確認依頼', tomorrow: '翌日の予定' };
+  function fieldTaskRow(it) {
+    const x = it || {};
+    const p = x.phase || null;
+    const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '📝 日報';
+    const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
+    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : TASK_TODO[x.type] || str(x.label);
+    let due = '';
+    if (x.type === 'report' || x.type === 'estimate') {
+      const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(x.due));
+      const at = x.type === 'report' && kind === 'survey' && x.dueAt ? fmtMDWHM(x.dueAt) : ymd ? fmtMDW(jstAt(+ymd[1], +ymd[2], +ymd[3], 12, 0)) : '';
+      if (at) due = at + 'まで' + (x.late ? '・超過' : '');
+    } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
+    else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
+    return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && (x.type === 'report' || x.type === 'estimate') };
+  }
   /* ---------- 調査結果と注意事項（Task 5b。case_phases.result） ---------- */
   // 文言の元は工事掲示（NoticeLogic.WORK_TYPES）と見積（EstimateLogic.NOTE_FIRST）。phase-logic.js の方が先に読み込まれるので、
   // 使うときに取りに行く（node は require）
@@ -2236,7 +2288,7 @@
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
-    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
+    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,

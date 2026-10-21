@@ -64,16 +64,13 @@ function nteNormalize(raw, caseRow) {
   const d = nteObj(raw);
   const out = Object.assign({}, base, d);
   out.workTypes = Object.assign({}, base.workTypes, nteObj(d.workTypes));
-  out.emphasis = Object.assign({}, base.emphasis, nteObj(d.emphasis));
   out.contact = Object.assign({}, base.contact, nteObj(d.contact));
   out.overrides = nteObj(d.overrides);
   Object.keys(out.workTypes).forEach(k => { out.workTypes[k] = !!out.workTypes[k]; });
-  Object.keys(out.emphasis).forEach(k => { out.emphasis[k] = !!out.emphasis[k]; });
   ['propertyName', 'addressee', 'workDate', 'workDateEnd', 'timeStart', 'timeEnd', 'roomNo', 'workName', 'drainRooms',
     'otherWorkText', 'otherNotice'].forEach(k => { out[k] = nteStr(out[k]); });
   ['company', 'address', 'tel'].forEach(k => { out.contact[k] = nteStr(out.contact[k]); });
-  ['addresseeEdited', 'noticeKichijitsu', 'workDateTbd', 'timePlanned', 'emphasisBold'].forEach(k => { out[k] = !!out[k]; });
-  out.emphasisColor = NoticeLogic.normalizeColor(out.emphasisColor);
+  ['addresseeEdited', 'noticeKichijitsu', 'workDateTbd', 'timePlanned'].forEach(k => { out[k] = !!out[k]; });
   return out;
 }
 
@@ -377,17 +374,6 @@ function nteBuild(s) {
   otherBox.appendChild(nteField('その他のお知らせ（1行ずつ本文に入ります）', els.other));
   card3.appendChild(otherBox);
 
-  /* ----- 強調 ----- */
-  const card4 = mk('div', 'rep-card');
-  card4.appendChild(mk('h3', null, '強調'));
-  els.color = nteInput('nt-color', 'color', NL.normalizeColor(d.emphasisColor), v => set(x => { x.emphasisColor = NL.normalizeColor(v); }));
-  card4.appendChild(nteField('強調の色', els.color));
-  card4.appendChild(nteCheck('nt-bold', '強調する文字を太字にする', d.emphasisBold, v => set(x => { x.emphasisBold = v; })));
-  card4.appendChild(mk('div', 'rep-group-ttl', '強調する場所'));
-  NL.EMPHASIS_PLACES.forEach(p => {
-    card4.appendChild(nteCheck('nt-em-' + p.key, p.label, d.emphasis[p.key], v => set(x => { x.emphasis[p.key] = v; })));
-  });
-
   /* ----- お問い合わせ先 ----- */
   const card5 = mk('div', 'rep-card');
   card5.appendChild(mk('h3', null, 'お問い合わせ先'));
@@ -413,7 +399,7 @@ function nteBuild(s) {
   toPv.appendChild(els.toPv);
 
   const form = mk('div', 'nu-form');
-  form.append(toPv, card1, card2, card3, card4, card5);
+  form.append(toPv, card1, card2, card3, card5);
 
   /* ----- プレビュー ----- */
   const pvTtl = mk('div', 'rep-between');

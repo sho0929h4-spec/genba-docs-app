@@ -18,18 +18,10 @@
   // 騒音と振動が同時選択されたときにまとめる文言
   const NOISE_VIBRATION_TEXT = '作業中は騒音・振動が発生いたします。';
 
-  // 強調の標準色
-  const DEFAULT_EMPHASIS_COLOR = '#c00000';
-
-  // 強調できる場所。drain / date / time は記書きの行キーと同じ名前
-  const EMPHASIS_PLACES = [
-    { key: 'notes',   label: '記書きの※注記',                    on: true },
-    { key: 'drain',   label: '【排水制限】の行',                  on: true },
-    { key: 'body',    label: '本文の注意文',                      on: false },
-    { key: 'subject', label: '件名（「502号室　◯◯工事のお知らせ」）', on: false },
-    { key: 'date',    label: '【工事日】の行',                    on: false },
-    { key: 'time',    label: '【作業時間】の行',                  on: false }
-  ];
+  // 太字の箇所（Task 34）: 強調の設定は廃止し、次を常に太字・黒にする
+  //   号室（件名・本文の「○○号室にて」・【工事場所】）… strongParts で切り出す
+  //   【工事内容】の※注記・【排水制限】の行（号室を含む）… detailRows の strong / 呼び出し側で注記を太字
+  // 保存済みデータの emphasis* は読まない（残っていても無視）
 
   // 決まり文句（旧 A:402-406）
   const FIXED_TEXTS = {
@@ -48,11 +40,6 @@
 
   const DEFAULT_WORK_NAME = '復旧工事';
 
-  const defaultEmphasis = () => {
-    const o = {};
-    EMPHASIS_PLACES.forEach(t => { o[t.key] = t.on; });
-    return o;
-  };
   const defaultWorkTypes = () => {
     const o = {};
     WORK_TYPES.forEach(w => { o[w.key] = false; });
@@ -101,12 +88,6 @@
     return { y, m, d: day, key: y * 10000 + m * 100 + day };
   }
 
-  // 色は #rrggbb だけ受け付ける。壊れた値は標準の赤に戻す
-  function normalizeColor(value) {
-    const s = String(value || '').trim().toLowerCase();
-    return /^#[0-9a-f]{6}$/.test(s) ? s : DEFAULT_EMPHASIS_COLOR;
-  }
-
   // ファイル名に使えない文字を置換
   function safeFileName(s) {
     return String(s || '')
@@ -130,7 +111,6 @@
       roomNo: '', workName: DEFAULT_WORK_NAME,
       workTypes: defaultWorkTypes(), drainRooms: '', otherWorkText: '', otherNotice: '',
       contact: { company: '', address: '', tel: '' },
-      emphasisColor: DEFAULT_EMPHASIS_COLOR, emphasisBold: true, emphasis: defaultEmphasis(),
       overrides: {}
     };
   }
@@ -232,20 +212,37 @@
     return [p1, f.second, f.third];
   }
 
-  // 記書きの行（旧 A:430-439）。強調は呼び出し側が d.emphasis[key] / emphasis.notes で適用する。
+  // 文を [{ text, strong }] に分ける。号室（roomLabel。空ならプレースホルダ）の所だけ strong
+  function strongParts(text, d) {
+    const s = String(text == null ? '' : text);
+    const room = roomLabel(d);
+    const out = [];
+    let i = 0;
+    for (;;) {
+      const j = s.indexOf(room, i);
+      if (j < 0) break;
+      if (j > i) out.push({ text: s.slice(i, j), strong: false });
+      out.push({ text: room, strong: true });
+      i = j + room.length;
+    }
+    if (i < s.length || !out.length) out.push({ text: s.slice(i), strong: false });
+    return out;
+  }
+
+  // 記書きの行（旧 A:430-439）。strong: 行全体を太字（【排水制限】）。※注記は常に太字（呼び出し側）
   function detailRows(d) {
     const rows = [];
     const propertyText = String(d.propertyName || '').trim() || '（物件名）';
-    rows.push({ key: 'place', label: '【工事場所】', value: propertyText + '　' + roomLabel(d), notes: [] });
-    rows.push({ key: 'content', label: '【工事内容】', value: workNameLabel(d), notes: noteLines(d) });
+    rows.push({ key: 'place', label: '【工事場所】', value: propertyText + '　' + roomLabel(d), notes: [], strong: false });
+    rows.push({ key: 'content', label: '【工事内容】', value: workNameLabel(d), notes: noteLines(d), strong: false });
     // 排水制限は号室を書いたときだけ独立した行にする
     if (d.workTypes && d.workTypes.drain) {
       const drainText = normalizeRooms(d.drainRooms);
-      if (drainText) rows.push({ key: 'drain', label: '【排水制限】', value: drainText, notes: [] });
+      if (drainText) rows.push({ key: 'drain', label: '【排水制限】', value: drainText, notes: [], strong: true });
     }
-    rows.push({ key: 'date', label: '【工事日】', value: formatWorkDate(d), notes: [] });
+    rows.push({ key: 'date', label: '【工事日】', value: formatWorkDate(d), notes: [], strong: false });
     const timeText = formatWorkTime(d);
-    if (timeText) rows.push({ key: 'time', label: '【作業時間】', value: timeText, notes: [] });
+    if (timeText) rows.push({ key: 'time', label: '【作業時間】', value: timeText, notes: [], strong: false });
     return rows;
   }
 
@@ -270,11 +267,11 @@
   }
 
   const api = {
-    WORK_TYPES, NOISE_VIBRATION_TEXT, EMPHASIS_PLACES, DEFAULT_EMPHASIS_COLOR, FIXED_TEXTS, REQUIRED,
+    WORK_TYPES, NOISE_VIBRATION_TEXT, FIXED_TEXTS, REQUIRED,
     emptyData, autoAddressee, addresseeText,
-    bodySentences, noteLines, bodyParagraphs, fixedParagraphs, subjectText, detailRows,
+    bodySentences, noteLines, bodyParagraphs, fixedParagraphs, subjectText, detailRows, strongParts,
     formatNoticeDate, formatWorkDate, formatWorkTime,
-    normalizeRoom, normalizeRooms, asSentence, normalizeColor, safeFileName,
+    normalizeRoom, normalizeRooms, asSentence, safeFileName,
     fileName, validate
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

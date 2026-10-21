@@ -10,8 +10,9 @@
 // 入力内容と写真リスト（path, name, caption, phase, marks）は localStorage `share-{share_id}` に保存して再読込で復元する。
 // 写真のプレビューはこの端末で選んだ写真（blob URL）だけ。anon は Storage から読めないので、再読込後はプレビューなし。
 // PDFプレビューは出さない（anon は署名URLを作れず、ロゴ・写真を PDF に載せられないため。PDF は提出後に社内で作る）。
-// Task 31: 一番上（帯の直下）に「🚪 今回行く部屋: …」（share_open の brief = plan.visitRooms。未設定は「この案件の部屋（101号室）」）。
-// Task 28（migration 052）: 上部に「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真）と「現場への指示」（号室ごと）を出す（share_open の request / brief）。
+// Task 33: 上部に「📋 依頼内容」1枚: 一番上に訪問する号室ごとの1行（「402号室（加害部屋）→ 原因調査・耐圧テスト」。share_open の brief = plan・
+//   case.room・phase.kind。PhaseLogic.visitTaskRows）→ 依頼内容の詳細（文章・症状・被害箇所・怪しい箇所・写真。share_open の request）。
+//   Task 31 の「🚪 今回行く部屋」の枠・Task 28 の「📝 現場への指示」の枠は無くした（中身は号室の行に）。
 //   依頼内容の写真だけは anon でも署名URLを作れる（share_request_photo_ok: 依頼内容に載っていて、ヘッダ x-share-token のトークンがこの案件の使える URL のとき。055）。依頼元の連絡先・金額は出さない。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」→ シート → share_report_late（管理者に自動の連絡）→ 入居者の電話（share_open の residents）を出す
 (() => {
@@ -160,12 +161,6 @@
     $('v-band').hidden = !$('v-place').textContent;
 
     const nodes = [];
-    // Task 31: 今回行く部屋（帯の直下・一番上。フェーズのある報告書だけ。share_open の brief.visitRooms と case.room から）
-    if (info.phase) {
-      const v = el('div', 'v-visit', '🚪 ' + PhaseLogic.visitLine(info.brief, info.case));
-      v.id = 'v-visit';
-      nodes.push(v);
-    }
     const head = el('div', 'rep-card');
     const top = el('div', 'rep-between');
     const vname = el('b', null, (String(info.vendor_name || '').trim() || '担当者') + ' 様'); // 名前は任意（空なら「担当者 様」。Task 24）
@@ -188,15 +183,9 @@
       head.appendChild(s.els.late);
     }
     nodes.push(head);
-    // Task 28: 依頼内容・現場への指示
-    const req = RequestView.build(info.request, { photoUrl: requestPhotoUrl, title: '📋 依頼内容', id: 'v-request' });
-    if (req) {
-      const c = el('div', 'rep-card v-req');
-      c.appendChild(req);
-      nodes.push(c);
-    }
-    const brief = briefCard(info.brief);
-    if (brief) nodes.push(brief);
+    // Task 33: 「📋 依頼内容」1枚（号室ごとの1行＝指示 → 依頼内容の詳細）。フェーズの無い報告書は詳細だけ（あれば）
+    const req = requestCard();
+    if (req) nodes.push(req);
 
     const note = el('div', 'rep-note',
       '途中で閉じても、入力内容と写真のリストはこの端末に保存されます。提出後は変更できません。' +
@@ -231,7 +220,7 @@
     syncBar();
   }
 
-  /* ---------- 依頼内容・現場への指示・到着が遅れそう（Task 28） ---------- */
+  /* ---------- 依頼内容・到着が遅れそう（Task 28 / Task 33） ---------- */
   let signed = null; // path → Promise<url>（依頼内容の写真の署名URL。まとめて1回だけ作る）
   // migration 055: 署名URLを作れるのは、この案件の使える担当者URLのトークンを持つ人だけ。
   // Storage の呼び出しにだけヘッダ x-share-token でトークンを渡す（policy が request.headers から読む）。画面・console には出さない
@@ -253,23 +242,21 @@
     }
     return signed.get(path) || Promise.reject(new Error('写真を開けませんでした'));
   }
-  function briefCard(raw) {
-    const lines = PhaseLogic.briefLines(raw);
-    if (!lines.length) return null;
+  // Task 33: 依頼内容の枠（ツールページと同じ。js/request-view.js の visitRows・build）。号室の行は share_open の brief（= plan）・case.room・phase.kind から
+  function requestCard() {
+    const info = s.info;
+    const detail = RequestView.build(info.request, { photoUrl: requestPhotoUrl, id: 'v-request-detail' });
+    if (!info.phase && !detail) return null;
     const card = el('div', 'rep-card v-req');
-    card.id = 'v-brief';
-    card.appendChild(el('h3', null, '📝 現場への指示'));
-    let block = null;
-    lines.forEach(l => {
-      if (!l) { block = null; return; }
-      if (/^■ /.test(l)) {
-        block = el('div', 'v-brief-room');
-        block.appendChild(el('div', 'v-brief-head', l.slice(2)));
-        card.appendChild(block);
-        return;
-      }
-      (block || card).appendChild(el('div', 'v-brief-text', l));
-    });
+    card.id = 'v-request';
+    card.appendChild(el('h3', null, '📋 依頼内容'));
+    if (info.phase) card.appendChild(RequestView.visitRows(info.brief, info.case, info.phase.kind, { id: 'v-visit-rows' }));
+    if (detail) card.appendChild(detail);
+    else {
+      const e = el('div', 'v-req-empty', '依頼内容の文・写真はまだ登録されていません');
+      e.id = 'v-request-empty';
+      card.appendChild(e);
+    }
     return card;
   }
   function lateBox() {

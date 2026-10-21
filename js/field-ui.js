@@ -4,7 +4,7 @@
 // Task 31: ツールページは管理者から依頼された対応1つだけ #f/case/{id}/phase/{phaseId}（対応の切替チップは無い）。一番下に
 //   「過去の対応履歴を参照する ›」→ #f/case/{id}/history（全フェーズを日付順・押すとその対応のツールページ）。古いリンク #f/case/{id} は
 //   自分が担当で未完了の直近の対応へ振り向ける（PhaseLogic.fieldRedirectPhase。無ければ履歴）。ツールページの1行目（帯の直下）に
-//   「🚪 今回行く部屋: …」（plan.visitRooms）。「管理者に連絡」はタスクのタブだけ。「本日」「明日」は案件タブの見出しだけ（ほかは具体の日付）
+//   「🚪 今回行く部屋: …」（plan.visitRooms → Task 33 で「依頼内容」の号室ごとの行に集約）。「管理者に連絡」はタスクのタブだけ。「本日」「明日」は案件タブの見出しだけ（ほかは具体の日付）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -21,10 +21,9 @@
 //   （Task 27 の「🧾 見積書を提出」のカードはタスクの ③ に移した）
 // 「タスク」タブ: js/staff-inbox.js の openStaffInbox({ field: true })。「日報作成」タブ: この下の fdRenderDaily
 // アプリを開いたとき（案件・タスク・日報の読み込み）に、報告書の期限超過を管理者に知らせる（overdueSync。js/staff-messages.js）
-// ツールページ: 住所（Googleマップ）・入居者の電話・対応の切替チップ（今日の予定の対応が初期選択。無ければ最新）・
-//   「📝 現場への指示（○○さんから）」と「確認した」（既存の ack。担当者本人・知らせてもらった後だけ）・
+// ツールページ: 住所（Googleマップ）・入居者の電話・「📋 依頼内容」（Task 33: 号室ごとの1行＝指示 → 詳細 → 「確認した」（既存の ack。担当者本人・知らせてもらった後だけ））・
 //   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
-// Task 28: ツールページに「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真のサムネイル → 拡大）と「関係する部屋」（号室・役割・居住者）を指示の上に。
+// Task 28: ツールページに「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真のサムネイル → 拡大）。Task 33 で関係する部屋・現場への指示の枠は依頼内容に集約。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」（一覧のカード・ツールページ）でシート → 報告（PhasesApi.reportLate = rpc phase_report_late）
 //   すると、そのフェーズでは入居者の電話（tel:）が出る（case_summaries.phases[].late_at）。管理者の画面では今までどおり常に出す
 // DB は migration 052・053（スタッフも API では会社の全案件を読める。画面で絞るだけ）
@@ -423,11 +422,9 @@ function fdRenderCase() {
     return;
   }
   const nodes = [];
-  // Task 31: ⓪ 今回行く部屋（帯の直下・1行目・大きく）→ ① 住所・入居者 → ② 依頼内容 → ③ 関係する部屋 → ④ 現場への指示 →
-  //   ⑤ この対応（種類・日時・今の段階）→ ⑥ ツール → 過去の対応履歴へのリンク。対応の切替チップは出さない（このページは管理者から依頼された対応1つ）
-  const visit = mk('div', 'fd-visit', '🚪 ' + PhaseLogic.visitLine(sel.plan, c));
-  visit.id = 'fd-visit';
-  nodes.push(visit);
+  // Task 33: ① 住所・入居者 → ② 依頼内容（号室ごとの1行 → 詳細 → 確認した）→ ③ この対応（種類・日時・今の段階）→ ④ ツール →
+  //   過去の対応履歴へのリンク。対応の切替チップは出さない（このページは管理者から依頼された対応1つ）。
+  //   Task 31 の「🚪 今回行く部屋」の枠・Task 28 の「🏠 関係する部屋」・「📝 現場への指示」の枠は依頼内容に集約して無くした
   // 住所（Googleマップ）・入居者の電話
   const info = mk('div', 'fd-info');
   if (c.address) {
@@ -441,17 +438,7 @@ function fdRenderCase() {
   lb.id = 'fd-late';
   info.appendChild(lb);
   nodes.push(info);
-  const req = RequestView.build(c.request, { photoUrl: p => CasesApi.requestPhotoUrl(p), title: '📋 依頼内容', id: 'fd-request', cls: 'fd-req' });
-  if (req) nodes.push(req);
-  else {
-    const e = mk('div', 'fd-req-empty', '📋 依頼内容はまだ登録されていません');
-    e.id = 'fd-request-empty';
-    nodes.push(e);
-  }
-  const rooms = fdRoomsCard(c);
-  if (rooms) nodes.push(rooms);
-  const brief = fdBriefCard(s, c, sel);
-  if (brief) nodes.push(brief);
+  nodes.push(fdRequestCard(s, c, sel));
   // この対応（種類・何回目・日時）と今の段階
   const ph = mk('div', 'fd-phase-line');
   ph.id = 'fd-phase-line';
@@ -538,62 +525,31 @@ function fdRenderHistory() {
   host.replaceChildren(...nodes);
 }
 
-// 「🏠 関係する部屋」（Task 28）: この案件の部屋＋関係する部屋の 号室・役割・居住者（電話は出さない＝到着が遅れそうの報告の後に上の欄で）
-function fdRoomsCard(c) {
-  const list = PhaseLogic.planRoomChoices(c);
-  if (!list.length) return null;
-  const card = mk('div', 'fd-rooms');
-  card.id = 'fd-rooms';
-  card.appendChild(mk('b', null, '🏠 関係する部屋'));
-  const rs = Array.isArray(c.rooms) ? c.rooms : [];
-  list.forEach(x => {
-    const row = mk('div', 'fd-room');
-    row.dataset.room = x.room;
-    row.appendChild(mk('span', 'rm-tag ' + (x.role || 'other'), PhaseLogic.roomRoleLabel(x.role)));
-    row.appendChild(mk('b', null, PhaseLogic.roomLabel(x.room) || x.room));
-    if (x.own) row.appendChild(mk('span', 'fd-tiny', 'この案件の部屋'));
-    const r = x.own ? null : rs.find(y => String(y.room || '').trim() === x.room);
-    const name = String(x.own ? c.resident_name || '' : (r && r.resident_name) || '').trim();
-    if (name) row.appendChild(mk('span', 'fd-tiny', '居住者 ' + name + '様'));
-    card.appendChild(row);
-  });
-  return card;
-}
-
-// 「📝 現場への指示（○○さんから）」。指示が無く、知らせてもらってもいなければ出さない
-//   Task 25: 号室ごとに ■ 402号室（加害部屋） 怪しい箇所: … 指示: … 補足: …（PhaseLogic.briefLines と同じ文）
-function fdBriefCard(s, c, p) {
-  const lines = PhaseLogic.briefLines(p.plan);
-  const notified = !!p.notified_at;
-  if (!lines.length && !notified) return null;
-  const card = mk('div', 'fd-brief');
-  card.id = 'fd-brief';
-  const from = String(p.notified_by_name || c.assignee_name || '').trim();
-  card.appendChild(mk('b', null, '📝 現場への指示' + (from ? '（' + from + 'さんから）' : '')));
-  let block = null;
-  lines.forEach(l => {
-    if (!l) { block = null; return; }
-    if (/^■ /.test(l)) {
-      block = mk('div', 'fd-brief-room');
-      block.appendChild(mk('div', 'fd-brief-head', l.slice(2)));
-      card.appendChild(block);
-      return;
-    }
-    (block || card).appendChild(mk('div', 'fd-brief-text', l));
-  });
-  if (!lines.length) card.appendChild(mk('div', 'fd-tiny', '指示の記載はありません'));
-  const row = mk('div', 'fd-row');
+// 「📋 依頼内容」（Task 33）: 一番上に訪問する号室ごとの1行（「402号室（加害部屋）→ 原因調査・耐圧テスト」・怪しい箇所／補足・当日の注意。
+//   RequestView.visitRows = PhaseLogic.visitTaskRows）→ 依頼内容の詳細（文・症状・被害箇所・怪しい箇所・事前の写真）→ 一番下に「確認した」
+//   （担当者本人・知らせてもらった後・未確認のときだけ。確認済みは「✓ 確認済み M/D H:MM」の1行）。依頼内容が空でも号室の行は出す
+function fdRequestCard(s, c, p) {
+  const card = mk('div', 'fd-req');
+  card.id = 'fd-request';
+  card.appendChild(mk('b', 'rq-title', '📋 依頼内容'));
+  card.appendChild(RequestView.visitRows(p.plan, c, p.kind, { id: 'fd-visit-rows' }));
+  const req = RequestView.build(c.request, { photoUrl: x => CasesApi.requestPhotoUrl(x), id: 'fd-request-detail' });
+  if (req) card.appendChild(req);
+  else {
+    const e = mk('div', 'fd-req-empty', '依頼内容の文・写真はまだ登録されていません');
+    e.id = 'fd-request-empty';
+    card.appendChild(e);
+  }
   if (p.ack_at) {
-    const tag = mk('span', 'fd-ack-tag', '✓ 確認済み ' + PhaseLogic.fmtMDHM(p.ack_at) + (p.ack_by_name ? '（' + p.ack_by_name + '）' : ''));
+    const tag = mk('div', 'fd-ack-tag', '✓ 確認済み ' + PhaseLogic.fmtMDHM(p.ack_at));
     tag.id = 'fd-ack-tag';
-    row.appendChild(tag);
-  } else if (notified && p.worker_id && p.worker_id === fdMe()) {
-    const ack = dBtn('確認した', 'btn sm ghost inline fd-ack', btn => fdAck(s, c, p, btn));
+    card.appendChild(tag);
+  } else if (p.notified_at && p.worker_id && p.worker_id === fdMe()) {
+    const ack = dBtn('確認した', 'btn fd-ack', btn => fdAck(s, c, p, btn));
     ack.id = 'fd-ack';
     ack.disabled = !!s.busy;
-    row.appendChild(ack);
+    card.appendChild(ack);
   }
-  if (row.childNodes.length) card.appendChild(row);
   return card;
 }
 

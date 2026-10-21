@@ -4,8 +4,9 @@
 // 一覧の中身は PhaseLogic.staffInbox（日本時間で「明日」を判定）。
 // Task 29: 現場用の「タスク」タブ（#f/tasks）もここで描く（opts.field）。並び = ① 管理者からの連絡（催促・返事・日報への返事）→
 //   ② 報告書の作成・提出（期限超過が先・赤「期限超過」）→ ③ 見積書の作成（期限順）→ ④ 確認依頼 → ⑤ 明日の予定。
-//   各行に「開く」（ツールページ・連絡）と、その場で進めるボタン（報告書を書く・見積を作る・確認した・読んだ）。0件は「今やることはありません」。
-//   上に「📨 管理者に連絡」（シート）と「やり取りを見る」（#f/contact）
+//   Task 33 追加: 各行は4項目だけ（物件名 号室／フェーズ／やること／期限。PhaseLogic.fieldTaskRow）の行全体ボタン（右端「›」）。押すと続き
+//   （見積を作る・報告書を書く・ツールページ・連絡は既読にしてやり取り）。0件は「今やることはありません」。
+//   上に1行の小さなボタン「📨 管理者に連絡」（シート）と「やり取りを見る」（#f/contact）。説明の段落は無い。管理画面の #inbox-staff は今まで通り
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
 
@@ -121,7 +122,61 @@ async function siReadMessage(it) {
   if (el) el.textContent = err;
 }
 
+// Task 33 追加: 現場用の「タスク」タブの1行（4項目だけ: 物件名 号室／フェーズ／やること／期限。PhaseLogic.fieldTaskRow）。
+//   行全体がボタン。押すとそのタスクの続き（siFieldOpen）。右端に「›」。説明文・今回行く部屋・依頼内容・指示の要約・個別のボタンは出さない
+function siFieldItemEl(it) {
+  const r = PhaseLogic.fieldTaskRow(it);
+  const p = it.phase;
+  const key = siKey(it);
+  const dueItem = it.type === 'estimate' || it.type === 'report';
+  const row = dBtn('', 'si-item si-frow' + (dueItem ? ' estimate' : '') + (it.type === 'report' ? ' report' : '') + (it.type === 'message' ? ' message' : '')
+    + (it.nudge ? ' nudge' : '') + (r.late ? ' late' : ''), () => siFieldOpen(it));
+  row.dataset.type = it.type;
+  if (p) row.dataset.phaseId = p.id;
+  if (it.message) row.dataset.msgId = it.message.id;
+  row.disabled = si.busy.has(key);
+  const main = mk('span', 'si-fmain');
+  main.appendChild(mk('b', 'si-case', r.place));
+  const sub = mk('span', 'si-fsub');
+  if (r.kind) sub.appendChild(mk('span', 'ph-kind k-' + r.kind, r.kindText));
+  sub.appendChild(mk('span', 'si-todo', r.todo));
+  if (r.due) sub.appendChild(mk('span', 'si-due' + (r.late ? ' late' : ''), r.due));
+  main.appendChild(sub);
+  row.appendChild(main);
+  row.appendChild(mk('span', 'si-chev', '›'));
+  row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due].filter(Boolean).join(' '));
+  return row;
+}
+const siKey = it => (it.type === 'message' ? 'msg-' + it.message.id : it.type === 'estimate' ? 'est-' + it.phase.id : it.type === 'report' ? 'rep-' + it.phase.id : it.phase.id);
+// 行を押した → そのタスクの続き（今までの「その場で進めるボタン」と同じ行き先）
+//   見積書作成 → 見積の作成／続き、報告書作成 → 報告書の作成／続き、確認依頼・翌日の予定 → その対応のツールページ（「確認した」は依頼内容の一番下）、
+//   管理者からの返事・催促 → 既読にして、やり取り（#f/contact。日報への返事は日報作成のタブ）
+async function siFieldOpen(it) {
+  if (it.type === 'estimate') return siMakeEstimate(it);
+  if (it.type === 'report') return siMakeReport(it);
+  if (it.type === 'message') return siOpenMessage(it);
+  location.hash = '#f/case/' + it.caseRow.id + '/phase/' + it.phase.id;
+}
+async function siOpenMessage(it) {
+  const s = si;
+  const key = 'msg-' + it.message.id;
+  if (!s || s.busy.has(key)) return;
+  s.busy.add(key);
+  s.msg = '';
+  siRender();
+  let err = '';
+  try { await StaffMessagesApi.markRead(it.message.id); }
+  catch (e) { err = '既読にできませんでした: ' + errText(e); }
+  s.busy.delete(key);
+  if (si !== s) return;
+  if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+  if (!err) { location.hash = it.caseRow ? '#f/contact' : '#f/daily'; return; }
+  s.msg = err;
+  siRender();
+}
+
 function siItemEl(it) {
+  if (si.field) return siFieldItemEl(it);
   if (it.type === 'message') return siMessageEl(it);
   const p = it.phase;
   const dueItem = it.type === 'estimate' || it.type === 'report'; // 期限のある行（Task 23。過ぎたら赤）
@@ -190,11 +245,10 @@ function siRender() {
   if (!root || !si) return;
   const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
   if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
-  nodes.push(mk('div', 'rep-sub ob-lead', si.field
-    ? '今やることを上から順に並べています（① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 翌日の予定）。期限を過ぎたものは赤く出ます'
-    : 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。翌日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
+  // Task 33 追加: 現場用は説明の段落を出さない（並び: ① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 翌日の予定。超過は赤）
+  if (!si.field) nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。翌日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
   if (si.field) {
-    // 管理者に連絡（Task 29: タブから外したので、こことツールページのボタンから）
+    // 管理者に連絡（Task 29: タブから外したので、ここから）。Task 33 追加: 1行の小さなボタン2つ
     const bar = mk('div', 'si-contact');
     const nb = dBtn('📨 管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
       if (si && si.field) { si.msg = '管理者に連絡しました（返事はこのタスクに出ます）'; siRender(); }
@@ -221,7 +275,7 @@ function siRender() {
       e.id = 'staff-inbox-empty';
       nodes.push(e);
     } else {
-      const card = mk('div', 'rep-card');
+      const card = mk('div', si.field ? 'si-flist' : 'rep-card');
       card.id = 'staff-inbox-list';
       items.forEach(it => card.appendChild(siItemEl(it)));
       nodes.push(card);

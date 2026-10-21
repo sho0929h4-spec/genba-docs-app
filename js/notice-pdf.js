@@ -9,11 +9,11 @@
   const A4_PX = 794; // 210mm @96dpi
   const MIN_SCALE = 0.8, SCALE_STEP = 0.02;
 
-  /* ===== CSS（旧 styles.css 277-376。--scale は --nt-scale、強調色は --nt-alert） ===== */
+  /* ===== CSS（旧 styles.css 277-376。--scale は --nt-scale。強調色の設定は廃止＝太字は黒の .nt-strong） ===== */
   const CSS = `
 .nt-sheet,.nt-sheet *{box-sizing:border-box;}
 .nt-sheet{width:210mm;height:297mm;padding:20mm;background:#fff;color:#000;overflow:hidden;text-align:left;flex-shrink:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-.nt-inner{--nt-scale:1;--nt-alert:#c00000;height:100%;font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho","Noto Serif JP",serif;font-size:calc(11.5pt * var(--nt-scale));line-height:1.75;color:#000;}
+.nt-inner{--nt-scale:1;height:100%;font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho","Noto Serif JP",serif;font-size:calc(11.5pt * var(--nt-scale));line-height:1.75;color:#000;}
 .nt-top{display:flex;align-items:flex-start;justify-content:space-between;gap:1em;margin-bottom:1.2em;}
 .nt-addressee{font-size:1.05em;font-weight:600;}
 .nt-notice-date{white-space:nowrap;}
@@ -33,8 +33,7 @@
 .nt-value{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;}
 .nt-notes{margin-top:.15em;}
 .nt-note{display:block;padding-left:1em;text-indent:-1em;}
-.nt-emph{color:var(--nt-alert);}
-.nt-bold .nt-emph{font-weight:700;}
+.nt-strong{font-weight:700;color:#000;}
 .nt-contact{margin-top:1.4em;padding-top:.7em;border-top:1px solid #000;text-align:right;}
 .nt-contact-title{margin:0 0 .35em;font-weight:700;}
 .nt-contact-line{display:block;white-space:pre-line;overflow-wrap:anywhere;}
@@ -58,6 +57,14 @@
     return e;
   };
   const line = (text, cls) => el('span', cls || 'nt-line', text);
+  // 号室の所だけ <span class="nt-strong"> にして parent に足す（NoticeLogic.strongParts）
+  function withParts(parent, text, d) {
+    NL().strongParts(text, d).forEach(p => {
+      if (!p.text) return;
+      parent.appendChild(p.strong ? el('span', 'nt-strong', p.text) : document.createTextNode(p.text));
+    });
+    return parent;
+  }
 
   // 描画用のデータ。物件名が空なら案件名で補う（ファイル名と同じ扱い。保存データは変えない）
   function viewData(data, caseRow) {
@@ -67,17 +74,16 @@
   }
 
   /* ===== 公開: シート ===== */
-  // 旧 A:396-464 の構造。強調は NoticeLogic.EMPHASIS_PLACES のキー（notes/drain/body/subject/date/time）
+  // 旧 A:396-464 の構造。太字（.nt-strong・黒）は常に: 号室（件名・本文・【工事場所】）、※注記、【排水制限】の行。
+  // 保存データの emphasis* は読まない
   function buildSheet(data, caseRow) {
     injectCss();
     const L = NL();
     const d = viewData(data, caseRow);
-    const emph = d.emphasis || {};
     const T = L.FIXED_TEXTS;
 
     const sheet = el('div', 'nt-sheet');
-    const inner = el('div', 'nt-inner' + (d.emphasisBold ? ' nt-bold' : ''));
-    inner.style.setProperty('--nt-alert', L.normalizeColor(d.emphasisColor));
+    const inner = el('div', 'nt-inner');
     sheet.appendChild(inner);
 
     // 左上 宛名 / 右上 通知日
@@ -88,15 +94,14 @@
 
     inner.appendChild(el('p', 'nt-greeting', T.greeting));
     inner.appendChild(el('p', 'nt-opening', T.opening));
-    inner.appendChild(el('p', 'nt-subject' + (emph.subject ? ' nt-emph' : ''), L.subjectText(d)));
+    inner.appendChild(withParts(el('p', 'nt-subject'), L.subjectText(d), d));
 
-    // 本文3段落。注意文の行だけ強調できる（第1段落のうち、選んだ工事内容の文と一致する行）
-    const bodyEmph = emph.body ? new Set(L.bodySentences(d)) : null;
+    // 本文3段落。導入文「○○号室にて」の号室を太字（第2・第3段落は定型文で号室を含まない）
     const body = el('div', 'nt-body');
-    L.bodyParagraphs(d).forEach(lines => {
+    L.bodyParagraphs(d).forEach((lines, pi) => {
       const p = el('p');
-      lines.forEach(t => {
-        p.appendChild(line(t, 'nt-line' + (bodyEmph && bodyEmph.has(t.trim()) ? ' nt-emph' : '')));
+      lines.forEach((t, li) => {
+        p.appendChild(pi === 0 && li === 0 ? withParts(line(null), t, d) : line(t));
       });
       body.appendChild(p);
     });
@@ -111,11 +116,11 @@
       const row = el('div', 'nt-row');
       const lab = el('div', 'nt-label', r.label);
       const val = el('div', 'nt-value');
-      val.appendChild(line(r.value));
-      if (emph[r.key]) { lab.classList.add('nt-emph'); val.classList.add('nt-emph'); }
+      val.appendChild(r.key === 'place' ? withParts(line(null), r.value, d) : line(r.value));
+      if (r.strong) { lab.classList.add('nt-strong'); val.classList.add('nt-strong'); }
       if (r.notes && r.notes.length) {
         const notes = el('div', 'nt-notes');
-        r.notes.forEach(n => notes.appendChild(line(n, 'nt-note' + (emph.notes ? ' nt-emph' : ''))));
+        r.notes.forEach(n => notes.appendChild(line(n, 'nt-note nt-strong')));
         val.appendChild(notes);
       }
       row.appendChild(lab);
