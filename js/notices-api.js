@@ -62,6 +62,11 @@ const NoticesApi = (() => {
         .order('work_date', { ascending: false, nullsFirst: true })
         .order('created_at', { ascending: false }));
     },
+    // 日報（Task 32）: 自分が作った工事掲示（sinceIso 以降）
+    async listMineSince(sinceIso) {
+      return must(await sb.from('notices').select('id, case_id, phase_id, created_at, created_by')
+        .eq('created_by', ctx.user.id).gte('created_at', sinceIso).order('created_at', { ascending: true })) || [];
+    },
     async get(id) {
       return must(await sb.from('notices').select('*').eq('id', id).maybeSingle());
     },

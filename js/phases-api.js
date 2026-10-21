@@ -83,7 +83,7 @@ const PhasesApi = (() => {
     withWorker,
     // 社内メンバー（担当者の候補・メール）
     async members() {
-      return must(await sb.from('memberships').select('user_id, display_name, email, role').order('display_name')) || [];
+      return must(await sb.from('memberships').select('user_id, display_name, email, role, phone').order('display_name')) || [];
     },
     async list(caseId) {
       return must(await sb.from('case_phases').select('*').eq('case_id', caseId).order('created_at').order('id'));

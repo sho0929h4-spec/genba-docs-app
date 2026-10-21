@@ -12,7 +12,7 @@
 // PDFプレビューは出さない（anon は署名URLを作れず、ロゴ・写真を PDF に載せられないため。PDF は提出後に社内で作る）。
 // Task 31: 一番上（帯の直下）に「🚪 今回行く部屋: …」（share_open の brief = plan.visitRooms。未設定は「この案件の部屋（101号室）」）。
 // Task 28（migration 052）: 上部に「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真）と「現場への指示」（号室ごと）を出す（share_open の request / brief）。
-//   依頼内容の写真だけは anon でも署名URLを作れる（share_request_photo_ok: 依頼内容に載っていて URL が使える間）。依頼元の連絡先・金額は出さない。
+//   依頼内容の写真だけは anon でも署名URLを作れる（share_request_photo_ok: 依頼内容に載っていて、ヘッダ x-share-token のトークンがこの案件の使える URL のとき。055）。依頼元の連絡先・金額は出さない。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」→ シート → share_report_late（管理者に自動の連絡）→ 入居者の電話（share_open の residents）を出す
 (() => {
   'use strict';
@@ -233,10 +233,19 @@
 
   /* ---------- 依頼内容・現場への指示・到着が遅れそう（Task 28） ---------- */
   let signed = null; // path → Promise<url>（依頼内容の写真の署名URL。まとめて1回だけ作る）
+  // migration 055: 署名URLを作れるのは、この案件の使える担当者URLのトークンを持つ人だけ。
+  // Storage の呼び出しにだけヘッダ x-share-token でトークンを渡す（policy が request.headers から読む）。画面・console には出さない
+  let photoClient = null;
   function requestPhotoUrl(path) {
     if (!signed) {
       const paths = ((s.info.request && s.info.request.photos) || []).map(p => p.path);
-      const all = client.storage.from('files').createSignedUrls(paths, 3600).then(({ data, error }) => {
+      if (!photoClient) {
+        photoClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'genba-vendor-photo' },
+          global: { headers: { 'x-share-token': token } }
+        });
+      }
+      const all = photoClient.storage.from('files').createSignedUrls(paths, 3600).then(({ data, error }) => {
         if (error) throw error;
         return new Map((data || []).filter(x => x && x.signedUrl).map(x => [x.path, x.signedUrl]));
       });

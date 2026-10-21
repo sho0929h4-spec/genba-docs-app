@@ -7,6 +7,7 @@
 //   Task 27: 調査報告の提出（次の対応方針が原因元工事／再調査）で DB が自動の連絡を入れる（source = report_submit。「自動」の札）。
 //   Task 28: 現場用・担当者URLの「🕒 到着が遅れそう」でも自動の連絡が入る（source = late。「自動」の札）。
 //           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
+//   Task 32: 日報は PDF を添付（smPdfLinks で「📄 日報のPDFを開く」「⬇ 保存」）。
 //   Task 29: 報告書の期限超過（source = overdue。送った人なし →「自動のお知らせ」）と日報（source = daily。案件なし →「📝 日報」・返事は案件なし）。
 //           管理者の「📨 現場からの連絡 n件」は案件ごとの未読（case_summaries.staff_unread）＋案件の無い未読（日報）。
 //           overdueSync(rows): アプリを開いたときに報告書の期限超過を管理者に知らせる（PhaseLogic.overdueReports → rpc phase_report_overdue。1回だけは DB が判定）
@@ -172,8 +173,11 @@ function smMsgEl(m, isRoot) {
   else if (m.from_user === me && m.read_at) head.appendChild(mk('span', 'sm-read', '既読'));
   box.appendChild(head);
   if (isRoot) box.appendChild(mk('div', 'sm-subj', m.subject));
+  const all = Array.isArray(m.attachments) ? m.attachments : [];
+  // Task 32: 日報の PDF（開く・保存）は件名のすぐ下
+  all.filter(a => StaffMessagesApi.isPdf(a)).forEach(a => box.appendChild(smPdfLinks(a)));
   if (String(m.body || '').trim()) box.appendChild(mk('div', 'sm-body', m.body));
-  const atts = Array.isArray(m.attachments) ? m.attachments : [];
+  const atts = all.filter(a => !StaffMessagesApi.isPdf(a));
   if (atts.length) {
     const g = mk('div', 'sm-photos');
     atts.forEach(a => {
@@ -187,6 +191,21 @@ function smMsgEl(m, isRoot) {
     box.appendChild(g);
   }
   return box;
+}
+
+// 日報の PDF のリンク（署名URL・1時間。作れたら押せる）。現場用の送った日報の履歴でも使う
+function smPdfLinks(a) {
+  const row = mk('div', 'sm-pdf');
+  const open = mk('a', 'btn sm ghost inline sm-pdf-open', '📄 日報のPDFを開く');
+  open.target = '_blank';
+  open.rel = 'noopener';
+  const save = mk('a', 'btn sm ghost inline sm-pdf-save', '⬇ 保存');
+  save.rel = 'noopener';
+  [open, save].forEach(x => x.setAttribute('aria-disabled', 'true'));
+  StaffMessagesApi.pdfUrl(a, false).then(u => { open.href = u; open.removeAttribute('aria-disabled'); }, () => { open.textContent = 'PDFを開けませんでした'; });
+  StaffMessagesApi.pdfUrl(a, true).then(u => { save.href = u; save.removeAttribute('aria-disabled'); }, () => { save.hidden = true; });
+  row.append(open, save);
+  return row;
 }
 
 function smThreadEl(g) {

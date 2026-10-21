@@ -30,6 +30,9 @@ const CHIP_HINTS = {
 };
 const NEXT_MAX = 2; // カードの「次:」は最大2行（🔴 を先）
 
+// 担当者の選択肢の後ろに付ける電話番号（Task 32。memberships.phone。無ければ ''）
+function memberTel(m) { return m && m.phone ? '　☎ ' + m.phone : ''; }
+
 function mk(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -337,7 +340,7 @@ async function openCaseModal(row, onSaved, opts) {
   }
   const selfLabel = (ctx.membership && ctx.membership.display_name ? ctx.membership.display_name : '自分') + '（自分）';
   (members || []).forEach(m => {
-    const label = (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '');
+    const label = (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '') + memberTel(m);
     sel.appendChild(new Option(label, m.user_id));
   });
   if (!caseModalAssigneeTouched) sel.value = want;

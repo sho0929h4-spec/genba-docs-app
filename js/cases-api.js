@@ -28,8 +28,15 @@ const CasesApi = (() => {
   return {
     async listSummaries() { return must(await sb.from('case_summaries').select('*')); },
     async getSummary(id) { return must(await sb.from('case_summaries').select('*').eq('id', id).maybeSingle()); },
+    // 本人の担当者名・電話番号（Task 32 / migration 056。本人の行だけ・列 grant は display_name と phone）
+    async updateMe(fields) {
+      const out = {};
+      if (fields && 'display_name' in fields) out.display_name = String(fields.display_name || '').trim();
+      if (fields && 'phone' in fields) out.phone = String(fields.phone || '').trim() || null;
+      return must(await sb.from('memberships').update(out).eq('user_id', ctx.user.id).select('user_id, display_name, phone').single());
+    },
     async listMembers() {
-      return must(await sb.from('memberships').select('user_id, display_name, email, role').order('display_name'));
+      return must(await sb.from('memberships').select('user_id, display_name, email, role, phone').order('display_name'));
     },
     async createCase(fields) {
       const q = await checkQuota(0, 1);

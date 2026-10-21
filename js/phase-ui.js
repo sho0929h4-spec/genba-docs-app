@@ -1967,7 +1967,7 @@ function phWorkerSelect(p, errId) {
   members.forEach(m => {
     const o = document.createElement('option');
     o.value = m.user_id;
-    o.textContent = (m.display_name || '（名前なし）') + (m.user_id === phMyId() ? '（自分）' : '');
+    o.textContent = (m.display_name || '（名前なし）') + (m.user_id === phMyId() ? '（自分）' : '') + memberTel(m); // Task 32: 電話番号
     sel.appendChild(o);
   });
   if (p.worker_id && !members.some(m => m.user_id === p.worker_id)) {

@@ -71,6 +71,12 @@ const ReportsApi = (() => {
     async listByCase(caseId) {
       return must(await sb.from('reports').select('*').eq('case_id', caseId).order('created_at', { ascending: false }));
     },
+    // 日報（Task 32）: 対応ごとの報告書の作業開始・終了時間（case_summaries には time_start が無いので別に読む）
+    async timesForPhases(phaseIds) {
+      const ids = Array.from(new Set((phaseIds || []).filter(Boolean)));
+      if (!ids.length) return [];
+      return must(await sb.from('reports').select('id, phase_id, work_date, time_start, time_end').in('phase_id', ids)) || [];
+    },
     async get(id) {
       return must(await sb.from('reports').select('*').eq('id', id).maybeSingle());
     },

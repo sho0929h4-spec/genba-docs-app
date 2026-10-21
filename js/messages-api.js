@@ -1,6 +1,7 @@
 // js/messages-api.js — 現場からの連絡（staff_messages。migration 041・Task 23）のDBアクセス（Supabase呼び出しはここに集約）
 // 現場用の「管理者に連絡」と管理者の「📨 現場からの連絡」（返事も同じ表。reply_to = もとの連絡）。アプリ内だけ（メールは送らない＝Ruling）
-// 写真は files バケットの {org}/cases/{case}/messages/{uuid}-name.jpg（ImageUtil で JPEG に縮める・容量に数える）
+// 写真は files バケットの {org}/cases/{case}/messages/{uuid}-name.jpg（ImageUtil で JPEG に縮める・容量に数える）。
+// 日報（Task 32）は {org}/daily/{自分}/ に PDF（{uuid}-nippo.pdf）と写真（3枚まで）
 const StaffMessagesApi = (() => {
   const must = ({ data, error }) => { if (error) throw error; return data; };
   // source（047）: staff = 現場からの連絡／report_submit = 調査報告の提出で自動／late = 到着が遅れそうの報告で自動（052）／
@@ -15,28 +16,6 @@ const StaffMessagesApi = (() => {
   };
   const dirOf = caseId => `${ctx.org.id}/cases/${caseId}/messages`;
   const dailyDir = () => `${ctx.org.id}/daily/${ctx.user.id}`; // 053: 日報の写真
-  // 写真を縮めてアップロード（失敗したら片付けて投げる）→ [{ path, name, size, type }]
-  async function uploadAll(files, dir) {
-    const done = [];
-    let bytes = 0;
-    try {
-      for (const file of files) {
-        const p = await ImageUtil.prepareFile(file);
-        if (p.type !== 'image/jpeg') throw new Error(`「${file.name}」は写真ではありません`);
-        const q = await checkQuota(bytes + p.size, 0);
-        if (!q.ok) throw new Error(q.reason);
-        const path = `${dir}/${CryptoUtil.uuid()}-${safeJpg(p.name)}`;
-        await AppStorage.upload(path, p.blob, { contentType: p.type });
-        done.push({ path, name: p.name, size: p.size, type: p.type });
-        bytes += p.size;
-      }
-    } catch (e) {
-      for (const a of done) { try { await AppStorage.remove(a.path); } catch (_) {} }
-      throw e;
-    }
-    return { done, bytes };
-  }
-
   const api = {
     SUBJECT_MAX, BODY_MAX, FILES_MAX,
     // 連絡の一覧（新しい順）。opts.caseId で案件を絞る・opts.unreadToMe（宛先が自分で未読）
@@ -84,25 +63,50 @@ const StaffMessagesApi = (() => {
         throw e;
       }
     },
-    // 日報を送る（Task 29 / migration 053）。その日（日本時間）の自分の日報があれば中身を差し替えて未読に戻す（rpc が判定）
-    //   { body, keep: 残す写真（前に送った attachments）, files: 足す写真（File） } → 送った行（resent: 送り直しか）
+    // 日報を送る（Task 29 / migration 053 → Task 32 で PDF を添付）。その日（日本時間）の自分の日報があれば中身を差し替えて未読に戻す（rpc が判定）
+    //   { body: テキスト版, pdf: Blob, pdfName: 保存名, keep: 残す写真（前に送った attachments）, photos: 足す写真（ImageUtil.prepareFile の値）,
+    //     drop: 送り直しで使わなくなった前の添付（前の PDF・外した写真。送れたら消す） } → 送った行（resent: 送り直しか）
+    //   添付は [PDF, 写真…]（写真は DailyLogic.PHOTOS_MAX 枚まで）。保存先は {org}/daily/{自分}/
     async sendDaily(f) {
       const body = String(f.body || '');
       if (!body.trim()) throw new Error('日報の中身がありません');
       if (body.length > BODY_MAX) throw new Error('日報は' + BODY_MAX + '文字までです');
+      if (!(f.pdf instanceof Blob)) throw new Error('日報のPDFを作れませんでした');
       const keep = Array.from(f.keep || []);
-      const files = Array.from(f.files || []);
-      if (keep.length + files.length > FILES_MAX) throw new Error('写真は' + FILES_MAX + '枚までです');
-      const { done, bytes } = await uploadAll(files, dailyDir());
+      const photos = Array.from(f.photos || []);
+      const max = (window.DailyLogic && DailyLogic.PHOTOS_MAX) || 3;
+      if (keep.length + photos.length > max) throw new Error('写真は' + max + '枚までです');
+      const done = [];
+      let bytes = 0;
       try {
-        const row = must(await sb.rpc('staff_daily_send', { p_body: body, p_attachments: keep.concat(done) }));
-        if (bytes) { try { await addUsage(bytes, 0); } catch (e) { console.warn('使用量の更新に失敗', e); } }
+        const q = await checkQuota(f.pdf.size + photos.reduce((a, p) => a + (p.size || 0), 0), 0);
+        if (!q.ok) throw new Error(q.reason);
+        const pdfPath = `${dailyDir()}/${CryptoUtil.uuid()}-nippo.pdf`;
+        await AppStorage.upload(pdfPath, f.pdf, { contentType: 'application/pdf' });
+        done.push({ path: pdfPath, name: String(f.pdfName || 'nippo.pdf').slice(0, 120), size: f.pdf.size, type: 'application/pdf' });
+        bytes += f.pdf.size;
+        for (const p of photos) {
+          const path = `${dailyDir()}/${CryptoUtil.uuid()}-${safeJpg(p.name)}`;
+          await AppStorage.upload(path, p.blob, { contentType: p.type || 'image/jpeg' });
+          done.push({ path, name: p.name, size: p.size, type: p.type || 'image/jpeg' });
+          bytes += p.size;
+        }
+        const row = must(await sb.rpc('staff_daily_send', { p_body: body, p_attachments: [done[0]].concat(keep, done.slice(1)) }));
+        let freed = 0;
+        for (const a of Array.from(f.drop || [])) {
+          try { if (await AppStorage.remove(a.path)) freed += Number(a.size) || 0; } catch (e) { console.warn('前の添付を消せませんでした', e); }
+        }
+        if (bytes - freed) { try { await addUsage(bytes - freed, 0); } catch (e) { console.warn('使用量の更新に失敗', e); } }
         return row;
       } catch (e) {
         for (const a of done) { try { await AppStorage.remove(a.path); } catch (_) {} }
         throw e;
       }
     },
+    // 添付が PDF か（日報の PDF。Task 32）
+    isPdf(a) { return !!a && (a.type === 'application/pdf' || /\.pdf$/i.test(String(a.path || ''))); },
+    // PDF を開く・保存する URL（署名URL。1時間）
+    pdfUrl(a, download) { return AppStorage.getUrl(a.path, 3600, download ? { download: a.name || 'nippo.pdf' } : undefined); },
     // 既読にする（宛先の人だけ。RLS で 0 行なら false）
     async markRead(id) {
       const rows = must(await sb.from('staff_messages').update({ read_at: new Date().toISOString() }).eq('id', id).is('read_at', null).select('id'));

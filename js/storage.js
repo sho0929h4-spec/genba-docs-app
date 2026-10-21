@@ -12,8 +12,11 @@ const AppStorage = {
     if (error) throw error;
     return path;
   },
-  async getUrl(path, expiresIn = 3600) {
-    const { data, error } = await sb.storage.from(this.bucket).createSignedUrl(path, expiresIn);
+  // opts.download: 保存名（日報の PDF のダウンロード。Task 32）
+  async getUrl(path, expiresIn = 3600, opts) {
+    const o = opts && opts.download ? { download: String(opts.download) } : undefined;
+    const { data, error } = o ? await sb.storage.from(this.bucket).createSignedUrl(path, expiresIn, o)
+      : await sb.storage.from(this.bucket).createSignedUrl(path, expiresIn);
     if (error) throw error;
     return data.signedUrl;
   },

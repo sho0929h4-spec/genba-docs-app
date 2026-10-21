@@ -2183,58 +2183,7 @@
     return out;
   }
 
-  // 「日報作成」タブの自動で埋まる項目（Task 29 Ruling: 今日行った現場・提出した報告書・提出した見積・遅れ報告）。日本時間の今日
-  //   → { ymd, sites, reports, estimates, lates }。各要素 { caseId, phaseId, text }
-  function dailyReport(caseRows, meId, now) {
-    const nowAt = toDate(now) || new Date();
-    const ymd = jstYmd(nowAt);
-    const res = { ymd, sites: [], reports: [], estimates: [], lates: [] };
-    if (!meId) return res;
-    const isTd = v => !!v && jstYmd(v) === ymd;
-    const hm = v => { const p = jst(v); return p ? fmtHM(p) : ''; };
-    for (const c of listOf(caseRows)) {
-      if (c.deleted_at) continue;
-      const place = placeName(c) || '（物件名なし）';
-      for (const { p, seq } of withSeq(c.phases)) {
-        const title = phaseTitle(p, seq);
-        const base = { caseId: c.id, phaseId: p.id || null };
-        if (p.worker_id === meId && isTd(p.scheduled_at)) {
-          res.sites.push(Object.assign({ at: ms(p.scheduled_at), text: `${hm(p.scheduled_at)} ${place} ${title}` }, base));
-        }
-        listOf(p.reports).forEach(r => {
-          if (r.submitted_by === meId && isTd(r.submitted_at) && r.status !== 'draft') {
-            res.reports.push(Object.assign({ at: ms(r.submitted_at), text: `${place} ${title}（${hm(r.submitted_at)} 提出）` }, base));
-          }
-        });
-        listOf(p.estimates).forEach(e => {
-          if (e.created_by === meId && isTd(e.issued_at) && e.status !== 'draft') {
-            res.estimates.push(Object.assign({ at: ms(e.issued_at), text: `${place} ${title}（v${Number(e.version) || 1}${e.total != null ? ' ' + yen(e.total) : ''}）` }, base));
-          }
-        });
-        if (p.late_by === meId && isTd(p.late_at)) {
-          res.lates.push(Object.assign({ at: ms(p.late_at), text: `${hm(p.late_at)} ${place} ${title}（到着が遅れそうと報告）` }, base));
-        }
-      }
-    }
-    ['sites', 'reports', 'estimates', 'lates'].forEach(k => res[k].sort((a, b) => a.at - b.at));
-    return res;
-  }
-  const DAILY_SECTIONS = [['sites', '行った現場'], ['reports', '提出した報告書'], ['estimates', '提出した見積'], ['lates', '遅れ報告']];
-  // 日報の本文（自動の項目 ＋ 一言）。項目が無い段は「なし」
-  function dailyBody(d, note) {
-    const lines = [];
-    DAILY_SECTIONS.forEach(([k, label]) => {
-      lines.push(`■ ${label}`);
-      const list = listOf(d && d[k]);
-      if (list.length) list.forEach(x => lines.push(`・${x.text}`));
-      else lines.push('・なし');
-    });
-    const n = str(note);
-    if (n) lines.push('', '■ 一言', n);
-    return lines.join('\n');
-  }
-  // 日報の件名 → '日報 10/21（鈴木）'
-  const dailySubject = (ymd, name) => `日報 ${fmtYmdMD(ymd)}（${str(name) || '名前なし'}）`;
+  // 日報（Task 32）は js/daily-logic.js（DailyLogic）
 
   // 見積の提出で作る工事掲示の初期値（Task 29）。原因元工事・復旧工事のフェーズだけ（調査は null）
   //   号室 = 案件の部屋、工事名称 = 「原因元工事」「復旧工事」＋ 見積の件名、工事日 = フェーズの工事日（未定なら「工事日は未定」）、
@@ -2297,7 +2246,7 @@
     paymentDueDefault, isOverdue, fmtYmdMD,
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
-    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, dailyReport, DAILY_SECTIONS, dailyBody, dailySubject, autoNoticeData, noticeCell };
+    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

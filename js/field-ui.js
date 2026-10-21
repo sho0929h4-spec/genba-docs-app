@@ -694,38 +694,101 @@ async function fdOpenNotice(s, c, p, phases, state) {
   if (fdAlive(s)) location.hash = '#notice/' + row.id;
 }
 
-/* ---------- #f/daily 日報作成（Task 29） ---------- */
-// その日の対応を管理者に送る。自動で埋まる: 今日行った現場・提出した報告書・提出した見積・遅れ報告（PhaseLogic.dailyReport）。
-// 手で足す: 一言・写真（任意）。「送る」→ rpc staff_daily_send（件名「日報 M/D（名前）」・管理者の「📨 現場からの連絡」に出る）。
-// 当日は直して「送り直す」（同じ1件を差し替えて管理者の未読に戻す）。送った日報と管理者からの返事は下に履歴として残る
-const FD_DAILY_NOTE_HEAD = '\n■ 一言\n';
+/* ---------- #f/daily 日報作成（Task 29 → Task 32） ---------- */
+// 1画面で上から4区画（DailyLogic.build。すべて既存のデータから自動で転記）: {M/D（曜）}に行った現場と対応報告／処理したタスク／
+//   {翌日}に対応するタスク／かかった時間。各行は押して ☑／☐（含める・外す）だけ。時間は報告書の作業開始〜終了があれば自動、
+//   無ければチップ（30分〜1日・その他）。移動時間は任意のチップ。合計は自動。文字入力は一言だけ。写真は3枚まで。
+// 下に固定の「PDFを見る」（A4 縦1ページのプレビュー。DailyPdf）と「送る」（PDF を Storage に保存して staff_messages（source='daily'）に添付。
+//   rpc staff_daily_send・件名「日報 M/D（名前）」・管理者の「📨 現場からの連絡」に出る）。当日は「送った（H:MM）」と出て、直して「送り直す」
+//   （同じ1件を差し替えて管理者の未読に戻す。前の PDF と外した写真は消す）。☑ と時間の選択・一言はこの端末に当日分だけ覚える（localStorage）
+// 送った日報と管理者からの返事は下に履歴として残る（PDF を開ける）
+const fdDailyKey = ymd => 'genba-docs.daily.' + (fdMe() || '') + '.' + ymd;
+function fdDailyDraftGet(ymd) {
+  try { const v = JSON.parse(localStorage.getItem(fdDailyKey(ymd)) || 'null'); return v && typeof v === 'object' ? v : null; } catch (e) { return null; }
+}
+function fdDailyDraftSet(d) {
+  try { localStorage.setItem(fdDailyKey(d.model.ymd), JSON.stringify({ sel: d.sel, note: d.noteTouched ? d.note : null })); } catch (e) { /* 覚えられない端末ではこの画面の間だけ */ }
+}
 async function fdLoadDaily(seq) {
-  let rows = [], list = [], err = '';
+  let rows = [], list = [], sent = [], times = [], notices = [], err = '';
+  const me = fdMe();
+  const now = new Date();
+  const ymd = PhaseLogic.jstYmd(now);
+  const dayStart = PhaseLogic.jstAt(+ymd.slice(0, 4), +ymd.slice(5, 7), +ymd.slice(8, 10), 0, 0).toISOString();
   try {
-    [rows, list] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 })]);
+    [rows, list, sent, notices] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 }),
+      StaffMessagesApi.list({ fromUser: me, limit: 200 }), NoticesApi.listMineSince(dayStart)]);
+    const pre = DailyLogic.build({ rows, me, now });
+    times = await ReportsApi.timesForPhases(pre.times.map(t => t.phaseId));
   } catch (e) { err = '日報を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
-  const me = fdMe();
   const mine = (list || []).filter(m => m.source === 'daily' && m.from_user === me);
   const ids = new Set(mine.map(m => m.id));
   const replies = (list || []).filter(m => m.reply_to && ids.has(m.reply_to));
-  const today = PhaseLogic.jstYmd(new Date());
-  const d0 = mine.find(m => m.daily_date === today) || null;
-  const prev = fd.daily || {};
-  fd.daily = { rows: rows || [], mine, replies, today: d0, files: prev.files || [],
-    keep: prev.keepTouched ? prev.keep : (d0 && Array.isArray(d0.attachments) ? d0.attachments.slice() : []), keepTouched: !!prev.keepTouched,
-    note: prev.noteTouched ? prev.note : fdDailyNoteOf(d0), noteTouched: !!prev.noteTouched, busy: false, err: '', msg: prev.msg || '' };
+  const model = DailyLogic.build({ rows: rows || [], me, now, times, notices, messages: sent });
+  const d0 = mine.find(m => m.daily_date === model.ymd) || null;
+  const prev = fd.daily && fd.daily.model && fd.daily.model.ymd === model.ymd ? fd.daily : null;
+  const draft = fdDailyDraftGet(model.ymd) || {};
+  const sel = prev ? prev.sel : Object.assign({ off: {}, chip: {}, other: {}, travel: null }, draft.sel || {});
+  const keepOf = m => (m && Array.isArray(m.attachments) ? m.attachments.filter(a => !StaffMessagesApi.isPdf(a)) : []);
+  const noteDraft = typeof draft.note === 'string' ? draft.note : null;
+  fd.daily = { model, rows: rows || [], mine, replies, today: d0, sel,
+    photos: prev ? prev.photos : [], keep: prev && prev.keepTouched ? prev.keep : keepOf(d0).slice(0, DailyLogic.PHOTOS_MAX), keepTouched: !!(prev && prev.keepTouched),
+    note: prev && prev.noteTouched ? prev.note : noteDraft != null ? noteDraft : DailyLogic.noteOf(d0 && d0.body),
+    noteTouched: !!(prev && prev.noteTouched) || noteDraft != null, busy: '', err: '', msg: prev ? prev.msg : '', pdf: null };
   Object.assign(fd, { rows: rows || [], loading: false, err });
   fdRenderDaily();
   if (!err) {
     try { if (await overdueSync((rows || []).filter(r => PhaseLogic.fieldMine(r, me)))) fieldRowsInvalidate(); } catch (e) { console.warn('期限超過の確認に失敗', e); }
   }
 }
-// 送った日報の本文から「一言」を取り出す（送り直すときの初期値）
-function fdDailyNoteOf(m) {
-  const b = String((m && m.body) || '');
-  const i = b.indexOf(FD_DAILY_NOTE_HEAD);
-  return i >= 0 ? b.slice(i + FD_DAILY_NOTE_HEAD.length) : '';
+
+const fdDailyName = () => (ctx.membership && ctx.membership.display_name) || '';
+const fdDailyView = d => DailyLogic.view(d.model, d.sel, { name: fdDailyName(), org: (ctx.org && ctx.org.name) || '', note: d.note });
+// ☑／☐ の行（44px・押すだけ）
+function fdDailyRow(d, item, extra) {
+  const on = !(d.sel.off && d.sel.off[item.key]);
+  const b = mk('button', 'dl-row' + (on ? ' on' : ''));
+  b.type = 'button';
+  b.dataset.key = item.key;
+  b.setAttribute('role', 'checkbox');
+  b.setAttribute('aria-checked', on ? 'true' : 'false');
+  b.disabled = !!d.busy;
+  b.appendChild(mk('span', 'dl-ck', on ? '☑' : '☐'));
+  const txt = mk('span', 'dl-txt');
+  txt.appendChild(mk('b', null, item.text || item.label));
+  (item.sub || []).forEach(x => txt.appendChild(mk('span', 'dl-sub', x)));
+  if (extra) txt.appendChild(mk('span', 'dl-val', extra));
+  b.appendChild(txt);
+  b.addEventListener('click', () => {
+    d.sel.off = Object.assign({}, d.sel.off, { [item.key]: on });
+    if (!on) delete d.sel.off[item.key];
+    fdDailyChanged(d, item.key);
+  });
+  return b;
+}
+function fdDailyChanged(d, focusKey) {
+  d.pdf = null;
+  fdDailyDraftSet(d);
+  fdRenderDaily();
+  if (focusKey) {
+    const t = Array.from(document.querySelectorAll('#fd-daily [data-key]')).find(x => x.dataset.key === focusKey && x.tagName === 'BUTTON');
+    if (t) t.focus({ preventScroll: true });
+  }
+}
+function fdDailyChip(d, label, on, onClick, attrs) {
+  const b = dBtn(label, 'fd-chip dl-chip' + (on ? ' on' : ''), onClick);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  b.disabled = !!d.busy;
+  Object.entries(attrs || {}).forEach(([k, v]) => { b.dataset[k] = v; });
+  return b;
+}
+function fdDailyTotals(d) {
+  const t = DailyLogic.totals(d.model, d.sel);
+  const tot = $('fd-daily-total');
+  if (tot) tot.textContent = t.text;
+  const miss = $('fd-daily-missing');
+  if (miss) { miss.textContent = t.missing ? '時間を選んでいない現場が' + t.missing + '件あります（合計に入っていません）' : ''; miss.hidden = !t.missing; }
 }
 
 function fdRenderDaily() {
@@ -737,67 +800,136 @@ function fdRenderDaily() {
     return;
   }
   const d = s.daily;
+  const m = d.model;
   const nodes = [];
-  const auto = PhaseLogic.dailyReport(d.rows, fdMe(), new Date());
-  const name = (ctx.membership && ctx.membership.display_name) || '';
   const card = mk('div', 'fd-card fd-daily');
   card.id = 'fd-daily';
-  const head = mk('div', 'fd-row');
-  head.appendChild(mk('b', 'fd-place', PhaseLogic.dailySubject(auto.ymd, name)));
+  const head = mk('div', 'dl-head');
+  head.appendChild(mk('b', 'fd-place', DailyLogic.heading(m.ymd, fdDailyName())));
+  head.appendChild(mk('span', 'fd-tiny', (ctx.org && ctx.org.name) || ''));
   card.appendChild(head);
-  card.appendChild(mk('span', 'fd-tiny', '下の4つは自動で入ります。一言と写真を足して「送る」を押すと、管理者の「📨 現場からの連絡」に届きます'));
-  PhaseLogic.DAILY_SECTIONS.forEach(([k, label]) => {
-    const sec = mk('div', 'fd-daily-sec');
-    sec.dataset.sec = k;
-    sec.appendChild(mk('b', null, '■ ' + label));
-    const items = auto[k];
-    if (!items.length) sec.appendChild(mk('div', 'fd-tiny fd-daily-none', 'なし'));
-    items.forEach(x => sec.appendChild(mk('div', 'fd-daily-item', '・' + x.text)));
-    card.appendChild(sec);
+  if (d.today) {
+    const st = mk('div', 'fd-daily-sent', '✓ 送った（' + PhaseLogic.fmtMDHM(d.today.created_at).split(' ')[1] + '・' + (d.today.read_at ? '既読' : '未読') + '）　直して「送り直す」を押すと、管理者の画面で未読に戻ります');
+    st.id = 'fd-daily-sent';
+    card.appendChild(st);
+  }
+  card.appendChild(mk('span', 'fd-tiny', '自動で入りました。行を押すと ☑／☐ が切り替わります（☑ の行だけが日報に入ります）'));
+  m.sections.forEach(sec => {
+    const box = mk('div', 'dl-sec');
+    box.dataset.sec = sec.key;
+    box.appendChild(mk('div', 'dl-h', '■ ' + sec.title));
+    if (!sec.items.length) box.appendChild(mk('div', 'dl-none', 'なし'));
+    sec.items.forEach(x => box.appendChild(fdDailyRow(d, x)));
+    card.appendChild(box);
   });
+  // かかった時間
+  const tb = mk('div', 'dl-sec');
+  tb.dataset.sec = 'time';
+  tb.appendChild(mk('div', 'dl-h', '■ かかった時間'));
+  if (!m.times.length) tb.appendChild(mk('div', 'dl-none', 'なし（行った現場がありません）'));
+  m.times.forEach(t => {
+    const wrap = mk('div', 'dl-trow');
+    wrap.dataset.tkey = t.key;
+    const on = !(d.sel.off && d.sel.off[t.key]);
+    wrap.appendChild(fdDailyRow(d, { key: t.key, text: t.label }, DailyLogic.timeText(t, d.sel)));
+    if (on && !t.auto) {
+      const chips = mk('div', 'fd-chips dl-chips');
+      const cur = d.sel.chip && d.sel.chip[t.key];
+      DailyLogic.TIME_CHIPS.forEach(c => chips.appendChild(fdDailyChip(d, c.label, cur === c.v, () => {
+        d.sel.chip = Object.assign({}, d.sel.chip, { [t.key]: cur === c.v ? null : c.v });
+        fdDailyChanged(d);
+      }, { v: String(c.v) })));
+      wrap.appendChild(chips);
+      if (cur === 'other') {
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.inputMode = 'decimal';
+        inp.className = 'dl-other';
+        inp.placeholder = '例: 2.5';
+        inp.setAttribute('aria-label', t.label + ' のかかった時間（時間）');
+        inp.maxLength = 5;
+        inp.value = (d.sel.other && d.sel.other[t.key]) || '';
+        inp.disabled = !!d.busy;
+        inp.addEventListener('input', () => {
+          d.sel.other = Object.assign({}, d.sel.other, { [t.key]: inp.value });
+          d.pdf = null;
+          fdDailyDraftSet(d);
+          const val = wrap.querySelector('.dl-val');
+          if (val) val.textContent = DailyLogic.timeText(t, d.sel);
+          fdDailyTotals(d);
+        });
+        const lb = mk('label', 'dl-other-f', 'その他（時間）');
+        lb.appendChild(inp);
+        wrap.appendChild(lb);
+      }
+    }
+    tb.appendChild(wrap);
+  });
+  const tr = mk('div', 'dl-trow travel');
+  tr.appendChild(mk('div', 'dl-tl', '移動時間（任意）'));
+  const tchips = mk('div', 'fd-chips dl-chips');
+  DailyLogic.TRAVEL_CHIPS.forEach(c => tchips.appendChild(fdDailyChip(d, c.label, d.sel.travel === c.v, () => {
+    d.sel.travel = d.sel.travel === c.v ? null : c.v;
+    fdDailyChanged(d);
+  }, { travel: String(c.v) })));
+  tr.appendChild(tchips);
+  tb.appendChild(tr);
+  const tot = mk('div', 'dl-total');
+  tot.id = 'fd-daily-total';
+  tb.appendChild(tot);
+  const miss = mk('div', 'dl-miss');
+  miss.id = 'fd-daily-missing';
+  tb.appendChild(miss);
+  card.appendChild(tb);
   // 一言
   const ta = document.createElement('textarea');
   ta.id = 'fd-daily-note';
-  ta.rows = 4;
+  ta.rows = 3;
   ta.maxLength = 1000;
-  ta.placeholder = '例: 10/22 は 10 時から A マンションの続きに行きます';
+  ta.placeholder = '例: 201号室の入居者さんは夕方なら在宅とのことです';
   ta.value = d.note || '';
-  ta.disabled = d.busy;
-  ta.addEventListener('input', () => { d.note = ta.value; d.noteTouched = true; });
+  ta.disabled = !!d.busy;
+  ta.addEventListener('input', () => { d.note = ta.value; d.noteTouched = true; d.pdf = null; fdDailyDraftSet(d); });
   const lt = mk('label', 'sm-f fd-daily-f', '一言（任意）');
   lt.appendChild(ta);
   card.appendChild(lt);
-  // 写真（任意）
+  // 写真（任意・3枚まで）
+  const pb = mk('div', 'dl-photos');
+  pb.id = 'fd-daily-photos';
+  const count = d.keep.length + d.photos.length;
+  pb.appendChild(mk('div', 'dl-tl', '写真（任意・' + DailyLogic.PHOTOS_MAX + '枚まで）' + (count ? ' ' + count + '枚' : '')));
+  const thumbs = mk('div', 'dl-thumbs');
+  const thumb = (src, label, onRemove) => {
+    const t = mk('div', 'dl-thumb');
+    const im = document.createElement('img');
+    im.alt = label;
+    if (typeof src === 'string') im.src = src; else src.then(u => { im.src = u; }, () => { im.alt = '写真を開けませんでした'; });
+    t.appendChild(im);
+    const x = dBtn('×', 'dl-thumb-x', onRemove);
+    x.setAttribute('aria-label', '写真を外す');
+    x.disabled = !!d.busy;
+    t.appendChild(x);
+    thumbs.appendChild(t);
+  };
+  d.keep.forEach(a => thumb(StaffMessagesApi.photoUrl(a.path), a.name || '送った写真', () => {
+    d.keep = d.keep.filter(x => x !== a); d.keepTouched = true; d.pdf = null; fdRenderDaily();
+  }));
+  d.photos.forEach(p => thumb(p.url, p.name || '写真', () => {
+    d.photos = d.photos.filter(x => x !== p); try { URL.revokeObjectURL(p.url); } catch (e) { /* 無視 */ } d.pdf = null; fdRenderDaily();
+  }));
+  pb.appendChild(thumbs);
   const file = document.createElement('input');
   file.type = 'file';
   file.accept = 'image/*';
   file.multiple = true;
   file.id = 'fd-daily-file';
   file.className = 'sr-only';
-  const pick = dBtn('📷 写真を添付', 'btn sm ghost inline fd-daily-pick', () => file.click());
-  pick.disabled = d.busy;
-  const count = d.keep.length + d.files.length;
-  const picked = mk('span', 'rep-sub fd-daily-picked', count ? '写真 ' + count + '枚' + (d.keep.length ? '（送った写真 ' + d.keep.length + '枚を含む）' : '') : '写真なし');
-  const clear = dBtn('写真を外す', 'linkbtn fd-daily-clear', () => { d.files = []; d.keep = []; d.keepTouched = true; fdRenderDaily(); });
-  clear.hidden = !count;
-  clear.disabled = d.busy;
-  file.addEventListener('change', () => {
-    d.files = d.files.concat(Array.from(file.files || [])).slice(0, Math.max(0, StaffMessagesApi.FILES_MAX - d.keep.length));
-    file.value = '';
-    fdRenderDaily();
-  });
-  const pr = mk('div', 'sm-filerow');
-  pr.append(pick, picked, clear, file);
-  card.appendChild(pr);
-  if (d.today) {
-    const st = mk('div', 'fd-daily-sent', '✓ ' + PhaseLogic.fmtMDW(new Date()) + 'の日報は送りました（' + PhaseLogic.fmtMDHM(d.today.created_at) + '・' + (d.today.read_at ? '既読' : '未読') + '）。直して「送り直す」を押すと、管理者の画面で未読に戻ります');
-    st.id = 'fd-daily-sent';
-    card.appendChild(st);
-  }
-  const send = dBtn(d.busy ? '送っています…' : d.today ? '送り直す' : '送る', 'btn fd-daily-send', () => fdSendDaily(s, auto));
-  send.id = 'fd-daily-send';
-  send.disabled = d.busy;
-  card.appendChild(send);
+  file.addEventListener('change', () => fdDailyAddPhotos(d, Array.from(file.files || [])));
+  const pick = dBtn('📷 写真を追加', 'btn sm ghost inline fd-daily-pick', () => file.click());
+  pick.id = 'fd-daily-pick';
+  pick.disabled = !!d.busy || count >= DailyLogic.PHOTOS_MAX;
+  pb.append(pick, file);
+  card.appendChild(pb);
   const err = mk('div', 'err', d.err || '');
   err.id = 'fd-daily-err';
   err.setAttribute('role', 'alert');
@@ -807,23 +939,36 @@ function fdRenderDaily() {
   msg.setAttribute('role', 'status');
   card.appendChild(msg);
   nodes.push(card);
+  // 下に固定のボタン
+  const bar = mk('div', 'dl-bar');
+  bar.id = 'fd-daily-bar';
+  const pv = dBtn(d.busy === 'pdf' ? 'PDFを作っています…' : '📄 PDFを見る', 'btn ghost dl-pdf', () => fdDailyPreview(s));
+  pv.id = 'fd-daily-pdf';
+  pv.disabled = !!d.busy;
+  const send = dBtn(d.busy === 'send' ? '送っています…' : d.today ? '送り直す' : '送る', 'btn dl-send fd-daily-send', () => fdSendDaily(s));
+  send.id = 'fd-daily-send';
+  send.disabled = !!d.busy;
+  bar.append(pv, send);
+  nodes.push(bar);
   // 履歴（送った日報と管理者からの返事）
   nodes.push(mk('div', 'fd-h', '送った日報 ' + d.mine.length + '件'));
   const hist = mk('div', 'fd-list');
   hist.id = 'fd-daily-hist';
   if (!d.mine.length) hist.appendChild(mk('div', 'empty', 'まだ送った日報はありません'));
-  d.mine.forEach(m => {
+  d.mine.forEach(mm => {
     const box = mk('div', 'fd-card fd-daily-h');
-    box.dataset.msgId = m.id;
+    box.dataset.msgId = mm.id;
     const top = mk('div', 'fd-row');
-    top.appendChild(mk('b', null, m.subject));
-    top.appendChild(mk('span', 'fd-tiny', PhaseLogic.fmtMDHM(m.created_at) + ' ・ ' + (m.read_at ? '既読' : '未読')));
+    top.appendChild(mk('b', null, mm.subject));
+    top.appendChild(mk('span', 'fd-tiny', PhaseLogic.fmtMDHM(mm.created_at) + ' ・ ' + (mm.read_at ? '既読' : '未読')));
     box.appendChild(top);
-    const body = mk('div', 'fd-daily-body', m.body);
-    box.appendChild(body);
-    const atts = Array.isArray(m.attachments) ? m.attachments : [];
-    if (atts.length) box.appendChild(mk('span', 'fd-tiny', '写真 ' + atts.length + '枚'));
-    d.replies.filter(r => r.reply_to === m.id).forEach(r => {
+    const atts = Array.isArray(mm.attachments) ? mm.attachments : [];
+    const pdf = atts.find(a => StaffMessagesApi.isPdf(a));
+    if (pdf) box.appendChild(smPdfLinks(pdf));
+    box.appendChild(mk('div', 'fd-daily-body', mm.body));
+    const ph = atts.filter(a => !StaffMessagesApi.isPdf(a));
+    if (ph.length) box.appendChild(mk('span', 'fd-tiny', '写真 ' + ph.length + '枚'));
+    d.replies.filter(r => r.reply_to === mm.id).forEach(r => {
       const rp = mk('div', 'fd-daily-reply');
       rp.appendChild(mk('b', null, '管理者から（' + PhaseLogic.fmtMDHM(r.created_at) + '）'));
       rp.appendChild(mk('div', null, r.body));
@@ -832,56 +977,199 @@ function fdRenderDaily() {
     hist.appendChild(box);
   });
   nodes.push(hist);
+  nodes.push(mk('div', 'dl-spacer'));
   host.replaceChildren(...nodes);
+  fdDailyTotals(d);
 }
 
-async function fdSendDaily(s, auto) {
+async function fdDailyAddPhotos(d, files) {
+  const room = DailyLogic.PHOTOS_MAX - d.keep.length - d.photos.length;
+  const list = files.slice(0, Math.max(0, room));
+  d.err = files.length > list.length ? '写真は' + DailyLogic.PHOTOS_MAX + '枚までです' : '';
+  for (const f of list) {
+    try {
+      const p = await ImageUtil.prepareFile(f);
+      if (p.type !== 'image/jpeg') throw new Error('「' + f.name + '」は写真ではありません');
+      d.photos.push(Object.assign({}, p, { url: URL.createObjectURL(p.blob) }));
+    } catch (e) { d.err = errText(e); }
+  }
+  d.pdf = null;
+  if (fd && fd.daily === d) fdRenderDaily();
+}
+
+// PDF を作る（中身が変わっていなければ前に作ったものを使う）
+async function fdDailyMakePdf(d) {
+  const v = fdDailyView(d);
+  const sig = JSON.stringify(v) + '|' + d.keep.map(a => a.path).join(',') + '|' + d.photos.map(p => p.url).join(',');
+  if (d.pdf && d.pdf.sig === sig) return d.pdf;
+  const urls = [];
+  for (const a of d.keep) { try { urls.push(await StaffMessagesApi.photoUrl(a.path)); } catch (e) { console.warn('写真のURLを作れませんでした', e); } }
+  d.photos.forEach(p => urls.push(p.url));
+  const r = await DailyPdf.toBlob(v, { photos: urls });
+  window.__dailyPdfLast = { pages: r.pages, pt: r.pt, size: r.blob.size }; // 検証用（中身は出さない）
+  d.pdf = Object.assign({ sig, view: v }, r);
+  return d.pdf;
+}
+
+async function fdDailyPreview(s) {
   const d = s.daily;
   if (!d || d.busy) return;
-  d.busy = true;
+  d.busy = 'pdf';
+  d.err = '';
+  fdRenderDaily();
+  let r = null, err = '';
+  try { r = await fdDailyMakePdf(d); } catch (e) { err = 'PDFを作れませんでした: ' + errText(e); }
+  if (fd !== s || s.daily !== d) return;
+  d.busy = '';
+  if (err) { d.err = err; fdRenderDaily(); return; }
+  fdRenderDaily();
+  fdDailyPreviewSheet(r, d.model.ymd);
+}
+
+// PDF のプレビュー（PDF と同じ画像を出す）。入力が無いので × と Esc で閉じる（外側を押しても閉じない）
+function fdDailyPreviewSheet(r, ymd) {
+  const old = $('dl-pv-bg');
+  if (old) old.remove();
+  const bg = mk('div', 'dl-pv-bg');
+  bg.id = 'dl-pv-bg';
+  bg.setAttribute('role', 'dialog');
+  bg.setAttribute('aria-modal', 'true');
+  bg.setAttribute('aria-label', '日報のPDF');
+  const top = mk('div', 'dl-pv-top');
+  top.appendChild(mk('b', null, '日報のPDF（' + r.pages + 'ページ' + (r.pt < DailyPdf.FONT_STEPS[0] ? '・文字を小さくして収めました' : '') + '）'));
+  const url = URL.createObjectURL(r.blob);
+  const save = mk('a', 'btn sm ghost inline dl-pv-save', '保存');
+  save.href = url;
+  save.download = DailyPdf.fileName(ymd, fdDailyName());
+  const close = () => { document.removeEventListener('keydown', onKey); bg.remove(); try { URL.revokeObjectURL(url); } catch (e) { /* 無視 */ } const b = $('fd-daily-pdf'); if (b) b.focus(); };
+  const x = dBtn('× 閉じる', 'btn sm ghost inline dl-pv-close', close);
+  x.id = 'dl-pv-close';
+  top.append(save, x);
+  bg.appendChild(top);
+  const body = mk('div', 'dl-pv-body');
+  r.images.forEach((src, i) => {
+    const im = document.createElement('img');
+    im.className = 'dl-pv-img';
+    im.alt = '日報のPDF ' + (i + 1) + 'ページ目';
+    im.src = src;
+    body.appendChild(im);
+  });
+  bg.appendChild(body);
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(bg);
+  x.focus();
+}
+
+async function fdSendDaily(s) {
+  const d = s.daily;
+  if (!d || d.busy) return;
+  d.busy = 'send';
   d.err = '';
   d.msg = '';
   fdRenderDaily();
   let row = null, err = '';
   try {
-    row = await StaffMessagesApi.sendDaily({ body: PhaseLogic.dailyBody(auto, d.note), keep: d.keep, files: d.files });
+    const body = DailyLogic.text(d.model, d.sel, { name: fdDailyName(), org: (ctx.org && ctx.org.name) || '', note: d.note });
+    if (body.length > StaffMessagesApi.BODY_MAX) throw new Error('日報が長すぎます（' + StaffMessagesApi.BODY_MAX + '文字まで）。☐ にする行を増やすか、一言を短くしてください');
+    const pdf = await fdDailyMakePdf(d);
+    const old = d.today && Array.isArray(d.today.attachments) ? d.today.attachments : [];
+    const drop = old.filter(a => !d.keep.some(k => k.path === a.path));
+    row = await StaffMessagesApi.sendDaily({ body, pdf: pdf.blob, pdfName: DailyPdf.fileName(d.model.ymd, fdDailyName()),
+      keep: d.keep, photos: d.photos.map(p => ({ blob: p.blob, name: p.name, size: p.size, type: p.type })), drop });
   } catch (e) { err = '日報を送れませんでした: ' + errText(e); }
-  if (fd !== s || !s.daily) return;
-  d.busy = false;
+  if (fd !== s || s.daily !== d) return;
+  d.busy = '';
   if (err) { d.err = err; fdRenderDaily(); return; }
-  Object.assign(d, { files: [], keepTouched: false, noteTouched: false,
-    msg: (row && row.resent ? '日報を送り直しました' : '日報を送りました') + '（管理者の「📨 現場からの連絡」に出ます）' });
+  d.photos.forEach(p => { try { URL.revokeObjectURL(p.url); } catch (e) { /* 無視 */ } });
+  Object.assign(d, { photos: [], keepTouched: false, noteTouched: false, pdf: null,
+    msg: (row && row.resent ? '日報を送り直しました' : '日報を送りました') + '（管理者の「📨 現場からの連絡」で PDF を開けます）' });
+  try { localStorage.setItem(fdDailyKey(d.model.ymd), JSON.stringify({ sel: d.sel, note: null })); } catch (e) { /* 無視 */ }
   await fdLoadDaily(s.seq);
 }
 
-/* ---------- #f/settings ---------- */
+/* ---------- #f/settings（Task 32: 担当者の情報／画面の切替（管理者のみ）／ログアウト） ---------- */
+// 担当者の情報: 会社名（表示のみ）・担当者名（直せる）・メールアドレス（ログインに使うもの。表示のみ）・電話番号（直せる）。
+// 直したらその場で自動保存（入力が止まって1秒・欄を離れたとき）。DB は migration 056（本人の行の display_name / phone だけ update できる）
+const FD_SET_SAVE_MS = 1000;
+let fdSetTimer = null;
+// 電話番号の入力を半角に（全角の数字・ハイフン・括弧・空白）。形が違えば null
+function fdPhoneNorm(v) {
+  const t = String(v || '').replace(/[０-９（）＋]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[ー－‐−―]/g, '-').replace(/　/g, ' ').trim();
+  if (!t) return '';
+  return t.length <= 30 && /^[0-9+()\- ]+$/.test(t) ? t : null;
+}
 function fdRenderSettings() {
   const host = $('field-root');
   const nodes = [];
+  const m = ctx.membership || {};
   const me = mk('div', 'fd-card fd-set');
   me.id = 'fd-set-me';
-  me.appendChild(mk('b', 'fd-place', ((ctx.membership && ctx.membership.display_name) || '(名前なし)') + '（' + (fdIsOwner() ? '管理者' : 'スタッフ') + '）'));
-  me.appendChild(mk('span', 'fd-tiny', (ctx.org && ctx.org.name) || ''));
+  me.appendChild(mk('b', null, '担当者の情報'));
+  const ro = (label, value, id) => {
+    const row = mk('div', 'fd-set-ro');
+    row.appendChild(mk('span', 'fd-set-k', label));
+    const v = mk('span', 'fd-set-v', value || '—');
+    v.id = id;
+    row.appendChild(v);
+    return row;
+  };
+  me.appendChild(ro('会社名', (ctx.org && ctx.org.name) || '', 'fd-set-org'));
+  const field = (label, id, type, value, ph) => {
+    const lb = mk('label', 'fd-set-f', label);
+    const inp = document.createElement('input');
+    inp.id = id;
+    inp.type = type;
+    inp.value = value || '';
+    inp.placeholder = ph;
+    inp.maxLength = type === 'tel' ? 30 : 40;
+    if (type === 'tel') { inp.inputMode = 'tel'; inp.autocomplete = 'tel'; } else inp.autocomplete = 'name';
+    lb.appendChild(inp);
+    return { lb, inp };
+  };
+  const nm = field('担当者名', 'fd-set-name', 'text', m.display_name, '例: 佐藤 太郎');
+  me.appendChild(nm.lb);
+  me.appendChild(ro('メールアドレス（ログインに使うもの）', (ctx.user && ctx.user.email) || '', 'fd-set-email'));
+  const ph = field('電話番号', 'fd-set-phone', 'tel', m.phone, '例: 090-1234-5678');
+  me.appendChild(ph.lb);
+  const st = mk('div', 'fd-set-st', '直すと自動で保存します');
+  st.id = 'fd-set-status';
+  st.setAttribute('role', 'status');
+  me.appendChild(st);
+  const err = mk('div', 'err', '');
+  err.id = 'fd-set-err';
+  err.setAttribute('role', 'alert');
+  me.appendChild(err);
+  const save = async () => {
+    clearTimeout(fdSetTimer);
+    fdSetTimer = null;
+    const name = nm.inp.value.trim();
+    const phone = fdPhoneNorm(ph.inp.value);
+    if (!name) { err.textContent = '担当者名を入れてください'; return; }
+    if (phone === null) { err.textContent = '電話番号は数字と - ( ) + だけで入れてください（30文字まで）'; return; }
+    const cur = ctx.membership || {};
+    if (name === (cur.display_name || '') && (phone || null) === (cur.phone || null)) { err.textContent = ''; return; }
+    err.textContent = '';
+    st.textContent = '保存しています…';
+    try {
+      const row = await CasesApi.updateMe({ display_name: name, phone });
+      Object.assign(ctx.membership, { display_name: row.display_name, phone: row.phone || null });
+      document.querySelectorAll('.js-user-name').forEach(e => { e.textContent = row.display_name; });
+      if (document.activeElement !== ph.inp && ph.inp.value !== (row.phone || '')) ph.inp.value = row.phone || '';
+      fieldRowsInvalidate();
+      st.textContent = '✓ 保存しました（' + PhaseLogic.fmtMDHM(new Date()).split(' ')[1] + '）';
+    } catch (e) {
+      st.textContent = '';
+      err.textContent = '保存できませんでした: ' + errText(e);
+    }
+  };
+  [nm.inp, ph.inp].forEach(inp => {
+    inp.addEventListener('input', () => { clearTimeout(fdSetTimer); st.textContent = '入力中…'; fdSetTimer = setTimeout(save, FD_SET_SAVE_MS); });
+    inp.addEventListener('blur', () => { if (fdSetTimer) save(); });
+  });
   nodes.push(me);
   if (fdIsOwner()) nodes.push(fieldViewCard('fd-set-view'));
-  // ホーム画面に追加の手順
-  const add = mk('div', 'fd-card fd-set');
-  add.id = 'fd-set-home';
-  add.appendChild(mk('b', null, 'ホーム画面に追加'));
-  const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-  if (standalone) add.appendChild(mk('span', 'fd-tiny', 'ホーム画面のアイコンから開いています。'));
-  add.appendChild(mk('span', 'fd-tiny', 'ほかのアプリと同じように、ホーム画面のアイコンから開けるようになります（全画面で開き、アドレスバーは出ません）。'));
-  const steps = (title, list) => {
-    const box = mk('div', 'fd-steps');
-    box.appendChild(mk('b', null, title));
-    const ol = mk('ol');
-    list.forEach(t => ol.appendChild(mk('li', null, t)));
-    box.appendChild(ol);
-    return box;
-  };
-  add.appendChild(steps('iPhone（Safari）', ['このページを Safari で開く', '下の共有ボタン（四角から上向きの矢印）を押す', '「ホーム画面に追加」を押す', '右上の「追加」を押す']));
-  add.appendChild(steps('Android（Chrome）', ['このページを Chrome で開く', '右上の「︙」（メニュー）を押す', '「ホーム画面に追加」（または「アプリをインストール」）を押す', '「追加」を押す']));
-  nodes.push(add);
   const out = dBtn('ログアウト', 'btn ghost fd-logout', () => signOutUser());
   out.id = 'fd-logout';
   nodes.push(out);

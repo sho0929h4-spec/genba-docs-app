@@ -673,6 +673,8 @@
   .member-h b{font-size:15px;min-width:0;overflow-wrap:anywhere;}
   .member.warn .member-h b{color:var(--red);}
   .member-h .mh-sub{font-size:12px;color:var(--muted);}
+  .member-h .mh-name{display:inline-flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;}
+  .member-h .mh-tel{font-size:12px;color:var(--muted);font-weight:400;}
   .member-h .mh-sub .hot{color:var(--red);font-weight:700;}
   .mt-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);flex-wrap:wrap;font-size:13px;}
   .mt-l{display:flex;flex-direction:column;gap:1px;min-width:0;}
@@ -707,6 +709,10 @@
   .sm-subj{font-weight:700;font-size:15px;overflow-wrap:anywhere;}
   .sm-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;}
   .sm-photos{display:flex;flex-wrap:wrap;gap:6px;}
+  /* Task 32: 日報の PDF（開く・保存） */
+  .sm-pdf{display:flex;gap:8px;flex-wrap:wrap;}
+  .sm-pdf a{min-height:40px;display:inline-flex;align-items:center;text-decoration:none;}
+  .sm-pdf a[aria-disabled=true]{opacity:.5;pointer-events:none;}
   .sm-photo{width:88px;height:88px;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--bg);}
   .sm-acts{display:flex;flex-wrap:wrap;gap:8px;}
   .sm-acts .btn,.sm-reply .btn{min-height:40px;}
@@ -1238,14 +1244,52 @@
   .fd-card-main .fd-stage{justify-self:start;}
   .fd-card .fd-map{min-height:40px;padding:0 14px 6px;}
   .fd-daily{padding:12px 14px;gap:8px;}
-  .fd-daily-sec{display:grid;gap:2px;font-size:14px;}
-  .fd-daily-item{overflow-wrap:anywhere;}
   .fd-daily-f textarea{width:100%;min-width:0;font-size:16px;font-family:inherit;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;min-height:88px;background:#fff;color:var(--text);resize:vertical;}
   .fd-daily-sent{font-size:13px;font-weight:700;color:var(--green);overflow-wrap:anywhere;}
-  .fd-daily-send{min-height:48px;width:100%;}
   .fd-daily .err:empty,.fd-daily .ob-msg:empty{display:none;}
   .fd-daily-h{padding:10px 14px;gap:6px;}
   .fd-daily-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-height:12em;overflow:auto;}
+  /* Task 32: 日報（4区画・押して ☑／☐・時間のチップ・下に固定の「PDFを見る」「送る」） */
+  .dl-head{display:grid;gap:2px;}
+  .dl-sec{display:grid;gap:6px;}
+  .dl-h{font-size:14px;font-weight:800;color:var(--navy);margin-top:6px;overflow-wrap:anywhere;}
+  .dl-none{font-size:13px;color:var(--muted);padding:4px 2px;}
+  .dl-row{display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;padding:9px 12px;border:1.5px solid var(--border);border-radius:12px;background:#fff;
+    font-family:inherit;font-size:14px;color:var(--text);text-align:left;cursor:pointer;min-width:0;}
+  .dl-row.on{border-color:var(--navy2);background:#eef4fb;}
+  .dl-row:not(.on){color:var(--muted);}
+  .dl-row:not(.on) .dl-txt b{text-decoration:line-through;}
+  .dl-ck{font-size:20px;line-height:1.2;flex:0 0 auto;}
+  .dl-txt{display:grid;gap:2px;min-width:0;flex:1;}
+  .dl-txt b{font-weight:700;overflow-wrap:anywhere;}
+  .dl-sub{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere;}
+  .dl-row.on .dl-sub{color:#334155;}
+  .dl-val{font-size:14px;font-weight:800;color:var(--navy2);overflow-wrap:anywhere;}
+  .dl-trow{display:grid;gap:6px;}
+  .dl-trow.travel{margin-top:4px;}
+  .dl-tl{font-size:13px;font-weight:700;color:var(--muted);}
+  .dl-chips .fd-chip{min-height:40px;}
+  .dl-other-f{display:grid;gap:4px;font-size:13px;color:var(--muted);max-width:220px;}
+  .dl-other{font-size:16px;min-height:44px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;width:100%;}
+  .dl-total{font-size:16px;font-weight:800;color:var(--navy);text-align:right;padding-top:4px;border-top:1px solid var(--border);}
+  .dl-miss{font-size:12.5px;color:var(--amber);font-weight:700;text-align:right;}
+  .dl-miss:empty{display:none;}
+  .dl-photos{display:grid;gap:6px;}
+  .dl-thumbs{display:flex;gap:8px;flex-wrap:wrap;}
+  .dl-thumbs:empty{display:none;}
+  .dl-thumb{position:relative;width:88px;height:88px;}
+  .dl-thumb img{width:100%;height:100%;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--bg);}
+  .dl-thumb-x{position:absolute;top:-6px;right:-6px;width:36px;height:36px;border-radius:50%;border:0;background:var(--navy);color:#fff;font-size:18px;font-weight:700;cursor:pointer;}
+  .dl-bar{position:fixed;left:0;right:0;bottom:calc(56px + env(safe-area-inset-bottom,0px));z-index:44;display:flex;gap:8px;background:#fff;border-top:1px solid var(--border);
+    padding:8px calc(12px + env(safe-area-inset-right,0px)) 8px calc(12px + env(safe-area-inset-left,0px));justify-content:center;}
+  .dl-bar .btn{flex:1;max-width:308px;min-height:48px;font-size:15px;}
+  .dl-spacer{height:72px;}
+  .dl-pv-bg{position:fixed;inset:0;z-index:90;background:rgba(15,23,42,.72);display:flex;flex-direction:column;}
+  .dl-pv-top{display:flex;align-items:center;gap:8px;background:#fff;padding:calc(8px + env(safe-area-inset-top,0px)) calc(12px + env(safe-area-inset-right,0px)) 8px calc(12px + env(safe-area-inset-left,0px));}
+  .dl-pv-top b{flex:1;min-width:0;font-size:14px;overflow-wrap:anywhere;}
+  .dl-pv-top a,.dl-pv-top button{min-height:40px;text-decoration:none;display:inline-flex;align-items:center;}
+  .dl-pv-body{flex:1;overflow:auto;padding:12px;display:grid;gap:12px;justify-items:center;align-content:start;}
+  .dl-pv-img{width:100%;max-width:720px;height:auto;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.3);}
   .fd-daily-reply{background:#f4f7fb;border-radius:10px;padding:8px 10px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;}
   .si-contact{display:flex;gap:8px;flex-wrap:wrap;}
   .si-contact .btn{min-height:44px;font-size:14px;}
@@ -1298,8 +1342,14 @@
   .fd-tool-go{font-size:24px;color:var(--muted);flex:none;}
   .fd-note{font-size:12px;color:var(--muted);border-top:1px dashed var(--border);padding-top:8px;}
   .fd-set{padding:12px 14px;gap:6px;}
-  .fd-steps{display:grid;gap:2px;font-size:13px;margin-top:4px;}
-  .fd-steps ol{padding-left:1.4em;color:var(--text);}
+  /* Task 32: 現場用の設定「担当者の情報」 */
+  .fd-set-ro{display:grid;gap:2px;}
+  .fd-set-k{font-size:12px;color:var(--muted);font-weight:700;}
+  .fd-set-v{font-size:16px;overflow-wrap:anywhere;}
+  .fd-set-f{display:grid;gap:4px;font-size:12px;color:var(--muted);font-weight:700;}
+  .fd-set-f input{font-size:16px;min-height:44px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;color:var(--text);width:100%;min-width:0;}
+  .fd-set-st{font-size:12.5px;color:var(--green);font-weight:700;}
+  .fd-set .err:empty{display:none;}
   .fd-logout{min-height:48px;}
   #field-root .si-item .btn.sm, #field-root .ob-item .btn.sm{font-size:14px;min-height:40px;}
   #card-view .fd-row{margin-bottom:6px;}
@@ -1997,66 +2047,68 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=7f1c2e9"></script>
-<script src="js/supabase-config.js?v=7f1c2e9"></script>
-<script src="js/supabase.js?v=7f1c2e9"></script>
-<script src="js/auth.js?v=7f1c2e9"></script>
-<script src="js/storage.js?v=7f1c2e9"></script>
-<script src="js/quota.js?v=7f1c2e9"></script>
-<script src="js/messages-api.js?v=7f1c2e9"></script>
-<script src="js/case-logic.js?v=7f1c2e9"></script>
-<script src="js/mail-templates.js?v=7f1c2e9"></script>
-<script src="js/phase-logic.js?v=7f1c2e9"></script>
-<script src="js/request-view.js?v=7f1c2e9"></script>
-<script src="js/case-band.js?v=7f1c2e9"></script>
-<script src="js/image.js?v=7f1c2e9"></script>
-<script src="js/cases-api.js?v=7f1c2e9"></script>
-<script src="js/clients-api.js?v=7f1c2e9"></script>
-<script src="js/phases-api.js?v=7f1c2e9"></script>
+<script src="js/crypto-util.js?v=295a456"></script>
+<script src="js/supabase-config.js?v=295a456"></script>
+<script src="js/supabase.js?v=295a456"></script>
+<script src="js/auth.js?v=295a456"></script>
+<script src="js/storage.js?v=295a456"></script>
+<script src="js/quota.js?v=295a456"></script>
+<script src="js/messages-api.js?v=295a456"></script>
+<script src="js/case-logic.js?v=295a456"></script>
+<script src="js/mail-templates.js?v=295a456"></script>
+<script src="js/phase-logic.js?v=295a456"></script>
+<script src="js/request-view.js?v=295a456"></script>
+<script src="js/case-band.js?v=295a456"></script>
+<script src="js/image.js?v=295a456"></script>
+<script src="js/cases-api.js?v=295a456"></script>
+<script src="js/clients-api.js?v=295a456"></script>
+<script src="js/phases-api.js?v=295a456"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=7f1c2e9"></script>
-<script src="js/reports-api.js?v=7f1c2e9"></script>
-<script src="js/photo-marks.js?v=7f1c2e9"></script>
-<script src="js/report-pdf.js?v=7f1c2e9"></script>
-<script src="js/notice-logic.js?v=7f1c2e9"></script>
-<script src="js/notices-api.js?v=7f1c2e9"></script>
-<script src="js/notice-pdf.js?v=7f1c2e9"></script>
-<script src="js/estimate-logic.js?v=7f1c2e9"></script>
-<script src="js/estimates-api.js?v=7f1c2e9"></script>
-<script src="js/estimate-pdf.js?v=7f1c2e9"></script>
-<script src="js/estimate-presets-api.js?v=7f1c2e9"></script>
-<script src="js/estimate-presets.js?v=7f1c2e9"></script>
-<script src="js/estimate-layout.js?v=7f1c2e9"></script>
-<script src="js/estimate-import.js?v=7f1c2e9"></script>
-<script src="js/case-list.js?v=7f1c2e9"></script>
-<script src="js/clients-ui.js?v=7f1c2e9"></script>
-<script src="js/case-detail.js?v=7f1c2e9"></script>
-<script src="js/case-rooms-api.js?v=7f1c2e9"></script>
-<script src="js/case-rooms.js?v=7f1c2e9"></script>
-<script src="js/case-request.js?v=7f1c2e9"></script>
-<script src="js/edit-logic.js?v=7f1c2e9"></script>
-<script src="js/case-trash.js?v=7f1c2e9"></script>
-<script src="js/case-undo.js?v=7f1c2e9"></script>
-<script src="js/phase-ui.js?v=7f1c2e9"></script>
-<script src="js/phase-detail.js?v=7f1c2e9"></script>
-<script src="js/billing-ui.js?v=7f1c2e9"></script>
-<script src="js/team.js?v=7f1c2e9"></script>
-<script src="js/tasks.js?v=7f1c2e9"></script>
-<script src="js/timeline.js?v=7f1c2e9"></script>
-<script src="js/photo-mark-editor.js?v=7f1c2e9"></script>
-<script src="js/report-form.js?v=7f1c2e9"></script>
-<script src="js/report-ui.js?v=7f1c2e9"></script>
-<script src="js/report-share.js?v=7f1c2e9"></script>
-<script src="js/report-edit.js?v=7f1c2e9"></script>
-<script src="js/mail-ui.js?v=7f1c2e9"></script>
-<script src="js/outbox-ui.js?v=7f1c2e9"></script>
-<script src="js/staff-inbox.js?v=7f1c2e9"></script>
-<script src="js/staff-messages.js?v=7f1c2e9"></script>
-<script src="js/notice-ui.js?v=7f1c2e9"></script>
-<script src="js/notice-edit.js?v=7f1c2e9"></script>
-<script src="js/estimate-ui.js?v=7f1c2e9"></script>
-<script src="js/field-ui.js?v=7f1c2e9"></script>
-<script src="js/app.js?v=7f1c2e9"></script>
+<script src="js/report-logic.js?v=295a456"></script>
+<script src="js/reports-api.js?v=295a456"></script>
+<script src="js/photo-marks.js?v=295a456"></script>
+<script src="js/report-pdf.js?v=295a456"></script>
+<script src="js/daily-logic.js?v=295a456"></script>
+<script src="js/daily-pdf.js?v=295a456"></script>
+<script src="js/notice-logic.js?v=295a456"></script>
+<script src="js/notices-api.js?v=295a456"></script>
+<script src="js/notice-pdf.js?v=295a456"></script>
+<script src="js/estimate-logic.js?v=295a456"></script>
+<script src="js/estimates-api.js?v=295a456"></script>
+<script src="js/estimate-pdf.js?v=295a456"></script>
+<script src="js/estimate-presets-api.js?v=295a456"></script>
+<script src="js/estimate-presets.js?v=295a456"></script>
+<script src="js/estimate-layout.js?v=295a456"></script>
+<script src="js/estimate-import.js?v=295a456"></script>
+<script src="js/case-list.js?v=295a456"></script>
+<script src="js/clients-ui.js?v=295a456"></script>
+<script src="js/case-detail.js?v=295a456"></script>
+<script src="js/case-rooms-api.js?v=295a456"></script>
+<script src="js/case-rooms.js?v=295a456"></script>
+<script src="js/case-request.js?v=295a456"></script>
+<script src="js/edit-logic.js?v=295a456"></script>
+<script src="js/case-trash.js?v=295a456"></script>
+<script src="js/case-undo.js?v=295a456"></script>
+<script src="js/phase-ui.js?v=295a456"></script>
+<script src="js/phase-detail.js?v=295a456"></script>
+<script src="js/billing-ui.js?v=295a456"></script>
+<script src="js/team.js?v=295a456"></script>
+<script src="js/tasks.js?v=295a456"></script>
+<script src="js/timeline.js?v=295a456"></script>
+<script src="js/photo-mark-editor.js?v=295a456"></script>
+<script src="js/report-form.js?v=295a456"></script>
+<script src="js/report-ui.js?v=295a456"></script>
+<script src="js/report-share.js?v=295a456"></script>
+<script src="js/report-edit.js?v=295a456"></script>
+<script src="js/mail-ui.js?v=295a456"></script>
+<script src="js/outbox-ui.js?v=295a456"></script>
+<script src="js/staff-inbox.js?v=295a456"></script>
+<script src="js/staff-messages.js?v=295a456"></script>
+<script src="js/notice-ui.js?v=295a456"></script>
+<script src="js/notice-edit.js?v=295a456"></script>
+<script src="js/estimate-ui.js?v=295a456"></script>
+<script src="js/field-ui.js?v=295a456"></script>
+<script src="js/app.js?v=295a456"></script>
 </body>
 </html>

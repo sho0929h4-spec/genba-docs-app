@@ -74,7 +74,7 @@ function teamAssignSelect(it) {
   sel.setAttribute('aria-label', '作業担当者を選ぶ: ' + it.caseName + ' ' + it.title);
   sel.appendChild(new Option('作業担当者を選ぶ', ''));
   teamMembers.forEach(m => {
-    sel.appendChild(new Option((m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : ''), m.user_id));
+    sel.appendChild(new Option((m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '') + memberTel(m), m.user_id));
   });
   sel.value = '';
   sel.disabled = teamBusy.has(it.phaseId);
@@ -148,7 +148,12 @@ function renderTeam() {
         sub.appendChild(document.createTextNode('・'));
         sub.appendChild(mk('span', 'hot', '予定を過ぎた ' + m.late));
       }
-      const card = teamCard('', mk('b', null, '👤 ' + m.name), sub);
+      // Task 32: 担当者の電話番号（設定で本人が入れたもの）を名前の横に小さく
+      const head = mk('span', 'mh-name');
+      head.appendChild(mk('b', null, '👤 ' + m.name));
+      const tm = teamMembers.find(x => x.user_id === m.user_id);
+      if (tm && tm.phone) head.appendChild(mk('span', 'mh-tel', '☎ ' + tm.phone));
+      const card = teamCard('', head, sub);
       card.dataset.member = m.user_id;
       m.items.forEach(it => card.appendChild(teamRowEl(it, 'member')));
       cards.push(card);

@@ -50,7 +50,7 @@ async function getMyContext() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
   const { data: m, error } = await sb.from('memberships')
-    .select('user_id, org_id, display_name, role, orgs(*)')
+    .select('user_id, org_id, display_name, role, phone, orgs(*)')
     .eq('user_id', user.id).single();
   if (error) return null;
   return { user, membership: m, org: m.orgs };
