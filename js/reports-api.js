@@ -65,6 +65,7 @@ const ReportsApi = (() => {
     return CryptoUtil.sha256Hex(String(token));
   }
 
+  const sharedSynced = new Set(); // Task 27: 担当者URLの提出で「調査結果のご報告」を確かめた報告書（id@提出日時。この画面の間）
   const api = {
     /* ===== 報告書 ===== */
     async listByCase(caseId) {
@@ -213,6 +214,7 @@ const ReportsApi = (() => {
     },
     // Task 23 I10（原因の二重入力）: 調査の報告書の 原因・原因と判断した理由・次の対応方針 の文で、その調査フェーズの「調査結果」の
     //   空の項目だけ埋め、「調査結果のご報告」の未送信の下書きも作り直す（PhasesApi.saveResult）。失敗しても提出・確認は止めない
+    //   Task 27: 次の対応方針が原因元工事／再調査（期日あり）なら、調査結果が変わらなくても下書きを作り直す（末尾の「お見積書は … までに」）
     async syncSurveyResult(report) {
       try {
         if (!report || report.work_type !== 'investigate' || !report.phase_id || typeof PhasesApi === 'undefined') return null;
@@ -223,10 +225,43 @@ const ReportsApi = (() => {
         // Task 25: 原因は報告書の号室の区画へ（調査結果は号室ごと）
         const next = window.PhaseLogic.resultFromReport(ph.result, { cause: RL().causeText(d), reason: d.reason, next: RL().nextActionText(d) },
           { room: report.room, caseRow });
-        if (!next) return null;
+        const promise = window.PhaseLogic.estimatePromise(d.nextAction);
+        if (!next && !promise) return null;
         const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
-        return await PhasesApi.saveResult(ph, next, caseRow, window.PhaseLogic.phaseTitle(ph, seq));
+        return await PhasesApi.saveResult(ph, next || ph.result, caseRow, window.PhaseLogic.phaseTitle(ph, seq), { next: d.nextAction });
       } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
+    },
+    // Task 27: 担当者URLから提出された調査の報告書（ログインなしの提出は下書きを作れない）→ 管理画面を開いたときに「調査結果のご報告」を作り直す。
+    //   rows: case_summaries の行。提出から30日以内・このフェーズの「調査結果のご報告」が提出の後に作られた／更新されたものが無いときだけ
+    //   （作り直し・送信・手直しのどれかが済んでいれば何もしない＝二重に作らない）。同じ画面の間は同じ報告書を2回見ない。戻り値: 作り直した件数
+    async syncSharedSurveyResults(rows) {
+      if (typeof PhasesApi === 'undefined') return 0;
+      const since = Date.now() - 30 * 86400000;
+      const cands = [];
+      (rows || []).forEach(c => (Array.isArray(c.phases) ? c.phases : []).forEach(p => {
+        if (p.kind !== 'survey') return;
+        (p.reports || []).forEach(r => {
+          if (r.work_type !== 'investigate' || r.submitted_via !== 'share' || !r.submitted_at || r.status === 'draft') return;
+          if (Date.parse(r.submitted_at) < since || sharedSynced.has(r.id + '@' + r.submitted_at)) return;
+          cands.push({ report: r, phaseId: p.id });
+        });
+      }));
+      if (!cands.length) return 0;
+      const mails = must(await sb.from('mail_drafts').select('id, phase_id, status, created_at, updated_at, sent_at')
+        .in('phase_id', [...new Set(cands.map(x => x.phaseId))]).eq('purpose', 'survey_result')) || [];
+      let n = 0;
+      for (const { report, phaseId } of cands) {
+        sharedSynced.add(report.id + '@' + report.submitted_at);
+        const t = Date.parse(report.submitted_at);
+        const done = mails.some(m => m.phase_id === phaseId && Math.max(Date.parse(m.updated_at || '') || 0, Date.parse(m.created_at || '') || 0,
+          Date.parse(m.sent_at || '') || 0) >= t);
+        if (done) continue;
+        try {
+          const full = await api.get(report.id);
+          if (full && full.status !== 'draft' && await api.syncSurveyResult(full)) n += 1;
+        } catch (e) { console.warn('調査結果のご報告の作り直しに失敗', e); }
+      }
+      return n;
     },
     // 確認済みにして、依頼者への送付メール下書きを作って返す
     async confirm(report, caseRow) {

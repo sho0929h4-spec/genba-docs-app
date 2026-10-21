@@ -252,6 +252,16 @@ async function siMakeReport(it) {
   if (el) el.textContent = err;
 }
 
+// フェーズの見積を作る（phase_id 付き。工事なら調査結果の注意事項を備考に）→ 作った見積の行。🔔 と現場用トップのカード（Task 27）で共通
+async function makePhaseEstimate(c, p, title) {
+  const opts = { phase_id: p.id, phaseTitle: title };
+  if (p.kind !== 'survey') {
+    const r = PhaseLogic.latestSurveyResult(c.phases);
+    if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
+  }
+  return EstimatesApi.create(c.id, c, opts);
+}
+
 // 見積書を作る（Task 21）: そのフェーズの見積を作って見積書の画面へ（やること・現場用ツールの「見積を作る」と同じ初期値）
 async function siMakeEstimate(it) {
   const s = si;
@@ -267,15 +277,8 @@ async function siMakeEstimate(it) {
   s.msg = '';
   siRender();
   let err = '', row = null;
-  try {
-    const c = it.caseRow, p = it.phase;
-    const opts = { phase_id: p.id, phaseTitle: it.title };
-    if (p.kind !== 'survey') {
-      const r = PhaseLogic.latestSurveyResult(c.phases);
-      if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
-    }
-    row = await EstimatesApi.create(c.id, c, opts);
-  } catch (e) { err = '見積書を作れませんでした: ' + errText(e); }
+  try { row = await makePhaseEstimate(it.caseRow, it.phase, it.title); }
+  catch (e) { err = '見積書を作れませんでした: ' + errText(e); }
   s.busy.delete(key);
   if (si !== s) return;
   if (row) {

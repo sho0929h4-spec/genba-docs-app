@@ -10,12 +10,13 @@
 //   報告書・見積書・工事掲示・送付メールの画面（共通）は現場用からも開ける。そのとき body に fd-mode を付け、
 //     ヘッダーの 💴（請求）を隠し、⚙️ は現場用の設定へ、戻るは「‹ ツール」（#f/case/{id}）にする（fieldBack）。
 // 案件一覧は自分の担当だけ（案件の担当者か、フェーズの作業担当者。「全部」は出さない＝Ruling）。並びは PhaseLogic.fieldCases。
+//   Task 27: 一覧の一番上に「🧾 見積書を提出（期限 M/D）」のカード（PhaseLogic.fieldEstimateCards。🔔 と同じ判定・過ぎたら赤）
 // ツールページ: 住所（Googleマップ）・入居者の電話・対応の切替チップ（今日の予定の対応が初期選択。無ければ最新）・
 //   「📝 現場への指示（○○さんから）」と「確認した」（既存の ack。担当者本人・知らせてもらった後だけ）・
 //   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
 // DB の変更は無い（スタッフも API では会社の全案件を読める。画面で絞るだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
-// mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox は staff-inbox.js、openFieldContact / smOpenSheet は staff-messages.js、
+// mk() は case-list.js、dBtn / errText は case-detail.js、openStaffInbox / makePhaseEstimate は staff-inbox.js、openFieldContact / smOpenSheet は staff-messages.js、
 // $ / showScreen / renderHeaders / withBusy は app.js
 
 const FD_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
@@ -203,6 +204,14 @@ function fdRenderCases() {
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'cases' })));
   } else {
     const now = new Date();
+    // Task 27: 一番上に「🧾 見積書を提出（期限 M/D）」（調査報告の次の対応方針で決まった期限。提出するまで残る・過ぎたら赤）
+    const ests = PhaseLogic.fieldEstimateCards(s.rows, fdMe(), now);
+    if (ests.length) {
+      const box = mk('div', 'fd-ests');
+      box.id = 'fd-ests';
+      ests.forEach(it => box.appendChild(fdEstimateCard(it)));
+      nodes.push(box);
+    }
     const n = PhaseLogic.staffInbox(s.rows, fdMe(), now, { messages: s.msgs }).length;
     if (n) {
       const b = dBtn('', 'fd-bell', () => { location.hash = '#f/inbox'; });
@@ -226,6 +235,44 @@ function fdRenderCases() {
     nodes.push(wrap);
   }
   host.replaceChildren(...nodes);
+}
+
+// 見積書の提出のカード（Task 27）: 押すと下書きの続き（あれば）／このフェーズで見積を作って見積書の画面へ
+function fdEstimateCard(it) {
+  const key = 'est-' + it.phase.id;
+  const wrap = mk('div', 'fd-est' + (it.late ? ' late' : ''));
+  wrap.dataset.phaseId = it.phase.id;
+  const b = dBtn('', 'fd-est-main', () => fdMakeEstimate(it));
+  b.disabled = fd.busy === key;
+  const top = mk('span', 'fd-est-top');
+  top.appendChild(mk('b', 'fd-est-label', '🧾 ' + it.label + (it.late ? '（期限を過ぎています）' : '')));
+  top.appendChild(mk('span', 'fd-est-go', fd.busy === key ? '作成中…' : it.draft ? '続きを書く ›' : '見積を作る ›'));
+  b.appendChild(top);
+  b.appendChild(mk('span', 'fd-tiny fd-est-sub', (PhaseLogic.placeName(it.caseRow) || '（物件名なし）') + ' ・ ' + it.title));
+  wrap.appendChild(b);
+  const e = mk('div', 'err', fd.busy === '' && fd.estErr && fd.estErr.key === key ? fd.estErr.text : '');
+  e.id = 'fd-est-err-' + it.phase.id;
+  wrap.appendChild(e);
+  return wrap;
+}
+async function fdMakeEstimate(it) {
+  const s = fd;
+  const key = 'est-' + it.phase.id;
+  if (!s || s.busy) return;
+  fdSel.set(it.caseRow.id, it.phase.id); // 見積書の「‹ ツール」で戻ったとき、この対応を選ぶ
+  if (it.draft) { location.hash = '#estimate/' + it.draft.id; return; }
+  s.busy = key;
+  s.estErr = null;
+  fdRenderCases();
+  let row = null, err = '';
+  try { row = await makePhaseEstimate(it.caseRow, it.phase, it.title); }
+  catch (e) { err = '見積書を作れませんでした: ' + errText(e); }
+  if (fd !== s) return;
+  s.busy = '';
+  fieldRowsInvalidate();
+  if (row) { location.hash = '#estimate/' + row.id; return; }
+  s.estErr = { key, text: err };
+  fdRenderCases();
 }
 
 function fdKindBadge(kind) {

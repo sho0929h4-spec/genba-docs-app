@@ -1,6 +1,6 @@
 // js/case-trash.js — 案件の削除（ゴミ箱）。対応フェーズ Task 13 / migration 031
 //   - 案件ページの一番下に小さく「この案件を削除」（管理者＝オーナーだけに出す。スタッフには出さない。DB でも管理者だけ）
-//   - 押すと確認シート: いっしょに見えなくなるもの（フェーズ・書類・メール下書き・タイムラインの件数）を出し、
+//   - 押すと確認シート: 「本当に削除しますか？」「管理者なら30日は戻せます」と物件名の入力だけ（2026-10-21 簡略化）。
 //     物件名をそのまま入力しないと「削除する」が押せない。入力があるので外側クリック・Esc では閉じない（× とキャンセルだけ）
 //   - 削除後は案件一覧に戻り「削除しました。設定 → 削除した案件 から30日以内なら戻せます」
 //   - 設定の「削除した案件」（管理者だけ）: 一覧と「元に戻す」（画面内で確かめる）。30日を過ぎた分の自動削除は後日（docs/phase0-deferred.md）
@@ -11,17 +11,6 @@ const CaseTrash = (() => {
   const isOwner = () => !!(ctx && ctx.membership && ctx.membership.role === 'owner');
   const KEEP_DAYS = 30;
 
-  // 削除するといっしょに見えなくなるもの（case_summaries の件数から）
-  function counts(c) {
-    const n = v => Number(v) || 0;
-    const reports = n(c.report_count), estimates = n(c.estimate_count), notices = n(c.notice_count);
-    return [
-      { key: 'phases', label: '対応フェーズ', n: Array.isArray(c.phases) ? c.phases.length : 0 },
-      { key: 'docs', label: '書類', n: reports + estimates + notices, sub: `報告書 ${reports}・見積書 ${estimates}・工事掲示 ${notices}` },
-      { key: 'drafts', label: '送っていないメールの下書き', n: n(c.drafts_to_send) },
-      { key: 'timeline', label: 'タイムライン', n: n(c.timeline_count) }
-    ];
-  }
 
   // ── 案件ページの一番下 ─────────────────────────────────────────────
   function section(caseRow) {
@@ -54,28 +43,8 @@ const CaseTrash = (() => {
     hd.append(h, x);
 
     const lead = mk('p', 'trash-lead');
-    lead.append(mk('b', null, '「' + name + '」'), document.createTextNode(' を削除すると、案件一覧・チーム状況・請求の一覧・送るメールから消えます。いっしょに見えなくなるもの:'));
-    const ul = mk('ul', 'trash-list');
-    ul.id = 'trash-counts';
-    counts(c).forEach(it => {
-      const li = mk('li', null);
-      li.dataset.key = it.key;
-      li.append(mk('span', null, it.label), mk('b', null, ' ' + it.n + '件'));
-      if (it.sub && it.n) li.appendChild(mk('span', 'trash-sub', '（' + it.sub + '）'));
-      ul.appendChild(li);
-    });
-    const back = mk('p', 'trash-back', '間違えたときは「設定 → 削除した案件」から' + KEEP_DAYS + '日以内なら元に戻せます。');
-
-    const inp = document.createElement('input');
-    inp.type = 'text';
-    inp.id = 'trash-name';
-    inp.autocomplete = 'off';
-    inp.spellcheck = false;
-    inp.placeholder = name;
-    const ff = mk('div', 'ff');
-    const lb = mk('label', null, '確認のため、物件名をそのまま入力してください');
-    lb.htmlFor = inp.id;
-    ff.append(lb, mk('div', 'trash-want', name), inp);
+    lead.append(mk('b', null, '「' + name + '」'), document.createTextNode(' を本当に削除しますか？'));
+    const back = mk('p', 'trash-back', '管理者なら' + KEEP_DAYS + '日は戻せます（設定 → 削除した案件）。');
 
     const err = mk('div', 'err');
     err.id = 'trash-err';
@@ -84,13 +53,12 @@ const CaseTrash = (() => {
     const cancel = dBtn('キャンセル', 'btn ghost', () => close());
     cancel.id = 'trash-cancel';
     const go = dBtn('削除する', 'btn danger-fill', b => withBusy(b, async () => {
-      if (str(inp.value) !== name) { err.textContent = '物件名が一致しません'; inp.focus(); return; }
       err.textContent = '';
-      cancel.disabled = true; x.disabled = true; inp.disabled = true;
+      cancel.disabled = true; x.disabled = true;
       try { await CasesApi.trashCase(c.id); }
       catch (e) {
         err.textContent = '削除できませんでした: ' + errText(e);
-        cancel.disabled = false; x.disabled = false; inp.disabled = false;
+        cancel.disabled = false; x.disabled = false;
         return;
       }
       close();
@@ -98,13 +66,8 @@ const CaseTrash = (() => {
       openCases(); // 一覧へ（openCases が URL の #case/… を消す。hashchange で2回開いて案内が消えないよう hash は直接変えない）
     }));
     go.id = 'trash-go';
-    // withBusy が終わると disabled を外すので、一致していないときは押せない状態に戻す
-    const sync = () => { go.disabled = str(inp.value) !== name || inp.disabled; };
-    go.addEventListener('click', () => setTimeout(sync, 0));
-    inp.addEventListener('input', sync);
-    sync();
     act.append(cancel, go);
-    dlg.append(hd, lead, ul, back, ff, act, err);
+    dlg.append(hd, lead, back, act, err);
     bg.appendChild(dlg);
     // 外側のクリック・Esc では閉じない（入力のあるシート）。画面を移ったら閉じる
     document.body.appendChild(bg);
@@ -117,7 +80,7 @@ const CaseTrash = (() => {
       window.removeEventListener('hashchange', onHash);
     }
     x.addEventListener('click', () => close());
-    inp.focus();
+    cancel.focus();
     return bg;
   }
 
@@ -185,6 +148,6 @@ const CaseTrash = (() => {
     return el;
   }
 
-  return { section, openSheet, renderCard, counts };
+  return { section, openSheet, renderCard };
 })();
 window.CaseTrash = CaseTrash;

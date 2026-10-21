@@ -16,6 +16,10 @@ async function outboxSync(rows) {
   const active = entries.flatMap(e => e.phases)
     .filter(p => p.scheduled_at && !p.done_at && Date.parse(p.scheduled_at) > now.getTime()).map(p => p.id);
   const caseIds = (rows || []).map(r => r.id); // 未送信の下書きは一覧にある案件の分だけ読む（Task 23 I13）
+  // Task 27: 担当者URLから提出された調査の報告書 → 「調査結果のご報告」を作り直す（管理者が開いたとき。失敗しても一覧は出す）
+  if (ctx && ctx.membership && ctx.membership.role === 'owner') {
+    try { await ReportsApi.syncSharedSurveyResults(rows); } catch (e) { console.warn('調査結果のご報告の確認に失敗', e); }
+  }
   let drafts = await PhasesApi.listMailForOutbox(active, caseIds);
   const res = await PhasesApi.syncReminders(entries, drafts, now);
   if (res.created.length || res.removed) drafts = await PhasesApi.listMailForOutbox(active, caseIds);

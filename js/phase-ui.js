@@ -104,6 +104,12 @@ async function phLoad() {
     r.share_active = !!act;
     r.share_name = act ? act.vendor_name || '' : '';
   });
+  // Task 27: 担当者URLから提出された調査の報告書 → 「調査結果のご報告」を作り直す（管理者。案件一覧と同じ）
+  if (ctx && ctx.membership && ctx.membership.role === 'owner' && currentCase) {
+    try { if (await ReportsApi.syncSharedSurveyResults([currentCase])) drafts = await ReportsApi.listDrafts(s.caseId); }
+    catch (e) { console.warn('調査結果のご報告の確認に失敗', e); }
+    if (!phAlive(s) || seq !== phSeq) return '';
+  }
   // 時刻を過ぎたリマインドの下書きを作る・古い未送信のリマインドを消す（案件一覧と同じ。二重作成は DB の unique で防ぐ）
   try {
     const r = await PhasesApi.syncReminders([{ caseRow: currentCase, phases: phases || [] }], drafts || [], new Date());

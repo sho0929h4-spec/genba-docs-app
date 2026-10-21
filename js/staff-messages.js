@@ -4,6 +4,8 @@
 //   管理者: 案件一覧の上の「📨 現場からの連絡 n件」（#case-messages）→ #messages（案件ページの「今の状態」からは #messages/{caseId}）
 //           既読にする・返事を書く（返事は宛先のスタッフの 🔔 に出る）・案件を開く
 //   アプリ内だけ（メールは送らない＝Ruling）。タイムラインには DB のトリガーが残す
+//   Task 27: 調査報告の提出（次の対応方針が原因元工事／再調査）で DB が自動の連絡を入れる（source = report_submit。「自動」の札）。
+//           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // 入力のあるシートは外側クリック・Esc で閉じない（× とキャンセルだけ）
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
@@ -86,7 +88,7 @@ function smRender() {
       if (s.caseId) location.hash = '#case/' + s.caseId; else openCases();
     }));
     nodes.push(mk('h2', 'ob-h', '📨 現場からの連絡'));
-    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡です。読んだら「既読にする」、返事は「返事を書く」（スタッフの 🔔 に出ます。メールは送りません）'));
+    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡と、調査報告が提出されたときの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの 🔔 に出ます。メールは送りません）'));
     if (s.caseId) {
       const c = smCaseOf(s.caseId);
       const f = mk('div', 'sm-filter');
@@ -130,7 +132,9 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : smName(m.from_user)));
+  const auto = m.source === 'report_submit';
+  head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
+  if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));
   if (PhaseLogic.messageForMe(m, me, smIsOwner() && !sm.field)) head.appendChild(mk('span', 'sm-new', '未読'));
   else if (m.from_user === me && m.read_at) head.appendChild(mk('span', 'sm-read', '既読'));
@@ -172,7 +176,9 @@ function smThreadEl(g) {
     rd.disabled = busy;
     acts.appendChild(rd);
   }
-  if (s.reply !== r.id) {
+  // 返事の相手: 現場用は管理者（宛先なし）。管理者は自分以外の送った人（担当者URLだけのやり取りには相手がいない）
+  const canReply = s.field || [r].concat(g.replies).some(m => m.from_user && m.from_user !== smMe());
+  if (s.reply !== r.id && canReply) {
     const rp = dBtn('返事を書く', 'btn sm ghost inline sm-reply-btn', () => { s.reply = r.id; s.replyErr = ''; smRender(); smFocusReply(); });
     rp.disabled = busy || (s.reply != null);
     acts.appendChild(rp);

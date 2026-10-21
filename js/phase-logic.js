@@ -1102,8 +1102,33 @@
     if (on.has('other')) out.push(...NL().bodySentences({ workTypes: { other: true }, otherWorkText: r.cautionOther }));
     return out.filter((t, i) => t && out.indexOf(t) === i);
   }
+  // Task 27: ご報告メールの末尾の文。next = 提出された調査の報告書の「次の対応方針」（data.nextAction: { type, estimateDue }）。
+  //   原因元工事 → 「お見積書は {期日の翌日} までにお送りいたします。」、再調査 → 「再調査のうえ、お見積書は … までにお送りいたします。」、
+  //   それ以外・期日なし → 「お見積書は別途お送りいたします。」（今までの文）。翌日は日付だけで計算（estimate_due は日本時間の日付）
+  const ESTIMATE_LATER = 'お見積書は別途お送りいたします。';
+  // 'YYYY-MM-DD' → 10月26日（月）（日付だけで読む。タイムゾーンに依存しない）
+  function fmtYmdLong(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${WEEK[d.getUTCDay()]}）`;
+  }
+  // → { type, due（担当者の期日）, sendBy（お客様に送る日 = 翌日）} or null
+  function estimatePromise(next) {
+    const n = next && typeof next === 'object' ? next : {};
+    const due = str(n.estimateDue);
+    if ((n.type !== 'cause' && n.type !== 'resurvey') || !/^\d{4}-\d{2}-\d{2}$/.test(due) || !fmtYmdLong(due)) return null;
+    return { type: n.type, due, sendBy: ymdAdd(due, 1) };
+  }
+  function estimatePromiseText(next) {
+    const p = estimatePromise(next);
+    if (!p) return ESTIMATE_LATER;
+    const t = `お見積書は${fmtYmdLong(p.sendBy)}までにお送りいたします。`;
+    return p.type === 'resurvey' ? '再調査のうえ、' + t : t;
+  }
   // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない。宛名・書き出し・署名は日程連絡と同じ形
-  function surveyResultMail({ phase, caseRow, org, me, recipients } = {}) {
+  //   Task 27: next（提出された調査の報告書の次の対応方針）で末尾の文が変わる（estimatePromiseText）
+  function surveyResultMail({ phase, caseRow, org, me, recipients, next } = {}) {
     const p = phase || {};
     const r = normalizeResult(p.result);
     const lines = [];
@@ -1133,7 +1158,7 @@
         if (rooms && t === drainText) lines.push(`　（排水制限のかかる号室: ${rooms}）`);
       });
     }
-    lines.push('', 'お見積書は別途お送りいたします。');
+    lines.push('', estimatePromiseText(next));
     return { subject: subjectOf('調査結果のご報告', 'survey', caseRow),
       body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines) };
   }
@@ -1733,6 +1758,27 @@
       || (group(a) === 0 ? ms(a.at) - ms(b.at) : group(a) === 1 ? dist(a) - dist(b) : 0)
       || str(a.caseRow.name).localeCompare(str(b.caseRow.name), 'ja'));
   }
+  // Task 27: 現場用トップ（#f）の一番上の「🧾 見積書を提出（期限 M/D）」カード。🔔 の「見積書を仕上げて提出」と同じ判定
+  //   （進行中の案件・そのフェーズの作業担当者が自分・estimate_due あり・見積が未提出（下書きだけ・無い）・請求も入金もまだ。estimateTodo）
+  //   → [{ caseRow, phase, title, due, late, label, draft（続きを開く見積の下書き or null）}]。並び: 期限を過ぎたもの → 期限の早い順 → 物件名
+  function fieldEstimateCards(caseRows, meId, now) {
+    const nowAt = toDate(now) || new Date();
+    const out = [];
+    if (!meId) return out;
+    for (const c of listOf(caseRows)) {
+      if ((c.status && c.status !== 'open') || c.deleted_at) continue;
+      for (const { p, seq } of withSeq(c.phases)) {
+        if (p.worker_id !== meId) continue;
+        const todo = estimateTodo(p, nowAt);
+        if (!todo) continue;
+        const drafts = listOf(p.estimates).filter(e => e && e.status === 'draft' && e.id);
+        out.push({ caseRow: c, phase: p, title: phaseTitle(p, seq), due: todo.due, late: todo.late,
+          label: `見積書を提出（期限 ${fmtYmdMD(todo.due)}）`, draft: drafts[drafts.length - 1] || null });
+      }
+    }
+    return out.sort((a, b) => (b.late ? 1 : 0) - (a.late ? 1 : 0) || a.due.localeCompare(b.due)
+      || str(a.caseRow.name).localeCompare(str(b.caseRow.name), 'ja'));
+  }
   // ツールページの対応の切替チップ → [{ id, phase, title, text: '調査 1回目 ・ 今日 9:00' | '原因元工事 1回目' }]
   function fieldPhaseChips(phases, now) {
     const nowAt = toDate(now) || new Date();
@@ -1790,12 +1836,12 @@
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, phaseRow, workerCell, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
-    MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, latestSurveyResult,
+    MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
     reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,
     billingBasis, billingAmount, billToLabel, groupBilling,
     BILL_STATUS_LABEL, BILLING_MODE_LABEL, billStatus, yen, parseYen, ymLabel, addMonth, billingMonthOf, showsBilling,
     paymentDueDefault, isOverdue, fmtYmdMD,
-    fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldPhaseChips, fieldTools };
+    fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
