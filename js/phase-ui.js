@@ -15,7 +15,7 @@
 //   工事: 見積（この工事の分）→ 工事日の調整（工事掲示も）→ 作業担当者 → 現場担当への指示 → 完了報告（報告書。2択）→ 請求（Task 7）
 //   Task 16: 「調査済みにする」「完了にする」「取り消す」は無い。done_at は報告書が提出されたとき DB（migration 034）が入れる。
 //     Task 25: フェーズを作ったら報告書（下書き）と担当者URLが自動でできる（既存のフェーズは詳細ページを開いたときに作る）。
-//     カードの上に「担当者URL」（phShareBlock）、報告書の段は「報告書を開く」1つ（phReportFlow）
+//     報告書の段は「報告書を開く」1つ（phReportFlow）。Task 26: 担当者URLの欄は出さない（URL は担当者への確認依頼メールの本文と ⑦ だけ）
 //   現場担当への指示（case_phases.plan。Task 9）の段の中身は js/phase-detail.js（phBriefBody）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
@@ -551,9 +551,8 @@ function phMakeReport(btn, p, errId) {
   s.running.add(errId);
   return withBusy(btn, async () => {
     try {
-      const meId = ctx && ctx.user ? ctx.user.id : null;
-      // Task 23 I4: 作業担当者の初期値 = このフェーズの作業担当者（無ければ自分）
-      const f = PhaseLogic.reportFields(p, currentCase, { meId, title: phTitle(p) });
+      // Task 26: 作業担当者の初期値 = このフェーズの作業担当者（未設定なら空欄。編集画面で選べる。以後は DB が作業担当者にそろえる: migration 046）
+      const f = PhaseLogic.reportFields(p, currentCase, { title: phTitle(p) });
       // 調査で作る報告書（調査区分）は、この調査の調査結果を 原因／原因と判断した理由／次の対応方針 の初期値に（作成時だけ）
       if (p.kind === 'survey') {
         await phResSettle();
@@ -687,8 +686,6 @@ function phCard(p) {
   tag.title = '今の段階';
   hd.appendChild(tag);
   card.appendChild(hd);
-  // Task 25: 担当者URL（いつも出す。コピー／送る文面。管理者も同じURLで入力できる）
-  card.appendChild(phShareBlock(p, docs, errId));
 
   const steps = mk('div', 'ph-steps');
   // 作業担当者の段（Task 6b）は日時の段の次。番号は並び順で振り直す（段階の判定 phStepState の i は今までどおり）
@@ -910,7 +907,7 @@ function phStatusBody(p, st, docs, errId) {
 }
 
 // 報告書の流れ（このフェーズの報告書の状態に合わせて出す）。Task 25: 2択（担当者へURLを渡す／自社で作る）は廃止し「報告書を開く」1つ
-//   提出前（下書き・無い）→ 「報告書を開く」（無ければ報告書と担当者URLを作って開く）。担当者URLはカードの上の欄（phShareBlock）
+//   提出前（下書き・無い）→ 「報告書を開く」（無ければ報告書と担当者URLを作って開く）。担当者URLは確認依頼メールの本文と ⑦（Task 26）
 //   提出済み・確認済み → 開く（contact = true なら 報告連絡 の行も。詳細ページは下の「報告書」の段に出る）
 function phReportFlow(p, docs, errId, contact) {
   const out = [];
@@ -941,7 +938,7 @@ function phReportFlow(p, docs, errId, contact) {
     box.dataset.state = reps.length ? 'draft' : 'none';
     const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: reps }, new Date(), phStageOpts());
     if (st.key === 'waiting') box.appendChild(mk('div', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + st.label + (st.due ? '・期限 ' + PhaseLogic.fmtYmdMD(st.due) : '')));
-    box.appendChild(mk('div', 'ph-sub', '作業担当者が担当者URL（上の欄）か報告書の画面から入力・提出します。提出すると次へ進みます'));
+    box.appendChild(mk('div', 'ph-sub', '作業担当者が担当者URL（確認依頼のメールに入ります）か報告書の画面から入力・提出します。提出すると次へ進みます'));
     const acts = mk('div', 'ph-flow-acts');
     acts.appendChild(dBtn('報告書を開く', 'btn sm inline ph-flow-open', b => phOpenReport(b, p, docs, errId)));
     box.appendChild(acts);
@@ -967,53 +964,6 @@ function phOpenReport(btn, p, docs, errId) {
     finally { s.running.delete(errId); }
   });
 }
-// 担当者URLの欄（Task 25: フェーズを作ったときに自動でできる。いつも出す）
-//   下書きの報告書の使える URL → URL・URLをコピー・送る文面をコピー・LINEで送る・作り直す
-//   提出済み → 「報告書は提出済みです」／ URL がまだ無い → 「担当者URLを作る」
-function phShareBlock(p, docs, errId) {
-  const s = ph;
-  const box = mk('div', 'ph-share');
-  box.dataset.phaseId = p.id;
-  const head = mk('b', 'ph-share-t', '🔗 担当者URL');
-  box.appendChild(head);
-  const drafts = docs.reports.filter(r => r.status === 'draft');
-  const draft = drafts[drafts.length - 1] || null;
-  const sh = draft ? ReportsApi.latestShare(s.data.shares, draft.id) : null;
-  const live = sh && ReportsApi.shareActive(sh);
-  const url = live ? ReportsApi.shareUrl(sh) : '';
-  const remake = b => phRemakeShare(b, p, draft, sh ? sh.vendor_name : '', errId);
-  if (url) {
-    box.dataset.state = 'live';
-    head.remove(); // 見出しは URL の欄の中に
-    box.appendChild(shareUrlBox({ url, name: sh.vendor_name, title: '🔗 担当者URL', askHost: box, onRemake: remake,
-      text: PhaseLogic.shareRequestText({ phase: p, caseRow: currentCase, org: ctx && ctx.org, url }) }));
-    box.appendChild(mk('div', 'ph-sub', '作業担当者に送ると、ログインなしでこのフェーズの報告書を入力・提出できます（社内でも同じ報告書を開いて書けます）'));
-  } else if (draft && live) {
-    box.dataset.state = 'legacy'; // 044 より前に発行した URL は表示できない
-    box.appendChild(mk('div', 'ph-sub', '前に渡したURLはここに表示できません。分からなくなったら作り直してください'));
-    const acts = mk('div', 'ph-flow-acts');
-    acts.appendChild(shrRemakeBtn(box, remake));
-    box.appendChild(acts);
-  } else if (!draft && docs.reports.length) {
-    box.dataset.state = 'done';
-    const last = docs.reports[docs.reports.length - 1];
-    box.appendChild(mk('span', 'ph-sub', '報告書は提出済みです' + (last.submitted_at ? '（' + PhaseLogic.fmtMD(last.submitted_at) + '）' : '') + '。URLはもう使えません'));
-  } else {
-    box.dataset.state = 'none';
-    box.appendChild(mk('span', 'ph-sub', 'まだありません'));
-    box.appendChild(dBtn('担当者URLを作る', 'btn sm inline ph-share-make', b => phRun(b, errId, '担当者URLの作成', async () => {
-      if (p.kind === 'survey') await phResSettle();
-      const cur = Object.assign({}, p, p.kind === 'survey' ? { result: phResultOf(p) } : {});
-      await ReportsApi.ensurePhaseReport(cur, currentCase, { reports: docs.reports, shares: s.data.shares, title: phTitle(p), force: true });
-    })));
-  }
-  return box;
-}
-// 「URLを作り直す」（同じ報告書に発行し直す。古い URL は DB が無効にする。migration 044）
-function phRemakeShare(btn, p, report, name, errId) {
-  return phRun(btn, errId, 'URLの作り直し', async () => { await ReportsApi.createShare(report, name); });
-}
-
 /* ---- 調査した → 依頼元へ報告連絡（「調査結果のご報告」purpose survey_result の下書き。Task 5b の仕組み） ---- */
 // 未作成（調査結果を入れると下書きができる）／下書きあり → 確認して送る／送信済み M/D（宛先）
 function phContactEl(p, mails) {

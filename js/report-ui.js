@@ -345,7 +345,7 @@ function renderRepDrafts() {
 /* ======================= ⑩ PDFプレビュー（#report/{id}/pdf） ======================= */
 // 表示は ReportPdf.preview（js/report-pdf.js）。ここは取得・切替・ダウンロードのつなぎだけ
 let rpdfSeq = 0;      // 開くたびに増やす。古い読み込み・古いPDF作成の結果を捨てる
-let rpdf = null;      // { gen, opts, perPage, fit, busy }
+let rpdf = null;      // { gen, opts, busy }（Task 26: 写真は 4枚/ページ・全体表示に固定。切替は無い）
 
 function rpdfMessage(text, isErr, retry) {
   const box = $('rpdf-preview');
@@ -360,18 +360,6 @@ function rpdfMessage(text, isErr, retry) {
 function rpdfSyncControls() {
   const busy = !!(rpdf && rpdf.busy);
   const ready = !!(rpdf && rpdf.opts);
-  document.querySelectorAll('#rpdf-per .chip').forEach(b => {
-    const on = !!rpdf && String(rpdf.perPage) === b.dataset.per;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', String(on));
-    b.disabled = !ready || busy;
-  });
-  document.querySelectorAll('#rpdf-fit .chip').forEach(b => {
-    const on = !!rpdf && rpdf.fit === b.dataset.fit;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', String(on));
-    b.disabled = !ready || busy;
-  });
   const dl = $('rpdf-download');
   dl.disabled = !ready || busy;
   dl.textContent = busy ? 'PDFを作成中…' : 'PDFをダウンロード';
@@ -379,8 +367,7 @@ function rpdfSyncControls() {
 
 function rpdfRender() {
   if (!rpdf || !rpdf.opts) return;
-  const o = Object.assign({}, rpdf.opts, { perPage: rpdf.perPage, fit: rpdf.fit });
-  ReportPdf.preview($('rpdf-preview'), o);
+  ReportPdf.preview($('rpdf-preview'), rpdf.opts);
   rpdfSyncControls();
 }
 
@@ -392,7 +379,7 @@ async function rpdfDownload() {
   rpdfSyncControls();
   let blob = null, errMsg = '';
   try {
-    blob = await ReportPdf.toBlob(Object.assign({}, st.opts, { perPage: st.perPage, fit: st.fit }));
+    blob = await ReportPdf.toBlob(st.opts);
   } catch (e) {
     errMsg = 'PDFを作成できませんでした: ' + errText(e);
   }
@@ -436,23 +423,11 @@ async function rpdfLoadOpts(report) {
 
 async function openReportPdf(id) {
   const gen = ++rpdfSeq;
-  const st = rpdf = { gen, opts: null, perPage: 4, fit: 'contain', busy: false };
+  const st = rpdf = { gen, opts: null, busy: false };
   showScreen('report-pdf');
   renderHeaders();
   setMsg('rpdf-msg', '');
   $('rpdf-back').onclick = () => { location.hash = '#report/' + id; };
-  $('rpdf-per').onclick = e => {
-    const b = e.target.closest('.chip');
-    if (!b || st !== rpdf || st.busy || !st.opts) return;
-    st.perPage = Number(b.dataset.per);
-    rpdfRender();
-  };
-  $('rpdf-fit').onclick = e => {
-    const b = e.target.closest('.chip');
-    if (!b || st !== rpdf || st.busy || !st.opts) return;
-    st.fit = b.dataset.fit;
-    rpdfRender();
-  };
   $('rpdf-download').onclick = rpdfDownload;
   rpdfSyncControls();
   rpdfMessage('読み込み中…', false);

@@ -278,7 +278,7 @@ async function fdLoadCase(seq) {
   s.err = err;
   let shares = [];
   if (!err && res[1] && res[1].length) {
-    // 担当者URL（Task 25: ツールページにいつも出す）
+    // 担当者URL（使えるか = share_active。Task 26: ツールページには URL の欄を出さない。遅延作成の判定に使う）
     try {
       shares = (await ReportsApi.listSharesByReports(res[1].map(r => r.id))) || [];
       res[1].forEach(r => {
@@ -400,9 +400,6 @@ function fdRenderCase() {
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
   nodes.push(err);
-  // Task 25: 担当者URL（ツールの下。コピー／送る文面）
-  const share = fdShareCard(s, c, sel);
-  if (share) nodes.push(share);
   // 管理者に連絡（Task 23。この案件・対応を選んだ状態でシートを開く）
   const ct = dBtn('📨 管理者に連絡', 'btn ghost fd-contact', () => smOpenSheet({ rows: [c], caseId: c.id, phaseId: sel.id,
     onSent: () => { if (fdAlive(s)) { s.msg = '管理者に連絡しました（「✉️ 管理者に連絡」のタブで返事を見られます）'; fdRenderCase(); } } }));
@@ -447,28 +444,6 @@ function fdBriefCard(s, c, p) {
     row.appendChild(ack);
   }
   if (row.childNodes.length) card.appendChild(row);
-  return card;
-}
-
-// 「🔗 担当者URL」（Task 25: 対応ごとに自動でできる。コピー／送る文面）。URL が無い・提出済みならその旨
-function fdShareCard(s, c, p) {
-  const card = mk('div', 'fd-share');
-  card.id = 'fd-share';
-  const reps = s.data.reports.filter(r => r.phase_id === p.id)
-    .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
-  const drafts = reps.filter(r => r.status === 'draft');
-  const draft = drafts[drafts.length - 1] || null;
-  const sh = draft ? ReportsApi.latestShare(s.data.shares || [], draft.id) : null;
-  const url = sh && ReportsApi.shareActive(sh) ? ReportsApi.shareUrl(sh) : '';
-  if (url) {
-    card.dataset.state = 'live';
-    card.appendChild(shareUrlBox({ url, name: sh.vendor_name, title: '🔗 担当者URL',
-      text: PhaseLogic.shareRequestText({ phase: p, caseRow: c, org: ctx && ctx.org, url }) }));
-    return card;
-  }
-  card.dataset.state = reps.length && !draft ? 'done' : 'none';
-  card.appendChild(mk('b', null, '🔗 担当者URL'));
-  card.appendChild(mk('div', 'fd-tiny', reps.length && !draft ? '報告書は提出済みです（URLはもう使えません）' : 'まだありません（管理者に作ってもらってください）'));
   return card;
 }
 

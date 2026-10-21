@@ -47,6 +47,13 @@ const PhasesApi = (() => {
       worker_role: w ? w.role || '' : '' }); // worker_role: スタッフ（member）なら担当者向けのリンクは現場用の画面（Task 18）
   }
   // カードへのリンク（担当者向けのメールに入れる）。cr = withWorker の値。担当者がスタッフなら現場用のツールページ #f/case/{id}
+  // Task 26: このフェーズの担当者URL（自動発行。無ければ作る。済んだフェーズ・提出済みなら ''）。失敗しても '' でメールは作る
+  async function phaseShareUrl(row, caseRow, title) {
+    try {
+      const r = await ReportsApi.ensurePhaseReport(row, caseRow, { title: title || '' });
+      return r && r.share ? ReportsApi.shareUrl(r.share) : '';
+    } catch (e) { console.warn('担当者URLを用意できませんでした', e); return ''; }
+  }
   const linkOf = (cr, caseId, phaseId) => PL().phaseLink(location.origin + location.pathname, caseId, phaseId, { field: !!cr && cr.worker_role === 'member' });
 
   const api = {
@@ -241,7 +248,8 @@ const PhasesApi = (() => {
           let body = PL().setBriefSection(d.body, lines);
           if (body == null) {
             const cr = withWorker(caseRow, row.worker_id, members);
-            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(cr, row.case_id, row.id) };
+            const args = { phase: row, caseRow: cr, org: ctx.org, me: d.remind_slot ? autoSigner(caseRow, row, members) : me(), link: linkOf(cr, row.case_id, row.id),
+              shareUrl: d.remind_slot ? '' : await phaseShareUrl(row, caseRow, '') };
             body = (d.remind_slot ? PL().staffReminderMail(args) : PL().staffNoticeMail(args)).body;
           }
           if (body === d.body) continue;
@@ -274,7 +282,8 @@ const PhasesApi = (() => {
       const cr = withWorker(caseRow, row.worker_id, members);
       let draft = null;
       try {
-        const m = PL().staffNoticeMail({ phase: row, caseRow: cr, org: ctx.org, me: me(), link: linkOf(cr, row.case_id, row.id) });
+        const shareUrl = await phaseShareUrl(row, caseRow, title); // Task 26: 担当者URL は確認依頼メールの本文に入れる
+        const m = PL().staffNoticeMail({ phase: row, caseRow: cr, org: ctx.org, me: me(), link: linkOf(cr, row.case_id, row.id), shareUrl });
         const patch = { to_email: cr.worker_email || null, recipients: ['worker'], subject: m.subject, body: m.body, skipped_at: null };
         const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', row.id).eq('purpose', 'staff_notice')
           .eq('status', 'draft').is('remind_slot', null).order('created_at', { ascending: false })) || [];

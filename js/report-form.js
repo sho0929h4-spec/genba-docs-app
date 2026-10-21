@@ -290,16 +290,28 @@ function rfBuildForm(s, opts) {
 
   // 対応後の状況（設備修繕のみ）
   els.afterWrap = rfMk('div');
-  els.after = edSelect('rp-after', [['', T.selectPlaceholder], ...L.AFTER_STATUS.map(x => [x, x])], d.afterSel || '', v => { d.afterSel = v; rfDirty(s); });
+  // Task 26: 「正常に復旧」以外を選んだら、下の欄は「理由 *」（必須。提出時に検査: ReportLogic.validate）。正常に復旧なら任意の補足
+  els.after = edSelect('rp-after', [['', T.selectPlaceholder], ...L.AFTER_STATUS.map(x => [x, x])], d.afterSel || '', v => { d.afterSel = v; syncAfter(); rfDirty(s); });
   els.afterNote = edTextarea('rp-afternote', d.afterNote, true, T.afterNotePlaceholder, v => { d.afterNote = v; rfDirty(s); });
   const afterField = edField(T.afterLabel, els.after);
-  afterField.appendChild(els.afterNote);
+  els.afterReasonLabel = rfMk('label', 'rep-after-reason', T.afterReasonLabel);
+  els.afterReasonLabel.id = 'rp-afternote-label';
+  els.afterReasonLabel.htmlFor = 'rp-afternote';
+  afterField.append(els.afterReasonLabel, els.afterNote);
   els.afterNote.style.marginTop = '8px';
+  const syncAfter = () => {
+    const need = L.afterNeedsReason(d);
+    els.afterReasonLabel.hidden = !need;
+    els.afterNote.placeholder = need ? T.afterReasonPlaceholder : T.afterNotePlaceholder;
+    els.afterNote.required = need;
+    els.afterNote.setAttribute('aria-label', need ? '対応後の状況の理由（必須）' : '対応後の状況の補足（任意）');
+  };
+  syncAfter();
   els.afterWrap.appendChild(afterField);
   content.appendChild(els.afterWrap);
 
-  const longField = (id, key, label, hint, wrapKey) => {
-    const ta = edTextarea(id, d[key], true, '', v => { d[key] = v; rfDirty(s); });
+  const longField = (id, key, label, hint, wrapKey, placeholder) => {
+    const ta = edTextarea(id, d[key], true, placeholder || '', v => { d[key] = v; rfDirty(s); });
     els[key] = ta;
     const row = labelRow(id, label, ta, key);
     const f = rfMk('div', 'rep-ff');
@@ -311,7 +323,8 @@ function rfBuildForm(s, opts) {
   s.legacy = { f2: !!String(d.f2 || '').trim(), f4: !!String(d.f4 || '').trim() };
   edCausePicker(s, content);
   longField('rp-f2', 'f2', T.legacyF2, T.f2Hint, 'f2Wrap');
-  longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap');
+  longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap', T.reasonPlaceholder); // Task 26: 記載例
+  els.reason.classList.add('rep-reason'); // 記載例が全部見える高さ（index.html / r.html の CSS）
   edNextPicker(s, content);
   longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
   edRoomPicker(s, content);

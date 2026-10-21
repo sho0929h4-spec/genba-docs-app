@@ -303,8 +303,9 @@
     o.report = o.report || {};
     o.caseRow = o.caseRow || {};
     o.org = o.org || {};
-    const perPage = [1, 2, 4].includes(Number(o.perPage)) ? Number(o.perPage) : 4;
-    const fit = o.fit === 'cover' ? 'cover' : 'contain'; // 旧 showReport の初期値は contain
+    // Task 26: 写真は 4枚/ページ・全体表示（contain）に固定（2枚・1枚・切り抜きの切替は廃止。o.perPage / o.fit は見ない）
+    const perPage = 4;
+    const fit = 'contain';
     const company = trim(o.org.name);
     const urls = Array.isArray(o.photoUrls) ? o.photoUrls : [];
     const photos = (Array.isArray(o.report.photos) ? o.report.photos : [])
@@ -596,7 +597,7 @@
       blob = await renderPdf(opts, quality, scale);
       if (blob.size <= max) return blob;
     }
-    throw new Error('写真が多すぎてPDFが大きすぎます（20MBまで）。写真を減らすか1ページ4枚にしてください');
+    throw new Error('写真が多すぎてPDFが大きすぎます（20MBまで）。写真を減らしてください');
   }
 
   const fileName = (caseRow, report) => RL().fileName((caseRow || {}).name, (report || {}).room);

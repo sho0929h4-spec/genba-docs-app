@@ -481,6 +481,10 @@ async function openReport(id) {
   s.fixed = edFixedOf(r, s.info);
   const retype = !!s.fixed && s.fixed.type !== s.f.work_type;
   if (s.fixed) s.f.work_type = s.fixed.type;
+  // Task 26: 現場用（#f）でスタッフが開いたとき、作業者が空なら自分を入れて保存する（管理画面では空欄のまま＝編集で選ぶ）
+  const selfWorker = !s.ro && typeof fieldHidesAdmin === 'function' && fieldHidesAdmin() && !!edMe()
+    && !s.f.worker_id && !String(s.f.worker_name || '').trim();
+  if (selfWorker) s.f.worker_id = edMe();
 
   ed = s;
   edBuild(s);
@@ -499,7 +503,7 @@ async function openReport(id) {
   $('rep-confirm').onclick = () => edConfirm(s);
   edSetBarBusy(s, false);
 
-  if (fresh || (retype && !restored)) edMarkDirty(s); // 既定の作業日・固定した作業区分をサーバーにも保存する
+  if (fresh || selfWorker || (retype && !restored)) edMarkDirty(s); // 既定の作業日・固定した作業区分・自分を入れた作業者をサーバーにも保存する
   else if (restored) edFlush(s);
 }
 

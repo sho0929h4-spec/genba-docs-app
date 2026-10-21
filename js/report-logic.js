@@ -39,6 +39,9 @@
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
   const RESTORE_PARTS = ['天井', '壁', '床', 'ダウンライト'];
   const AFTER_STATUS = ['正常に復旧', '様子見（経過観察）', '一部未完了（再訪予定）', '要追加工事'];
+  // Task 26: 「正常に復旧」以外は理由（自由記載・必須）。データは今までの自由記載 data.afterNote をそのまま使う（正常に復旧のときは任意の補足）
+  const AFTER_OK = '正常に復旧';
+  const afterNeedsReason = d => { const v = trim((d || {}).afterSel); return !!v && v !== AFTER_OK; };
 
   /* ---- 旧ツール 296–299行（漏水の状況）・305–309行（漏水時の対応。value と表示が違うのは元栓だけ） ---- */
   const LEAK_STATUS = ['止まっている', '漏れている（継続的）', '漏れている（断続的）'];
@@ -108,10 +111,14 @@
     leakOtherPlaceholder: '漏水時の対応（自由記載）',
     afterLabel: '対応後の状況',
     afterNotePlaceholder: '補足（任意・自由記載）',
+    afterReasonLabel: '理由 *',
+    afterReasonPlaceholder: '「正常に復旧」でない理由（必須・自由記載）',
     f2Label: '原因',
     f2Hint: '特定できた場合のみ。不明な場合は次の対応方針へ。',
     reasonLabel: '原因と判断した理由',
     reasonHint: 'そう判断した根拠・確認した事実など（自由記載）',
+    // Task 26: 記載例（薄い文字）。社内・現場用・担当者URL のページ（r.html）で共通
+    reasonPlaceholder: 'トイレ、キッチン、洗濯機、浴室を全て排水テストをしたとこと、浴室の点検口から覗くと微妙に水漏れしていることを目視で確認し、階下被害部屋の被害箇所との落水量も辻褄があうため原因と断定しました。',
     f4Label: '次の対応方針',
     f4Hint: '原因不明時や追加工事が必要な場合の方針',
     f2Pick: '当てはまるものを押してください（複数可）',
@@ -399,7 +406,10 @@
     return v;
   }
   // 旧 getAfterStatus（803–807行）
-  const afterStatusText = d => [trim(d.afterSel), trim(d.afterNote)].filter(Boolean).join('　');
+  //   Task 26: 「正常に復旧」以外は「要追加工事（理由: …）」。正常に復旧・未選択は今までどおり 選択値＋全角スペース＋補足
+  const afterStatusText = d => (afterNeedsReason(d) && trim(d.afterNote)
+    ? `${trim(d.afterSel)}（理由: ${trim(d.afterNote)}）`
+    : [trim(d.afterSel), trim(d.afterNote)].filter(Boolean).join('　'));
 
   // 旧 getCheckedItems（667–677行）: グループ順・定義順、自由記載は最後に `接頭辞: 本文`（本文なしは接頭辞だけ）
   //   freeChip: 自由記載の欄を出すチップの文字（既定「自由記載」。調査の7項目は「その他」）
@@ -444,6 +454,8 @@
     if (!trim(report.work_date)) errors.push('作業日が未入力です');
     if (cfg.f1Req && !trim(d.f1)) errors.push(`「${cfg.f1Label}」が未入力です`);
     if (cfg.checkGroups.length > 0 && chipsForPdf(report).length === 0) warnings.push(`${cfg.checkCardTitle}が1件も選択されていません`);
+    // Task 26: 対応後の状況が「正常に復旧」以外なら理由が必須
+    if (cfg.showAfter && afterNeedsReason(d) && !trim(d.afterNote)) errors.push(`「対応後の状況」が「${trim(d.afterSel)}」のときは理由を入れてください`);
     // Task 20: 次の対応方針（原因元工事は見積書提案期日が必須・再調査は理由と内容が必須）
     if (cfg.pickNext) {
       const n = d.nextAction;
@@ -611,7 +623,7 @@
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
-    MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS,
+    MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     ROOM_LUGGAGE, ROOM_PET, RESIDENTS_MAX, normalizeRoom, roomStatusText,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,

@@ -1147,7 +1147,7 @@
   // 担当者へのメールの結びの前の行（指示の段落はこの前に入る: setBriefSection）
   const STAFF_TAILS = ['内容を確認したら、下のリンクから開いて「確認した」を押してください。', '詳しくは下のリンクから確認してください。'];
   // 担当者へのメール（社内）の本文。現場担当への指示（Task 9）があれば ■ 怪しい箇所 ■ 優先して調べる ■ 指示 ■ 当日の注意 の段落
-  function staffBody(k, p, caseRow, org, me, link, lead, tail) {
+  function staffBody(k, p, caseRow, org, me, link, lead, tail, shareUrl) {
     const lines = [lead, ''];
     lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
     lines.push(...placeLines(caseRow || {}));
@@ -1155,11 +1155,15 @@
     if (brief.length) lines.push('', ...brief);
     lines.push('', tail);
     if (str(link)) lines.push(str(link));
+    // Task 26: 担当者URL（自動発行）はここ（と ⑦）だけに出す
+    if (str(shareUrl)) lines.push('', STAFF_SHARE_LINE, str(shareUrl));
     return wrapMail(caseRow, ['worker'], org, me, lines);
   }
   // 担当者への確認依頼（purpose staff_notice）→ { subject, body }。caseRow.worker_name が宛名（「鈴木さん」）
   //   件名「【確認してください】10/20 9:00 調査 グランメゾン世田谷 302号室」（日時未定なら日時を省く）
-  function staffNoticeMail({ phase, caseRow, org, me, link } = {}) {
+  //   Task 26: shareUrl（このフェーズの担当者URL）があれば最後に「報告書の入力・提出（ログインなしで開けます）:」と URL
+  const STAFF_SHARE_LINE = '報告書の入力・提出（ログインなしで開けます）:';
+  function staffNoticeMail({ phase, caseRow, org, me, link, shareUrl } = {}) {
     const p = phase || {};
     const k = p.kind;
     const when = p.scheduled_at ? fmtMDHM(p.scheduled_at) : '';
@@ -1167,7 +1171,7 @@
     const lead = `${p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜 ' : ''}${place} の${whatOf(k)}をお願いします。`;
     return {
       subject: `【確認してください】${[when, whatOf(k), place].filter(Boolean).join(' ')}`,
-      body: staffBody(k, p, caseRow, org, me, link, lead, STAFF_TAILS[0])
+      body: staffBody(k, p, caseRow, org, me, link, lead, STAFF_TAILS[0], shareUrl)
     };
   }
   // 担当者向けの前日のお知らせ（purpose staff_notice ＋ remind_slot d1）→ { subject, body }

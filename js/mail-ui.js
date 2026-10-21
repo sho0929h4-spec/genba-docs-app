@@ -694,7 +694,7 @@ async function mlMakePdf(s) {
   if (!s.report) throw new Error('元の報告書が見つかりません');
   const opts = await rpdfLoadOpts(s.report);
   if (!mlAlive(s)) throw new Error('画面が切り替わりました');
-  return ReportPdf.toBlob(Object.assign({}, opts, { perPage: 4, fit: 'contain' }));
+  return ReportPdf.toBlob(opts); // 写真は 4枚/ページ・全体表示（固定。Task 26）
 }
 async function mlSend(s) {
   if (s.busy || s.ro || s.phase !== 'edit' || !mlAlive(s)) return;

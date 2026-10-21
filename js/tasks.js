@@ -219,8 +219,8 @@ async function tkSendReport(it) {
 
 async function tkMakeReport(it) {
   const s = tk;
-  // Task 23 I4: 作業担当者の初期値 = このフェーズの作業担当者（無ければ自分）
-  const row = await ReportsApi.create(it.caseId, PhaseLogic.reportFields(it.phase, it.caseRow, { meId: tkMe(), title: it.title }));
+  // Task 26: 作業担当者の初期値 = このフェーズの作業担当者（未設定なら空欄。編集画面で選べる）
+  const row = await ReportsApi.create(it.caseId, PhaseLogic.reportFields(it.phase, it.caseRow, { title: it.title }));
   if (tkAlive(s)) location.hash = '#report/' + row.id;
 }
 
