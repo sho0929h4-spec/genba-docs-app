@@ -137,7 +137,7 @@ const SurveyView = (() => {
     tg.id = 'eu-survey-toggle';
     tg.setAttribute('aria-controls', 'eu-survey-body');
     tg.setAttribute('aria-expanded', o.open ? 'true' : 'false');
-    tg.appendChild(el('b', null, '🔎 調査の内容'));
+    tg.appendChild(Icon.prepend(el('b', null, '調査の内容'), 'search'));
     const st = el('span', 'sv-state', o.open ? '閉じる ▲' : '開く ▼');
     tg.appendChild(st);
     const bd = el('div', 'sv-body');
@@ -167,7 +167,7 @@ const SurveyView = (() => {
     const nodes = [];
     const req = el('div', 'fd-req');
     req.id = 'sv-request';
-    req.appendChild(el('b', 'rq-title', '📋 依頼内容'));
+    req.appendChild(Icon.prepend(el('b', 'rq-title', '依頼内容'), 'clipboard'));
     if (src.phase) req.appendChild(RequestView.visitRows(src.phase.plan, c, 'survey', { id: 'sv-visit-rows' }));
     const rv = RequestView.build(c.request, { photoUrl: x => CasesApi.requestPhotoUrl(x) });
     if (rv) req.appendChild(rv);
@@ -175,7 +175,7 @@ const SurveyView = (() => {
     nodes.push(req);
     const res = el('div', 'fd-req sv-page');
     res.id = 'sv-result';
-    res.appendChild(el('b', 'rq-title', '🔎 調査の内容'));
+    res.appendChild(Icon.prepend(el('b', 'rq-title', '調査の内容'), 'search'));
     if (!src.report) {
       const e = el('div', 'sv-none', EMPTY);
       e.id = 'sv-empty';

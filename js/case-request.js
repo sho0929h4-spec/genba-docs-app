@@ -151,7 +151,7 @@ const CaseRequest = (() => {
       file.value = '';
       if (files.length) addPhotos(s, files);
     });
-    const add = dBtn('📷 写真を追加', 'btn sm ghost inline rq-add', () => file.click());
+    const add = Icon.prepend(dBtn('写真を追加', 'btn sm ghost inline rq-add', () => file.click()), 'camera');
     add.id = 'rq-add';
     s.els.add = add;
     const pm = mk('span', 'rep-sub rq-pmsg', s.photoMsg || '');

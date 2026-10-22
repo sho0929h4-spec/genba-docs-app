@@ -115,7 +115,7 @@
         const st = L.stage(p, null, nowAt, { me });
         const need = L.fieldStageLabel(st) || (st.label ? `なし（✓ ${st.label}）` : 'なし');
         sites.push(Object.assign({ key: 'site:' + p.id, at: ms(p.scheduled_at), text: `${hm(p.scheduled_at)} ${place} ${title}`,
-          sub: [`🚪 行く部屋: ${L.visitText(p.plan, c)}`, `報告書: ${reportStateText(p.reports)}`, `必要な対応: ${need}`] }, base));
+          sub: [`行く部屋: ${L.visitText(p.plan, c)}`, `報告書: ${reportStateText(p.reports)}`, `必要な対応: ${need}`] }, base));
         res.times.push({ key: 'time:' + p.id, phaseId: p.id, label: `${place} ${title}`, auto: autoTime(opt.times, p.id), at: ms(p.scheduled_at) });
       }
       // 2. 処理したタスク
@@ -141,7 +141,7 @@
       if (!mine(c, p, me) || (c.status && c.status !== 'open')) continue;
       if (!p.done_at && isDay(p.scheduled_at, nextYmd)) {
         next.push(Object.assign({ key: 'next:visit:' + p.id, at: ms(p.scheduled_at), text: `${L.fmtMDWHM(p.scheduled_at)}〜 ${place} ${title}`,
-          sub: [`🚪 行く部屋: ${L.visitText(p.plan, c)}`] }, base));
+          sub: [`行く部屋: ${L.visitText(p.plan, c)}`] }, base));
       }
       const st = L.stage(p, null, nowAt, { me });
       if (st.due && ((p.kind === 'survey' && st.key === 'write') || (p.kind !== 'survey' && st.key === 'report')) && st.due <= nextYmd) {

@@ -346,7 +346,7 @@ function mlShowVal(s, text) {
   const box = s.els.val;
   if (!box) return;
   if (!text) { box.replaceChildren(); return; }
-  box.replaceChildren(mk('div', 'rep-val-e', '⛔ ' + text));
+  box.replaceChildren(mk('div', 'rep-val-e', text));
   box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
@@ -420,7 +420,7 @@ function mlComposeCard(s) {
   const card = mk('div', 'rep-card');
   const head = mk('div', 'rep-between');
   head.style.marginBottom = '10px';
-  head.appendChild(mk('b', null, (mlIsNote(s) ? '✉ ' + ML_NOTE_TITLE[s.draft.purpose] : '✉ 依頼元へ送るメール') + (s.ro ? '' : '（下書き）')));
+  head.appendChild(mk('b', null, (mlIsNote(s) ? ML_NOTE_TITLE[s.draft.purpose] : '依頼元へ送るメール') + (s.ro ? '' : '（下書き）')));
   head.appendChild(mk('span', 'rep-pill ' + (s.ro ? 'p-ok' : 'p-sent'), s.ro ? '送付済み' : '自動作成'));
   card.appendChild(head);
   if (mlIsNote(s)) {
@@ -553,7 +553,7 @@ function mlBuildWaiting(s) {
   const m = s.mail;
   const card = mk('div', 'rep-card ml-wait');
   card.id = 'ml-wait';
-  card.appendChild(mk('h3', null, m.noMail ? '✉ 文面をコピーして送ってください' : '✉ メールアプリを開きました'));
+  card.appendChild(mk('h3', null, m.noMail ? '文面をコピーして送ってください' : 'メールアプリを開きました'));
   card.appendChild(mk('div', null, m.noMail
     ? '選んだ相手にメールアドレスがありません。『本文をコピー』で LINE などに貼り付けて送り、送れたら『送信済みにする』を押してください'
     : 'メールアプリで送信できたら『送信済みにする』を押してください'));
@@ -856,7 +856,7 @@ async function mlOpen(id) {
   if (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) {
     $('mail-bar').hidden = true;
     const back = dBtn('‹ 戻る', 'back', () => { if (history.length > 1) history.back(); else location.hash = '#f/case/' + draft.case_id; });
-    $('mail-root').replaceChildren(back, mk('div', 'empty ml-field-note', 'メールは管理者が送ります。現場用の画面からは送れません。伝えたいことは「✉️ 管理者に連絡」から送ってください'));
+    $('mail-root').replaceChildren(back, mk('div', 'empty ml-field-note', 'メールは管理者が送ります。現場用の画面からは送れません。伝えたいことは「管理者に連絡」から送ってください'));
     return;
   }
 

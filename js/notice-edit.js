@@ -478,7 +478,7 @@ function nteRenderPreview(s) {
   s.fit = r;
   const nodes = [];
   if (r.overflow) {
-    nodes.push(mk('div', 'rep-val-e', '⛔ 1ページに収まりません。文字を最小の80%まで小さくしても、下の部分が切れます。その他のお知らせなどを減らしてください'));
+    nodes.push(mk('div', 'rep-val-e', '1ページに収まりません。文字を最小の80%まで小さくしても、下の部分が切れます。その他のお知らせなどを減らしてください'));
   } else if (r.scale < 1) {
     nodes.push(mk('div', 'rep-sub', '1ページに収めるため、文字を ' + Math.round(r.scale * 100) + '% に小さくしています'));
   }
@@ -487,7 +487,7 @@ function nteRenderPreview(s) {
 
 /* ---------- 入力チェック表示 ---------- */
 function nteShowVal(s, errors) {
-  s.els.val.replaceChildren(...errors.map(t => mk('div', 'rep-val-e', '⛔ ' + t)));
+  s.els.val.replaceChildren(...errors.map(t => mk('div', 'rep-val-e', t)));
   if (errors.length) s.els.val.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 

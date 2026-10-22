@@ -17,12 +17,12 @@ const CaseRooms = (() => {
   function contactLinks(email, tel) {
     const out = [];
     if (email) {
-      const a = mk('a', 'pty-mail', '✉ ' + email);
+      const a = Icon.prepend(mk('a', 'pty-mail', email), 'mail', 14);
       a.href = 'mailto:' + email;
       out.push(a);
     }
     if (tel) {
-      const a = mk('a', 'pty-tel', '☎ ' + tel);
+      const a = Icon.prepend(mk('a', 'pty-tel', tel), 'phone', 14);
       a.href = 'tel:' + String(tel).replace(/[^0-9+]/g, '');
       out.push(a);
     }

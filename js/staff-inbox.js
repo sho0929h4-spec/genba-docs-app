@@ -27,7 +27,7 @@ async function refreshStaffBanner(rows, isAlive) {
   try { msgs = await siLoadMessages(rows); } catch (e) { console.warn('連絡の読み込みに失敗', e); }
   if (isAlive && !isAlive()) return;
   const n = PhaseLogic.staffInbox(rows || [], siMyId(), new Date(), { messages: msgs }).length;
-  el.replaceChildren(mk('span', null, '🔔 確認してください ' + n + '件'), mk('span', 'rep-sub', '見る →'));
+  el.replaceChildren(Icon.prepend(mk('span', null, '確認してください ' + n + '件'), 'bell'), mk('span', 'rep-sub', '見る →'));
   el.hidden = n === 0;
 }
 
@@ -78,7 +78,7 @@ function siMessageEl(it) {
   const top = mk('div', 'si-top');
   top.appendChild(mk('span', 'si-reply-tag', it.nudge ? '催促' : '管理者から')); // Task 28: 管理者からの催促（source = nudge）
   if (it.phase) top.appendChild(mk('span', 'ph-kind k-' + it.phase.kind, PhaseLogic.kindLabel(it.phase.kind)));
-  top.appendChild(mk('b', 'si-case', it.caseRow ? PhaseLogic.placeName(it.caseRow) || '（物件名なし）' : '📝 日報'));
+  top.appendChild(mk('b', 'si-case', it.caseRow ? PhaseLogic.placeName(it.caseRow) || '（物件名なし）' : '日報'));
   top.appendChild(mk('span', 'ob-ph', it.title));
   row.appendChild(top);
   row.appendChild(mk('div', 'si-label', it.label));
@@ -119,7 +119,7 @@ async function siReadMessage(it) {
   s.busy.delete(key);
   if (si !== s) return;
   if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
-  if (!err) { s.msg = '「' + it.message.subject + '」を読んだにしました'; await siLoad(s.seq); return; }
+  if (!err) { s.msg = '「' + PhaseLogic.plainSubject(it.message.subject) + '」を読んだにしました'; await siLoad(s.seq); return; }
   siRender();
   const el = document.getElementById('si-err-' + key);
   if (el) el.textContent = err;
@@ -297,7 +297,9 @@ function siItemEl(it) {
   top.appendChild(mk('b', 'si-case', PhaseLogic.placeName(it.caseRow) || '（物件名なし）'));
   top.appendChild(mk('span', 'ob-ph', it.title));
   row.appendChild(top);
-  const lb = mk('div', 'si-label', (it.type === 'tomorrow' ? '⏰ ' : it.type === 'estimate' ? '🧾 ' : it.type === 'report' ? '📋 ' : '') + it.label);
+  const lb = mk('div', 'si-label', it.label);
+  const lbIc = { tomorrow: 'clock', estimate: 'receipt', report: 'report' }[it.type];
+  if (lbIc) Icon.prepend(lb, lbIc, 14);
   if (dueItem && it.late) lb.appendChild(mk('span', 'si-late', '期限超過')); // Task 29: 過ぎたら赤の「期限超過」
   row.appendChild(lb);
   if (it.type === 'notice') {
@@ -309,11 +311,11 @@ function siItemEl(it) {
     row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '作業が終わってから1時間以内が期限です（作業終了時間が無ければ、調査日時の3時間後を作業の終わりとみなします）'
       : '工事日の翌日が期限です') + '。報告書を提出するまで残ります' + (it.late ? '（管理者にも知らせています）' : '')));
   } else if (it.caseRow.address) {
-    row.appendChild(mk('div', 'rep-sub', '📍 ' + it.caseRow.address));
+    row.appendChild(Icon.prepend(mk('div', 'rep-sub', it.caseRow.address), 'pin', 14));
   }
-  if (it.visit) row.appendChild(mk('div', 'si-visit', '🚪 ' + it.visit)); // Task 31: 今回行く部屋
+  if (it.visit) row.appendChild(Icon.prepend(mk('div', 'si-visit', it.visit), 'door', 14)); // Task 31: 今回行く部屋
   if (it.request) row.appendChild(mk('div', 'si-req', '■ 依頼内容: ' + it.request)); // Task 28: 案件の依頼内容の要約（指示の前）
-  if (it.brief) row.appendChild(mk('div', 'si-brief', '📝 指示: ' + it.brief)); // 現場担当への指示の要約（Task 9）
+  if (it.brief) row.appendChild(Icon.prepend(mk('div', 'si-brief', '指示: ' + it.brief), 'pen', 14)); // 現場担当への指示の要約（Task 9）
   const acts = mk('div', 'si-acts');
   const bkey = it.type === 'estimate' ? 'est-' + p.id : it.type === 'report' ? 'rep-' + p.id : p.id;
   const busy = si.busy.has(bkey);
@@ -353,15 +355,15 @@ function siRender() {
   const root = si && si.field ? si.root : $('staff-inbox-root');
   if (!root || !si) return;
   const nodes = si.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
-  if (!si.field) nodes.push(mk('h2', 'ob-h', '🔔 確認してください'));
+  if (!si.field) nodes.push(mk('h2', 'ob-h', '確認してください'));
   // Task 33 追加: 現場用は説明の段落を出さない（並び: ① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 翌日の予定。超過は赤）
   if (!si.field) nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。翌日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
   if (si.field) {
     // 管理者に連絡（Task 29: タブから外したので、ここから）。Task 33 追加: 1行の小さなボタン2つ
     const bar = mk('div', 'si-contact');
-    const nb = dBtn('📨 管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
+    const nb = Icon.prepend(dBtn('管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
       if (si && si.field) { si.msg = '管理者に連絡しました（返事はこのタスクに出ます）'; siRender(); }
-    } }));
+    } })), 'message');
     nb.id = 'si-contact-new';
     nb.disabled = si.loading || !!si.err;
     const hb = dBtn('やり取りを見る ›', 'btn sm ghost inline si-contact-list', () => { location.hash = '#f/contact'; });

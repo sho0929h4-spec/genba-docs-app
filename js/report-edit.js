@@ -138,8 +138,8 @@ function edClearVal(s) { if (s.els.val && s.els.val.firstChild) s.els.val.replac
 function edShowVal(s, errors, warnings) {
   const box = s.els.val;
   const nodes = [];
-  errors.forEach(t => nodes.push(mk('div', 'rep-val-e', '⛔ ' + t)));
-  warnings.forEach(t => nodes.push(mk('div', 'rep-val-w', '⚠ ' + t)));
+  errors.forEach(t => nodes.push(mk('div', 'rep-val-e', t)));
+  warnings.forEach(t => nodes.push(mk('div', 'rep-val-w', t)));
   box.replaceChildren(...nodes);
   if (nodes.length) box.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }

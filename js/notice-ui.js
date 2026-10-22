@@ -80,7 +80,7 @@ async function ntlRefresh() {
 
 function ntlBuild() {
   const head = mk('div', 'rep-between');
-  head.appendChild(mk('h3', null, '📢 工事掲示'));
+  head.appendChild(mk('h3', null, '工事掲示'));
   const cnt = mk('span', 'rep-sub');
   cnt.id = 'ntl-count';
   head.appendChild(cnt);

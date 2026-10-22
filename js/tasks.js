@@ -144,7 +144,7 @@ function tkRowEl(it) {
   row.dataset.phase = it.phaseId || '';
   row.dataset.group = it.group;
   const l = mk('div', 'mt-l');
-  l.appendChild(mk('b', it.late ? 'hot' : null, PhaseLogic.MARK.us + ' ' + it.text));
+  l.appendChild(mk('b', it.late ? 'hot' : null)).append(Icon.dot('us'), it.text);
   const place = [it.caseName || '(案件名なし)', PhaseLogic.roomLabel(it.room)].filter(Boolean).join(' ');
   l.appendChild(mk('span', 'mt-case', place + ' ・ ' + it.title + ' ・ 担当 ' + (it.whoName || 'なし')));
   row.appendChild(l);

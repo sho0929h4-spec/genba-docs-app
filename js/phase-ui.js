@@ -406,15 +406,15 @@ function phSyncNow(s) {
   el.hidden = false;
   el.dataset.us = String(now.us);
   el.dataset.them = String(now.them);
-  const us = mk('span', 'cn-us' + (now.us ? ' on' : ''), PhaseLogic.MARK.us + ' 自社の番 ' + now.us + '件');
-  const them = mk('span', 'cn-them' + (now.them ? ' on' : ''), PhaseLogic.MARK.them + ' 相手待ち ' + now.them + '件');
+  const us = mk('span', 'cn-us' + (now.us ? ' on' : ''), '自社の番 ' + now.us + '件');
+  const them = mk('span', 'cn-them' + (now.them ? ' on' : ''), '相手待ち ' + now.them + '件');
   const tail = now.text.slice(now.text.indexOf('次: '));
   const next = mk('span', 'cn-next' + (now.next && now.next.late ? ' late' : ''), tail);
   el.replaceChildren(us, mk('span', 'cn-sep', '・'), them, mk('span', 'cn-sep', '・'), next);
   // Task 23: 現場からの連絡の未読（自分あて）。押すとこの案件の連絡
   const unread = currentCase && currentCase.id === s.caseId ? Number(currentCase.staff_unread) || 0 : 0;
   if (unread > 0) {
-    const b = dBtn('📨 現場からの連絡 ' + unread + '件', 'cn-msg', () => { location.hash = '#messages/' + s.caseId; });
+    const b = dBtn('現場からの連絡 ' + unread + '件', 'cn-msg', () => { location.hash = '#messages/' + s.caseId; });
     b.id = 'case-now-messages';
     el.append(mk('span', 'cn-sep', '・'), b);
   }
@@ -486,7 +486,7 @@ function phTableRow(p, multi) {
   const stCls = 'ph-stage ' + (st.ball === 'us' ? 'us' : st.ball === 'them' ? 'them' : 'done') + (st.late ? ' late' : '');
   const sb = cell('status', row.short, 'ph-c-status', '次にやること', () => phOpenCell(p, 'status'));
   sb.querySelector('.ph-cv').className = 'ph-cv ' + stCls;
-  sb.title = '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : st.label);
+  sb.title = '対応状況: ' + st.label;
   // Task 29: 見積書提案期日が2日より先の理由（作業担当者が報告書で入れたもの）。見積がまだ送付されていない間だけ
   const why = PhaseLogic.estimateDueReasonText(p);
   if (why && p.estimate_due && (st.key === 'estimate' || st.key === 'issued' || PhaseLogic.estimateTodo(Object.assign({}, p, { estimates: docs.estimates }), new Date()))) {
@@ -539,8 +539,8 @@ function phTableRow(p, multi) {
   // 確認（作業担当者）。Task 28: 期限を過ぎて未提出・作業担当者が自分以外 →「⚠ 催促する」を赤で。催促したら「催促 M/D（n回）」
   const wc = PhaseLogic.workerCell(p, phMembers());
   const nd = phNudgeState(p, docs);
-  const cb = cell('confirm', nd.urge ? '⚠ 催促する' : wc.text, nd.urge ? 'red ph-urge' : wc.key === 'ack' ? 'ok' : wc.key === 'notified' ? 'wait' : 'none',
-    nd.urge ? '期限を過ぎています。担当者に催促する' : '担当者に知らせる', () => phOpenCell(p, 'confirm'), nd.urge ? '⚠ 催促する' : wc.short);
+  const cb = cell('confirm', nd.urge ? '催促する' : wc.text, nd.urge ? 'red ph-urge' : wc.key === 'ack' ? 'ok' : wc.key === 'notified' ? 'wait' : 'none',
+    nd.urge ? '期限を過ぎています。担当者に催促する' : '担当者に知らせる', () => phOpenCell(p, 'confirm'), nd.urge ? '催促する' : wc.short);
   const nt = PhaseLogic.nudgeText(p);
   if (nt) { cb.appendChild(mk('span', 'ph-nudged', nt)); cb.dataset.nudged = String(p.nudge_count || 0); }
   if (row.brief) cb.classList.add('brief');
@@ -614,7 +614,9 @@ function phPanel(p, col, docs, errId, row) {
     body.appendChild(phScheduleForm(p, errId));
   } else if (col === 'status') {
     const st = row.stage;
-    body.appendChild(mk('div', 'ph-sub ph-st-now', '対応状況: ' + (st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label)));
+    const now = body.appendChild(mk('div', 'ph-sub ph-st-now', '対応状況: '));
+    if (st.ball) now.appendChild(Icon.dot(st.ball));
+    now.append(st.ball ? st.label : '✓ ' + st.label);
     phStatusBody(p, st, docs, errId).forEach(el => body.appendChild(el));
   } else if (col === 'report') {
     phReportFlow(p, docs, errId, true).forEach(el => body.appendChild(el));
@@ -809,7 +811,7 @@ function phCard(p) {
   hd.appendChild(mk('b', 'ph-n', p.kind === 'other' ? String(p.label || '').trim() : phSeqOf(p) + '回目'));
   hd.appendChild(mk('span', 'ph-sp'));
   const tag = mk('span', 'ph-stage ' + (st.ball === 'us' ? 'us' : st.ball === 'them' ? 'them' : 'done'),
-    st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label);
+    st.ball ? st.label : '✓ ' + st.label); // 自社の番・相手待ちの丸は CSS（.ph-stage.us/.them::before）
   tag.title = '今の段階';
   hd.appendChild(tag);
   card.appendChild(hd);
@@ -879,15 +881,15 @@ function phScheduleBody(p, docs, errId) {
   const ml = mk('div', 'ph-mail');
   if (draft) {
     const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase).split('・').filter(Boolean);
-    ml.appendChild(mk('span', null, '✉️ ' + what + ': ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
-      (who.length ? '（' + who.join('・') + '）' : '（宛先のメール未登録）')));
+    ml.appendChild(Icon.prepend(mk('span', null, what + ': ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
+      (who.length ? '（' + who.join('・') + '）' : '（宛先のメール未登録）')), 'mail', 14));
     const b = dBtn('確認して送る', 'btn sm inline ph-mail-open', () => openMailDraft(draft.id));
     b.dataset.draftId = draft.id;
     ml.appendChild(b);
   } else if (sent) {
-    ml.appendChild(mk('span', null, '✉️ ' + what + ' ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'));
+    ml.appendChild(Icon.prepend(mk('span', null, what + ' ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'), 'mail', 14));
   } else {
-    ml.appendChild(mk('span', 'ph-sub', '✉️ ' + what + ': 下書きがありません（日時を保存し直すと作られます）'));
+    ml.appendChild(Icon.prepend(mk('span', 'ph-sub', what + ': 下書きがありません（日時を保存し直すと作られます）'), 'mail', 14));
   }
   out.push(ml);
 
@@ -897,9 +899,9 @@ function phScheduleBody(p, docs, errId) {
   if (open || !rs.none) {
     const rm = mk('div', 'ph-remind');
     if (rs.none) {
-      rm.textContent = '⏰ リマインドなし（日時を入れたのが前日18:00より後のため）';
+      Icon.prepend(rm, 'clock', 14).append('リマインドなし（日時を入れたのが前日18:00より後のため）');
     } else {
-      rm.appendChild(mk('div', 'ph-rm-t', '⏰ リマインド（3日前・前日の18:00に下書きを作ります）'));
+      rm.appendChild(Icon.prepend(mk('div', 'ph-rm-t', 'リマインド（3日前・前日の18:00に下書きを作ります）'), 'clock', 14));
       rs.slots.forEach(x => {
         const row = mk('div', 'ph-rm');
         row.dataset.slot = x.slot;
@@ -1057,7 +1059,7 @@ function phReportFlow(p, docs, errId, contact) {
   } else {
     box.dataset.state = reps.length ? 'draft' : 'none';
     const st = PhaseLogic.stage(p, { estimates: docs.estimates, reports: reps }, new Date(), phStageOpts());
-    if (st.key === 'waiting') box.appendChild(mk('div', 'ph-flow-wait', PhaseLogic.MARK.them + ' ' + st.label + (st.due ? '・期限 ' + PhaseLogic.fmtYmdMD(st.due) : '')));
+    if (st.key === 'waiting') box.appendChild(mk('div', 'ph-flow-wait')).append(Icon.dot('them'), st.label + (st.due ? '・期限 ' + PhaseLogic.fmtYmdMD(st.due) : ''));
     box.appendChild(mk('div', 'ph-sub', '作業担当者が担当者URL（確認依頼のメールに入ります）か報告書の画面から入力・提出します。提出すると次へ進みます'));
     const acts = mk('div', 'ph-flow-acts');
     acts.appendChild(dBtn('報告書を開く', 'btn sm inline ph-flow-open', b => phOpenReport(b, p, docs, errId)));
@@ -1095,7 +1097,7 @@ function phContactEl(p, mails) {
   if (rs && rs.draft && !own.some(m => m.id === rs.draft.id)) own.unshift(rs.draft);
   const draft = own.find(m => m.status === 'draft');
   const sent = own.find(m => m.status === 'sent');
-  el.appendChild(mk('b', 'ph-ct-t', '📨 依頼元へ報告連絡'));
+  el.appendChild(Icon.prepend(mk('b', 'ph-ct-t', '依頼元へ報告連絡'), 'mail'));
   if (draft) {
     const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase);
     el.dataset.state = draft.skipped_at ? 'skipped' : 'draft';
@@ -1205,7 +1207,7 @@ function phReportContactEl(r, t, errId) {
   if (shared && shared.done) {
     const who = PhaseLogic.recipientsLabel(t.sentTo);
     row.dataset.state = 'sent';
-    row.appendChild(mk('span', 'ph-ct-sent', '📨 ' + (shared.date ? PhaseLogic.fmtMD(shared.date) + ' に' : '') + '送付' + (who ? '（' + who + '）' : '')));
+    row.appendChild(mk('span', 'ph-ct-sent', (shared.date ? PhaseLogic.fmtMD(shared.date) + ' に' : '') + '送付' + (who ? '（' + who + '）' : '')));
     if (draft) row.appendChild(dBtn('もう一度送る（下書きを開く）', 'linkbtn ph-rep-ct', () => openMailDraft(draft.id)));
     return row;
   }
@@ -1221,12 +1223,12 @@ function phReportContactEl(r, t, errId) {
   };
   if (draft) {
     row.dataset.state = 'draft';
-    row.appendChild(dBtn('📨 報告連絡（確認して送る）', 'btn sm inline ph-rep-ct', () => openMailDraft(draft.id)));
+    row.appendChild(dBtn('報告連絡（確認して送る）', 'btn sm inline ph-rep-ct', () => openMailDraft(draft.id)));
   } else if (r.status === 'submitted') {
     // 担当者URL・別の人の提出は「確認して」。自分の提出はそのまま送る（Task 23・25）
     const share = typeof ReportLogic !== 'undefined' ? ReportLogic.needsCheck(r, phMyId()) : r.submitted_via === 'share';
     row.dataset.state = 'submitted';
-    row.appendChild(dBtn(share ? '📨 確認して報告連絡' : '📨 報告書を送る', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
+    row.appendChild(dBtn(share ? '確認して報告連絡' : '報告書を送る', 'btn sm inline ph-rep-ct', b => openNew(b, async () => {
       const d = await ReportsApi.confirm(r, currentCase);
       notifyTimeline();
       return d;
@@ -1234,7 +1236,7 @@ function phReportContactEl(r, t, errId) {
     row.appendChild(mk('span', 'ph-sub', share ? '確認済みにして、依頼元への送付メールの下書きを開きます' : '依頼元への送付メールの下書きを開きます'));
   } else {
     row.dataset.state = 'none';
-    row.appendChild(dBtn('📨 報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, () => ReportsApi.createDraft(r, currentCase))));
+    row.appendChild(dBtn('報告連絡', 'btn sm inline ph-rep-ct', b => openNew(b, () => ReportsApi.createDraft(r, currentCase))));
   }
   return row;
 }
@@ -1246,7 +1248,7 @@ function phNoticesBody(p, docs, errId) {
     box.dataset.docType = 'notice';
     box.dataset.docId = n.id;
     const top = mk('div', 'ph-row');
-    top.appendChild(mk('b', 'ph-doc-t', '📢 工事掲示 ' + ((typeof NoticeLogic !== 'undefined' && NoticeLogic.normalizeRoom(n.room)) || n.room || '号室未入力')));
+    top.appendChild(Icon.prepend(mk('b', 'ph-doc-t', '工事掲示 ' + ((typeof NoticeLogic !== 'undefined' && NoticeLogic.normalizeRoom(n.room)) || n.room || '号室未入力')), 'megaphone', 14));
     top.appendChild(mk('span', 'ph-sp'));
     top.appendChild(dBtn('開く', 'linkbtn', () => { location.hash = '#notice/' + n.id; }));
     box.appendChild(top);
@@ -1256,7 +1258,7 @@ function phNoticesBody(p, docs, errId) {
   // 号室の初期値（この案件の部屋／関係する部屋。候補が無ければ出さない。Task 12。js/notice-ui.js ntlRoomPicker）
   const pick = typeof ntlRoomPicker === 'function' ? ntlRoomPicker(currentCase, 'ph-notice-room-' + p.id) : null;
   if (pick) { pick.el.classList.add('ph-notice-room'); out.push(pick.el); }
-  const b = dBtn('📢 工事掲示を作る', 'ph-mkdoc ph-mk-notice', btn => phMakeNotice(btn, p, errId, pick && pick.value() ? pick.value() : ''));
+  const b = dBtn('工事掲示を作る', 'ph-mkdoc ph-mk-notice', btn => phMakeNotice(btn, p, errId, pick && pick.value() ? pick.value() : ''));
   out.push(b);
   return out;
 }
@@ -1337,7 +1339,7 @@ function phBillingBody(p, docs, errId) {
   } else if (!p.billed_at) {
     st.appendChild(dBtn('請求した', 'btn sm inline ph-billed', () => { ph.billForm.add(p.id); phMsg(errId, ''); phDraw(); }));
     st.appendChild(mk('span', 'ph-sub', p.billing_mode === 'monthly'
-      ? '月ごとの元請は、請求の一覧（💴）で同じ月の分をまとめて「請求した」にもできます'
+      ? '月ごとの元請は、請求の一覧（右上の円のボタン）で同じ月の分をまとめて「請求した」にもできます'
       : '請求書を出したら押してください（入金期限を入れて記録します。間違えたら取り消せます）'));
   } else {
     st.appendChild(mk('span', 'ph-bl-on', '請求 ' + PhaseLogic.fmtMD(p.billed_at)));
@@ -1677,7 +1679,7 @@ function phResBuild(rs) {
   box.appendChild(mk('div', 'ph-sub', 'お客様に「どこからどこまで対応するか」「何に気をつけてもらうか」を伝えるための記録です。' +
     '入れると「調査結果のご報告」メールの下書きができ、この調査で作る報告書・工事の見積書の備考・工事掲示に引き継がれます（作るときの初期値）'));
   // Task 25: 号室ごとの区画（原因・被害箇所）。号室は指示と同じ選び方（js/phase-detail.js pdRoomPicker）
-  box.appendChild(mk('div', 'ph-cau-t', '号室を選ぶ（押すと☑）・号室ごとに原因と被害箇所'));
+  box.appendChild(mk('div', 'ph-cau-t', '号室を選ぶ（押すと ✓）・号室ごとに原因と被害箇所'));
   const blocks = mk('div', 'pd-room-blocks ph-res-rooms');
   const addBlock = c => {
     if (rs.v.rooms.some(b => b.room === c.room)) return;
@@ -1832,8 +1834,8 @@ function phResFillMail(rs, mails) {
   const nodes = [];
   if (draft) {
     const who = PhaseLogic.recipientsLabel(draft.recipients, currentCase);
-    nodes.push(mk('span', null, '✉️ 調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
-      (who ? '（' + who + '）' : '（宛先のメール未登録）')));
+    nodes.push(Icon.prepend(mk('span', null, '調査結果のご報告: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') +
+      (who ? '（' + who + '）' : '（宛先のメール未登録）')), 'mail', 14));
     const b = dBtn('確認して送る', 'btn sm inline ph-res-open', async btn => {
       btn.disabled = true;
       try { await phResSettle(); } finally { btn.disabled = false; }
@@ -1842,10 +1844,10 @@ function phResFillMail(rs, mails) {
     b.dataset.draftId = draft.id;
     nodes.push(b);
   } else if (sent) {
-    nodes.push(mk('span', null, '✉️ 調査結果のご報告 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'));
+    nodes.push(Icon.prepend(mk('span', null, '調査結果のご報告 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'), 'mail', 14));
     nodes.push(mk('span', 'ph-sub', '（内容を直すと、新しい下書きができます）'));
   } else {
-    nodes.push(mk('span', 'ph-sub', '✉️ 入力すると「調査結果のご報告」メールの下書きができます（宛先は依頼元から選びます）'));
+    nodes.push(Icon.prepend(mk('span', 'ph-sub', '入力すると「調査結果のご報告」メールの下書きができます（宛先は依頼元から選びます）'), 'mail', 14));
   }
   el.replaceChildren(...nodes);
 }
@@ -1999,8 +2001,8 @@ function phWorkerBody(p, docs, errId, opts) {
       acts.appendChild(go);
     }
     // 指示が空なら1行の注意（押せる）
-    const empty = mk('div', 'ph-wk-empty', '⚠ 指示が空のまま知らせます（上の「現場への指示」に書くと、確認依頼のメールと担当者の画面に入ります）');
-    if (!withBrief) empty.textContent = '⚠ 指示が空のまま知らせます（「指示を書く」から書けます）';
+    const empty = mk('div', 'ph-wk-empty', withBrief ? '指示が空のまま知らせます（上の「現場への指示」に書くと、確認依頼のメールと担当者の画面に入ります）' : '指示が空のまま知らせます（「指示を書く」から書けます）');
+    Icon.prepend(empty, 'alert', 14);
     empty.dataset.phaseId = p.id;
     empty.hidden = hasBrief;
     acts.appendChild(dBtn(again ? 'もう一度知らせる' : '担当者に知らせる', (again ? 'btn sm ghost inline' : 'btn sm inline') + ' ph-wk-notify',
@@ -2031,7 +2033,7 @@ function phWorkerBody(p, docs, errId, opts) {
     if (draft || sent) {
       const ml = mk('div', 'ph-mail ph-wk-mail');
       if (draft) {
-        ml.appendChild(mk('span', null, '✉️ 担当者への確認依頼: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') + (draft.to_email ? '' : '（担当者のメール未登録）')));
+        ml.appendChild(Icon.prepend(mk('span', null, '担当者への確認依頼: ' + (draft.skipped_at ? '今回は送らない' : '下書きあり') + (draft.to_email ? '' : '（担当者のメール未登録）')), 'mail', 14));
         const b = dBtn('確認して送る', 'btn sm inline ph-wk-open', async btn => {
           btn.disabled = true;
           try { if (typeof pdBriefSettle === 'function') await pdBriefSettle(); } finally { btn.disabled = false; }
@@ -2039,12 +2041,12 @@ function phWorkerBody(p, docs, errId, opts) {
         });
         b.dataset.draftId = draft.id;
         ml.appendChild(b);
-      } else ml.appendChild(mk('span', null, '✉️ 担当者への確認依頼 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'));
+      } else ml.appendChild(Icon.prepend(mk('span', null, '担当者への確認依頼 ' + PhaseLogic.fmtMD(sent.sent_at) + ' 送信済み'), 'mail', 14));
       box.appendChild(ml);
     }
   }
   box.appendChild(mk('div', 'ph-sub', p.worker_id
-    ? '「担当者に知らせる」を押すと、担当者のアプリに「🔔 確認してください」が出て、メールの下書きもできます。担当者が「確認した」を押すとここに戻ってきます'
+    ? '「担当者に知らせる」を押すと、担当者のアプリに「確認してください」が出て、メールの下書きもできます。担当者が「確認した」を押すとここに戻ってきます'
     : '作業する人を選んでください（社内メンバー）'));
   out.push(box);
   return out;
@@ -2102,15 +2104,15 @@ function phNudgeSheet(p, nd, errId) {
   dlg.setAttribute('aria-labelledby', 'ph-nudge-title');
   const close = () => { if (busy) return; bg.remove(); if (opener && opener.isConnected) opener.focus(); };
   const hd = mk('div', 'lt-hd');
-  const h = mk('h3', null, '⚠️ ' + who + 'さんに催促する');
+  const h = mk('h3', null, who + 'さんに催促する');
   h.id = 'ph-nudge-title';
   const x = dBtn('×', 'lt-x', close);
   x.setAttribute('aria-label', '閉じる');
   hd.append(h, x);
   dlg.appendChild(hd);
-  const pv = mk('div', 'ph-nudge-pv', '⚠️ 催促: ' + text);
+  const pv = mk('div', 'ph-nudge-pv', '催促: ' + text);
   pv.id = 'ph-nudge-preview';
-  dlg.appendChild(mk('div', 'lt-sub', phTitle(p) + '。' + who + 'さんの 🔔 の一番上に次の文が出ます（読んだら消えます）'));
+  dlg.appendChild(mk('div', 'lt-sub', phTitle(p) + '。' + who + 'さんの「確認してください」の一番上に次の文が出ます（読んだら消えます）'));
   dlg.appendChild(pv);
   const note = document.createElement('input');
   note.type = 'text';
@@ -2158,6 +2160,6 @@ function phFillWorkerBrief(el, p) {
   const v = typeof pdBriefValue === 'function' ? pdBriefValue(p) : p.plan;
   const sum = PhaseLogic.briefSummary(v);
   el.dataset.state = sum ? 'on' : 'off';
-  el.replaceChildren(sum ? mk('span', null, '📝 指示あり: ' + sum)
-    : mk('span', 'ph-sub', '📝 現場への指示はまだありません（詳細ページの作業担当者の段で書くと、確認依頼のメールにも入ります）'));
+  el.replaceChildren(Icon.prepend(sum ? mk('span', null, '指示あり: ' + sum)
+    : mk('span', 'ph-sub', '現場への指示はまだありません（詳細ページの作業担当者の段で書くと、確認依頼のメールにも入ります）'), 'pen', 14));
 }

@@ -53,7 +53,7 @@ const CaseUndo = (() => {
     const e = latest();
     btnBox.replaceChildren();
     if (e) {
-      const b = dBtn('↩ 1つ前に戻す', 'linkbtn undo-btn', () => { st.open = !st.open; st.msg = ''; st.flash = ''; draw(); });
+      const b = Icon.prepend(dBtn('1つ前に戻す', 'linkbtn undo-btn', () => { st.open = !st.open; st.msg = ''; st.flash = ''; draw(); }), 'undo', 14);
       b.id = 'case-undo-btn';
       b.setAttribute('aria-expanded', st.open ? 'true' : 'false');
       b.setAttribute('aria-controls', 'case-undo-panel');
@@ -63,7 +63,7 @@ const CaseUndo = (() => {
     const nodes = [];
     if (st.open && e) {
       const d = EditLogic.describe(e, opts());
-      nodes.push(mk('b', 'undo-q', '↩ この変更を取り消して、1つ前に戻しますか？'));
+      nodes.push(mk('b', 'undo-q', 'この変更を取り消して、1つ前に戻しますか？'));
       const line = mk('div', 'undo-line', d.line);
       line.id = 'case-undo-line';
       nodes.push(line);

@@ -185,7 +185,7 @@ const RequestView = (() => {
   }
 
   /* ---------- 到着が遅れそう ---------- */
-  const LATE_BTN = '🕒 到着が遅れそう（押すと管理者に報告し、入居者の電話番号が出ます）';
+  const LATE_BTN = '到着が遅れそう（押すと管理者に報告し、入居者の電話番号が出ます）';
 
   // 入居者の電話（報告後）または「到着が遅れそう」のボタン
   //   o: { residents: [{ label, name, tel }], late: late_at（あれば電話を出す）, onLate()（ボタンを押したとき）, disabled, id, note,
@@ -196,18 +196,18 @@ const RequestView = (() => {
     if (o.late || o.own) {
       const list = (o.residents || []).filter(x => x.tel || x.name);
       const head = el('div', 'lt-done', o.late
-        ? '🕒 到着の遅れを報告しました' + (o.lateText ? '（' + o.lateText + '）' : '') + '。入居者の電話:'
+        ? '到着の遅れを報告しました' + (o.lateText ? '（' + o.lateText + '）' : '') + '。入居者の電話:'
         : '入居者の連絡先（自分で登録した案件）:');
       box.appendChild(head);
       if (!list.length) box.appendChild(el('div', 'lt-none', '入居者の電話番号は登録されていません'));
       list.forEach(x => {
         const who = [x.label, x.name ? x.name + '様' : ''].filter(Boolean).join(' ');
         if (x.email && !x.tel) {
-          const a = el('a', 'lt-tel', '✉ ' + (who ? who + ' ' : '') + x.email);
+          const a = Icon.prepend(el('a', 'lt-tel', (who ? who + ' ' : '') + x.email), 'mail');
           a.href = 'mailto:' + x.email;
           box.appendChild(a);
         } else if (x.tel) {
-          const a = el('a', 'lt-tel', '☎ ' + (who ? who + ' ' : '') + x.tel);
+          const a = Icon.prepend(el('a', 'lt-tel', (who ? who + ' ' : '') + x.tel), 'phone');
           a.href = 'tel:' + String(x.tel).replace(/[^0-9+]/g, '');
           box.appendChild(a);
         } else box.appendChild(el('div', 'lt-none', who + '（電話番号なし）'));
@@ -215,6 +215,7 @@ const RequestView = (() => {
       return box;
     }
     const b = btn(LATE_BTN, 'lt-btn', () => { if (o.onLate) o.onLate(b); });
+    Icon.prepend(b, 'clock');
     b.disabled = !!o.disabled;
     box.appendChild(b);
     if (o.note) box.appendChild(el('div', 'lt-none', o.note));
@@ -237,7 +238,7 @@ const RequestView = (() => {
     dlg.setAttribute('aria-labelledby', 'lt-sheet-title');
     const close = () => { if (st.busy) return; bg.remove(); if (opener && opener.isConnected) opener.focus(); };
     const hd = el('div', 'lt-hd');
-    const h = el('h3', null, '🕒 到着が遅れそう');
+    const h = el('h3', null, '到着が遅れそう');
     h.id = 'lt-sheet-title';
     const x = btn('×', 'lt-x', close);
     x.setAttribute('aria-label', '閉じる');

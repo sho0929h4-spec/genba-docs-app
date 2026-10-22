@@ -187,7 +187,7 @@ function blRender() {
   const root = $('billing-root');
   if (!root || !bl) return;
   const nodes = [dBtn('← 案件一覧', 'back', () => openCases())];
-  nodes.push(mk('h2', 'ob-h', '💴 請求の一覧'));
+  nodes.push(mk('h2', 'ob-h', '請求の一覧'));
   nodes.push(mk('div', 'rep-sub ob-lead', '月ごとの元請はその月の分をまとめて、単発は工事が完了した月に出ます。' +
     '請求書はここでは作りません。この一覧を見ながら請求書を作り、「請求した」「入金確認」を記録してください（各案件のタイムラインにも残ります）'));
 

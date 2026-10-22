@@ -107,7 +107,8 @@ let edRec = null;   // 音声入力中 { rec, btn }
 const edSR = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 function edStopVoice() { if (edRec) { try { edRec.rec.stop(); } catch (e) { /* 何もしない */ } } }
 function edMic(s, key, ta) {
-  const b = rfMk('button', 'rep-mic', '🎤');
+  const b = rfMk('button', 'rep-mic');
+  b.appendChild(Icon.el('mic', { size: 18 }));
   b.type = 'button';
   b.title = '音声入力';
   b.setAttribute('aria-label', '音声入力');
@@ -391,7 +392,7 @@ function rfBuildForm(s, opts) {
   const ph = rfMk('div', 'rep-card');
   const phHead = rfMk('div', 'rep-between');
   els.photoTitle = rfMk('h3', null, '写真');
-  els.photoAdd = rfMk('button', 'btn sm ghost inline', '📷 ' + T.photoAdd); // Task 21: 「原因箇所の写真を追加」は廃止。現場写真（カメラ／アルバム）だけ
+  els.photoAdd = Icon.prepend(rfMk('button', 'btn sm ghost inline', T.photoAdd), 'camera'); // Task 21: 「原因箇所の写真を追加」は廃止。現場写真（カメラ／アルバム）だけ
   els.photoAdd.type = 'button';
   els.photoAdd.id = 'rp-photo-add';
   els.photoInput = document.createElement('input');
@@ -691,7 +692,7 @@ function edKeyBox(s, parent) {
   const row = rfMk('div', 'rep-key-ph');
   els.keyPhotoCount = rfMk('span', 'rep-sub');
   els.keyPhotoCount.id = 'rp-key-photo-count';
-  els.keyPhotoAdd = rfMk('button', 'btn sm ghost inline', '📷 ' + T.keyPhotoAdd);
+  els.keyPhotoAdd = Icon.prepend(rfMk('button', 'btn sm ghost inline', T.keyPhotoAdd), 'camera');
   els.keyPhotoAdd.type = 'button';
   els.keyPhotoAdd.id = 'rp-key-photo-add';
   els.keyPhotoAdd.disabled = s.ro;
@@ -783,7 +784,7 @@ function rfRenderPhotos(s, h) {
     tw.appendChild(th);
     if (h.mark && !s.ro && (!h.canMark || h.canMark(p))) {
       const n = Array.isArray(p.marks) ? p.marks.length : 0;
-      const mb = rfMk('button', 'rep-ph-mark' + (n ? ' has' : ''), n ? '✏ 印 ' + n + '個' : '✏ 印を付ける');
+      const mb = Icon.prepend(rfMk('button', 'rep-ph-mark' + (n ? ' has' : ''), n ? '印 ' + n + '個' : '印を付ける'), 'pencil', 14);
       mb.type = 'button';
       mb.dataset.mv = 'mark';
       mb.setAttribute('aria-label', 'No.' + (i + 1) + ' に印を付ける');
@@ -835,7 +836,7 @@ function rfRenderPhotos(s, h) {
       up.addEventListener('click', () => h.move(i, -1));
       const dn = rfMk('button', null, '↓'); dn.type = 'button'; dn.dataset.mv = 'down'; dn.setAttribute('aria-label', 'No.' + (i + 1) + ' を下へ');
       dn.addEventListener('click', () => h.move(i, 1));
-      const del = rfMk('button', 'del', '🗑'); del.type = 'button'; del.dataset.mv = 'del'; del.setAttribute('aria-label', 'No.' + (i + 1) + ' を削除');
+      const del = rfMk('button', 'del'); del.appendChild(Icon.el('trash')); del.type = 'button'; del.dataset.mv = 'del'; del.setAttribute('aria-label', 'No.' + (i + 1) + ' を削除');
       del.addEventListener('click', () => h.remove(i));
       mv.append(up, dn, del);
       row.appendChild(mv);

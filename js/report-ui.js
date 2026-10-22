@@ -121,7 +121,7 @@ async function refreshReports() {
 /* ---- 骨組み ---- */
 function buildReports() {
   const head = mk('div', 'rep-between');
-  head.appendChild(mk('h3', null, '📋 報告書'));
+  head.appendChild(mk('h3', null, '報告書'));
   const cnt = mk('span', 'rep-sub');
   cnt.id = 'rep-count';
   head.appendChild(cnt);
@@ -129,7 +129,7 @@ function buildReports() {
   const acts = mk('div', 'rep-acts rep-top-acts');
   acts.appendChild(dBtn('＋ 報告書を作成', 'btn inline', () => toggleRepForm()));
   if (typeof openShareScreen === 'function' && !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin())) { // 現場用では出さない
-    acts.appendChild(dBtn('🔗 担当者URL', 'btn inline ghost', () => openShareScreen(repCaseId)));
+    acts.appendChild(Icon.prepend(dBtn('担当者URL', 'btn inline ghost', () => openShareScreen(repCaseId)), 'link'));
   }
 
   const formBox = mk('div');
@@ -336,7 +336,7 @@ function renderRepDrafts() {
   if (typeof openMailDraft !== 'function' || pending.length === 0) { box.replaceChildren(); return; }
   const card = mk('div', 'rep-card rep-drafts');
   const head = mk('div', 'rep-between');
-  head.appendChild(mk('b', null, '✉ 送信待ちの下書き ' + pending.length + '件'));
+  head.appendChild(mk('b', null, '送信待ちの下書き ' + pending.length + '件'));
   head.appendChild(mk('span', 'rep-pill p-sent', '確認して送信するだけ'));
   card.appendChild(head);
   pending.forEach(d => {

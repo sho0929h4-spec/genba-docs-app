@@ -168,7 +168,7 @@ function shrTitle(p) {
 function buildShare() {
   const caseId = shrCaseId;
   const card = mk('div', 'rep-card');
-  card.appendChild(mk('h3', null, '🔗 担当者URL'));
+  card.appendChild(mk('h3', null, '担当者URL'));
   card.appendChild(mk('div', 'rep-sub', shrSummary.name + (shrSummary.address ? ' ・ ' + shrSummary.address : '')));
   card.appendChild(mk('div', 'rep-note',
     '対応フェーズを作ると、そのフェーズの報告書と担当者URLが自動でできます（報告書1件につき1本・期限なし）。' +

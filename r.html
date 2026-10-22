@@ -23,7 +23,7 @@
   .v-org{font-size:14px;overflow-wrap:anywhere;}
   .wrap{max-width:760px;margin:0 auto;padding:16px 14px calc(96px + env(safe-area-inset-bottom,0px));padding-left:calc(14px + env(safe-area-inset-left,0px));padding-right:calc(14px + env(safe-area-inset-right,0px));}
   .v-full{max-width:520px;margin:12vh auto 0;padding:0 16px;text-align:center;}
-  .v-full .v-icon{font-size:40px;margin-bottom:8px;}
+  .v-full .v-icon{display:flex;justify-content:center;color:var(--navy);margin-bottom:10px;}
   .v-full h1{font-size:18px;margin-bottom:8px;overflow-wrap:anywhere;}
   .v-full p{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
   .v-full .btn{margin-top:16px;}
@@ -216,6 +216,10 @@
   .cb-row{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;min-height:36px;
     padding:4px calc(16px + env(safe-area-inset-right,0px)) 4px calc(16px + env(safe-area-inset-left,0px));}
   .cb-place{flex:1 1 auto;min-width:0;font-size:14px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* Task 44: 線のアイコン（js/icons.js）。色は文字の色に合わせる */
+  .ic{display:inline-block;flex:none;vertical-align:-0.18em;}
+  .ic-lead{margin-right:.4em;}
+  .rep-mic{display:inline-flex;align-items:center;justify-content:center;}
 </style>
 </head>
 <body>
@@ -229,16 +233,17 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=6117f48"></script>
-<script src="js/supabase-config.js?v=6117f48"></script>
-<script src="js/image.js?v=6117f48"></script>
-<script src="js/report-logic.js?v=6117f48"></script>
-<script src="js/phase-logic.js?v=6117f48"></script>
-<script src="js/request-view.js?v=6117f48"></script>
-<script src="js/case-band.js?v=6117f48"></script>
-<script src="js/photo-marks.js?v=6117f48"></script>
-<script src="js/photo-mark-editor.js?v=6117f48"></script>
-<script src="js/report-form.js?v=6117f48"></script>
-<script src="js/vendor.js?v=6117f48"></script>
+<script src="js/icons.js?v=c0c84ec"></script>
+<script src="js/crypto-util.js?v=c0c84ec"></script>
+<script src="js/supabase-config.js?v=c0c84ec"></script>
+<script src="js/image.js?v=c0c84ec"></script>
+<script src="js/report-logic.js?v=c0c84ec"></script>
+<script src="js/phase-logic.js?v=c0c84ec"></script>
+<script src="js/request-view.js?v=c0c84ec"></script>
+<script src="js/case-band.js?v=c0c84ec"></script>
+<script src="js/photo-marks.js?v=c0c84ec"></script>
+<script src="js/photo-mark-editor.js?v=c0c84ec"></script>
+<script src="js/report-form.js?v=c0c84ec"></script>
+<script src="js/vendor.js?v=c0c84ec"></script>
 </body>
 </html>

@@ -16,22 +16,22 @@ function setCaseListFlash(text) { caseListFlash = text || ''; }
 // チップ。🔴 自分の番 / 🟡 相手待ち / 💴 入金待ち は対応フェーズの段階から（CaseLogic → PhaseLogic.caseFlags）
 const CHIP_LABELS = {
   open: '進行中',
-  mine_turn: '🔴 自分の番',
-  waiting: '🟡 相手待ち',
+  mine_turn: '自分の番',
+  waiting: '相手待ち',
   mine: '自分の担当',
-  requests: '⚠️ 未対応の依頼あり',
-  unpaid: '💴 入金待ち',
+  requests: '未対応の依頼あり',
+  unpaid: '入金待ち',
   done: '完了'
 };
 // チップの説明（Task 23 用語表: 自分の番＝自分が担当の自社の番）。選んだチップの説明を一覧の上に出す（title にも入れる）
 const CHIP_HINTS = {
-  mine_turn: '自分の番 = 自分が担当（案件の担当者か作業担当者）の案件で、こちらがやること（🔴 自社の番）があるもの',
-  waiting: '相手待ち = 依頼元の返事や、URLを渡した担当者の入力を待っているもの（🟡）'
+  mine_turn: '自分の番 = 自分が担当（案件の担当者か作業担当者）の案件で、こちらがやること（自社の番）があるもの',
+  waiting: '相手待ち = 依頼元の返事や、URLを渡した担当者の入力を待っているもの'
 };
 const NEXT_MAX = 2; // カードの「次:」は最大2行（🔴 を先）
 
 // 担当者の選択肢の後ろに付ける電話番号（Task 32。memberships.phone。無ければ ''）
-function memberTel(m) { return m && m.phone ? '　☎ ' + m.phone : ''; }
+function memberTel(m) { return m && m.phone ? '　電話 ' + m.phone : ''; }
 
 function mk(tag, cls, text) {
   const e = document.createElement(tag);
@@ -108,7 +108,7 @@ function renderCaseList() {
   const tb = $('case-tasks');
   if (tb && typeof tasksBannerCount === 'function') {
     const n = caseLoading || caseLoadFailed ? 0 : tasksBannerCount(caseRows);
-    tb.replaceChildren(mk('span', null, '✅ やること ' + n + '件'), mk('span', 'rep-sub', '自分の分を見る →'));
+    tb.replaceChildren(Icon.prepend(mk('span', null, 'やること ' + n + '件'), 'tasks'), mk('span', 'rep-sub', '自分の分を見る →'));
     tb.hidden = n === 0;
   }
 }
@@ -127,7 +127,7 @@ function caseRowEl(r, now) {
   el.appendChild(t);
 
   const meta = mk('div', 'meta');
-  meta.appendChild(mk('span', null, '👤 ' + (r.assignee_name || '担当者未設定')));
+  meta.appendChild(Icon.prepend(mk('span', null, r.assignee_name || '担当者未設定'), 'user', 14));
   meta.appendChild(mk('span', 'st ' + (r.status === 'done' ? 'done' : 'open'), r.status === 'done' ? '完了' : '進行中'));
   el.appendChild(meta);
 
@@ -140,23 +140,25 @@ function caseRowEl(r, now) {
   if (next.length > NEXT_MAX) el.appendChild(mk('div', 'nx-more', 'ほか ' + (next.length - NEXT_MAX) + '件'));
 
   const badges = mk('div', 'badges');
-  if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '⚠️ 未対応の依頼 ' + r.open_requests));
-  badges.appendChild(mk('span', 'bdg', '💬 ' + (r.timeline_count || 0) + '件'));
+  if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '未対応の依頼 ' + r.open_requests));
+  badges.appendChild(Icon.prepend(mk('span', 'bdg', (r.timeline_count || 0) + '件'), 'chat', 12));
   el.appendChild(badges);
 
   return el;
 }
 
-// 「[調査] 次: 🔴 10/20 9:00 調査に行く」。同じ種類が複数あれば何回目、作業担当者が案件の担当者と違えば名前を添える
+// 「[調査] 次: ● 10/20 9:00 調査に行く」（● は自社の番＝赤・相手待ち＝琥珀の小さな丸）。同じ種類が複数あれば何回目、作業担当者が案件の担当者と違えば名前を添える
 function nextLineEl(r, x, kindCount) {
   const nx = mk('div', 'nx-line' + (x.late ? ' late' : ''));
   nx.dataset.phase = x.phaseId || '';
   nx.dataset.ball = x.ball;
   const k = PhaseLogic.KINDS.find(z => z.key === x.kind);
   nx.appendChild(mk('span', 'ph-kind k-' + x.kind, (k ? k.short : '') + (kindCount[x.kind] > 1 ? ' ' + x.seq + '回目' : '')));
-  nx.appendChild(mk('span', 'nx-text', '次: ' + x.mark + ' ' + PhaseLogic.nextText(x)));
+  const nt = mk('span', 'nx-text', '次: ');
+  nt.append(Icon.dot(x.ball, x.ball === 'them' ? '相手待ち' : '自社の番'), PhaseLogic.nextText(x));
+  nx.appendChild(nt);
   if (x.ball === 'us' && x.workerId && x.workerId !== r.assignee_id && x.workerName) {
-    nx.appendChild(mk('span', 'who-pill', '👤 ' + x.workerName));
+    nx.appendChild(Icon.prepend(mk('span', 'who-pill', x.workerName), 'user', 12));
   }
   return nx;
 }

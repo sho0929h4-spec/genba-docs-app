@@ -55,7 +55,8 @@
     $('v-bar').hidden = true;
     const box = el('div', 'v-full');
     box.id = 'v-full';
-    box.append(el('div', 'v-icon', icon), el('h1', null, title));
+    box.append(el('div', 'v-icon'), el('h1', null, title));
+    if (icon) box.firstChild.appendChild(Icon.el(icon, { size: 40 }));
     if (text) box.appendChild(el('p', null, text));
     if (retry) {
       const b = el('button', 'btn ghost', 'もう一度読み込む');
@@ -120,11 +121,11 @@
     catch (e) { st = null; }
     const orgName = st && st.org ? st.org.name : '';
     if (st && st.can_reedit) {
-      full('✅', 'この報告書は提出済みです', '提出はすでに完了しています。ありがとうございました。', null, reeditBox(orgName));
+      full('checkCircle', 'この報告書は提出済みです', '提出はすでに完了しています。ありがとうございました。', null, reeditBox(orgName));
       return true;
     }
     if (st && st.status === 'sent') {
-      full('✅', 'この報告書は依頼元へ送付済みです', '送付済みのため、ここからは直せません。内容を直したいときは' + (orgName || '依頼元の会社') + 'にご連絡ください。');
+      full('checkCircle', 'この報告書は依頼元へ送付済みです', '送付済みのため、ここからは直せません。内容を直したいときは' + (orgName || '依頼元の会社') + 'にご連絡ください。');
       return true;
     }
     return fallback();
@@ -133,10 +134,10 @@
   /* ---------- 読み込み ---------- */
   async function boot() {
     if (!/^[A-Za-z0-9_-]{20,200}$/.test(token)) {
-      full('⚠️', 'URLが正しくありません', '届いたURLを最後までそのまま開いてください。分からない場合は依頼元の会社にご連絡ください。');
+      full('alert', 'URLが正しくありません', '届いたURLを最後までそのまま開いてください。分からない場合は依頼元の会社にご連絡ください。');
       return;
     }
-    full('⏳', '読み込み中…');
+    full('clock', '読み込み中…');
     let res;
     try { res = await client.rpc('share_open', { p_token: token }); }
     catch (e) { res = { data: null, error: e }; }
@@ -146,11 +147,11 @@
       // Task 35: 提出済み（依頼元へ送る前）なら「再編集して管理者に知らせる」。送付済みは連絡を案内
       await submittedView(async () => {
         if (mark) {
-          full('✅', 'この報告書は提出済みです', '提出はすでに完了しています。ありがとうございました。内容の変更が必要な場合は依頼元の会社にご連絡ください。');
+          full('checkCircle', 'この報告書は提出済みです', '提出はすでに完了しています。ありがとうございました。内容の変更が必要な場合は依頼元の会社にご連絡ください。');
         } else if (/無効|期限切れ|提出/.test(m)) {
-          full('⚠️', m, '依頼元の会社に、新しいURLの発行をご依頼ください。');
+          full('alert', m, '依頼元の会社に、新しいURLの発行をご依頼ください。');
         } else {
-          full('⚠️', '読み込めませんでした', m, () => boot());
+          full('alert', '読み込めませんでした', m, () => boot());
         }
       });
       return;
@@ -340,7 +341,7 @@
     if (!info.phase && !detail) return null;
     const card = el('div', 'rep-card v-req');
     card.id = 'v-request';
-    card.appendChild(el('h3', null, '📋 依頼内容'));
+    card.appendChild(Icon.prepend(el('h3', null, '依頼内容'), 'clipboard'));
     if (info.phase) card.appendChild(RequestView.visitRows(info.brief, info.case, info.phase.kind, { id: 'v-visit-rows' }));
     if (detail) card.appendChild(detail);
     else {
@@ -381,8 +382,8 @@
   function clearVal() { if (s.els.val && s.els.val.firstChild) s.els.val.replaceChildren(); }
   function showVal(errors, warnings) {
     const nodes = [];
-    errors.forEach(t => nodes.push(el('div', 'rep-val-e', '⛔ ' + t)));
-    warnings.forEach(t => nodes.push(el('div', 'rep-val-w', '⚠ ' + t)));
+    errors.forEach(t => nodes.push(el('div', 'rep-val-e', t)));
+    warnings.forEach(t => nodes.push(el('div', 'rep-val-w', t)));
     s.els.val.replaceChildren(...nodes);
     if (nodes.length) s.els.val.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
@@ -522,7 +523,7 @@
     s.blobs.forEach(u => URL.revokeObjectURL(u));
     s.blobs.clear();
     window.scrollTo(0, 0);
-    full('✅', '提出しました。ありがとうございました',
+    full('checkCircle', '提出しました。ありがとうございました',
       ((s.info.org && s.info.org.name) || '依頼元の会社') + 'が内容を確認します。このページは閉じてかまいません。', null,
       reeditBox((s.info.org && s.info.org.name) || '')); // Task 35: 依頼元へ送る前なら直せる
   }

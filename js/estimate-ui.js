@@ -127,7 +127,7 @@ async function eulLoad(caseId) {
 
 function eulBuild() {
   const head = mk('div', 'rep-between');
-  head.appendChild(mk('h3', null, '🧾 見積書'));
+  head.appendChild(mk('h3', null, '見積書'));
   const cnt = mk('span', 'rep-sub', 'この案件の見積書 ' + eulSeries.length + '件');
   cnt.id = 'eul-count';
   head.appendChild(cnt);
@@ -655,7 +655,7 @@ function eueActsCard(s) {
   if (st !== 'draft') {
     card.appendChild(mk('h3', null, st === 'accepted' ? 'この版は採用版です' : st === 'superseded' ? 'この版は旧版です' : 'この版の操作'));
     // 「依頼者へ送付」「承諾された」は管理者のみ（現場用で開いたときは出さない。Task 18）
-    if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('✉ 依頼元へ送付', 'eu-send', 'btn inline', () => eueSend(s));
+    if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('依頼元へ送付', 'eu-send', 'btn inline', () => eueSend(s));
     if (s.latest && ['issued', 'sent'].includes(st)) {
       if (admin) btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
       // 減額対応の新しい版は送付済みの版を旧版にする（管理者の「発注待ち」が戻る）ので管理者だけ（Task 23 I8）
@@ -1153,7 +1153,7 @@ function eueToggleAdjust(s, on) {
 
 /* ---------- 入力チェック表示 ---------- */
 function eueShowVal(s, errors, warn) {
-  s.els.val.replaceChildren(...errors.map(t => mk('div', warn ? 'rep-val-w' : 'rep-val-e', (warn ? '' : '⛔ ') + t)));
+  s.els.val.replaceChildren(...errors.map(t => mk('div', warn ? 'rep-val-w' : 'rep-val-e', t)));
   if (errors.length) s.els.val.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 

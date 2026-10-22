@@ -48,7 +48,7 @@ async function refreshOutboxBanner(rows, isAlive) {
     return;
   }
   if (isAlive && !isAlive()) return;
-  el.replaceChildren(mk('span', null, '✉️ 送るメールが ' + n + '件あります'), mk('span', 'rep-sub', '確認して送る →'));
+  el.replaceChildren(Icon.prepend(mk('span', null, '送るメールが ' + n + '件あります'), 'mail'), mk('span', 'rep-sub', '確認して送る →'));
   el.hidden = n === 0;
 }
 
@@ -119,7 +119,7 @@ function obRender() {
   const root = ob && ob.field ? ob.root : $('outbox-root');
   if (!root || !ob) return;
   const nodes = ob.field ? [] : [dBtn('← 案件一覧', 'back', () => openCases())];
-  if (!ob.field) nodes.push(mk('h2', 'ob-h', '✉️ 送るメール'));
+  if (!ob.field) nodes.push(mk('h2', 'ob-h', '送るメール'));
   nodes.push(mk('div', 'rep-sub ob-lead', 'まだ送っていない連絡メール・リマインド・報告書や見積書の送付です。「確認して送る」で中身と宛先を確かめてから送ってください'));
   const msg = mk('div', 'ob-msg');
   msg.id = 'outbox-msg';

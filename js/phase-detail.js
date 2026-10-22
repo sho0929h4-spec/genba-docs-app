@@ -135,7 +135,7 @@ function pdVisitBuild(bs) {
   const box = mk('div', 'pd-visit');
   box.id = 'pd-visit-' + bs.id;
   box.dataset.phaseId = bs.id;
-  const t = mk('div', 'pd-visit-t', '🚪 今回行く部屋（押して選ぶ・複数可）');
+  const t = Icon.prepend(mk('div', 'pd-visit-t', '今回行く部屋（押して選ぶ・複数可）'), 'door', 14);
   const grid = mk('div', 'pd-visit-chips');
   grid.setAttribute('role', 'group');
   grid.setAttribute('aria-label', '今回行く部屋');
@@ -291,8 +291,8 @@ function pdBriefBuild(bs) {
   box.dataset.phaseId = bs.id;
   bs.els = {};
   box.appendChild(mk('div', 'ph-sub', '現場に行く作業担当者への指示です（社内だけ。お客様へのメールには出ません）。' +
-    '下の「担当者に知らせる」の確認依頼メールと、担当者の「🔔 確認してください」・現場用のツールページ・担当者URLのページに入ります'));
-  box.appendChild(mk('div', 'ph-cau-t', 'まず号室を選ぶ（押すと☑）'));
+    '下の「担当者に知らせる」の確認依頼メールと、担当者の「確認してください」・現場用のツールページ・担当者URLのページに入ります'));
+  box.appendChild(mk('div', 'ph-cau-t', 'まず号室を選ぶ（押すと ✓）'));
   const blocks = mk('div', 'pd-room-blocks');
   const addBlock = c => {
     if (bs.v.rooms.some(b => b.room === c.room)) return;

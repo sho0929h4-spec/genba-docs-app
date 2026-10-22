@@ -50,12 +50,12 @@ function teamOpenBtn(it) {
   return b;
 }
 
-// 1行: 「🔴 10/20 9:00 調査に行く」/「サンプルハイツ 101 ・ 調査 1回目」
+// 1行: 「● 10/20 9:00 調査に行く」（● は自社の番＝赤・相手待ち＝琥珀の小さな丸。Task 44）/「サンプルハイツ 101 ・ 調査 1回目」
 function teamRowEl(it, kind) {
   const row = mk('div', 'mt-row');
   row.dataset.phase = it.phaseId || '';
   const l = mk('div', 'mt-l');
-  l.appendChild(mk('b', it.late ? 'hot' : null, it.mark + ' ' + it.text));
+  l.appendChild(mk('b', it.late ? 'hot' : null)).append(Icon.dot(it.ball || (kind === 'waiting' ? 'them' : 'us')), it.text);
   let sub = (it.caseName || '(案件名なし)') + ' ・ ' + it.title;
   if (kind === 'waiting') sub += ' ・ 担当 ' + (it.whoName || 'なし');
   l.appendChild(mk('span', 'mt-case', sub));
@@ -128,13 +128,14 @@ function renderTeam() {
 
   const tiles = [
     ['予定・期限切れ', g.summary.late, g.summary.late > 0],
-    ['🔴 自社の番', g.summary.us, false],
-    ['🟡 相手待ち', g.summary.them, false],
+    ['自社の番', g.summary.us, false, 'us'],
+    ['相手待ち', g.summary.them, false, 'them'],
     ['担当なし', g.summary.unassigned, g.summary.unassigned > 0]
   ];
-  $('team-sum').replaceChildren(...tiles.map(([label, n, alert]) => {
+  $('team-sum').replaceChildren(...tiles.map(([label, n, alert, ball]) => {
     const el = mk('div', 'ts' + (alert ? ' alert' : ''));
     el.appendChild(mk('b', null, String(n)));
+    if (ball) el.appendChild(Icon.dot(ball));
     el.appendChild(document.createTextNode(label));
     return el;
   }));
@@ -143,29 +144,32 @@ function renderTeam() {
   const cards = [];
   if (shown) {
     g.byMember.forEach(m => {
-      const sub = mk('span', 'mh-sub', '🔴 ' + m.items.length + '件');
+      const sub = mk('span', 'mh-sub');
+      sub.append(Icon.dot('us', '自社の番'), m.items.length + '件');
       if (m.late > 0) {
         sub.appendChild(document.createTextNode('・'));
         sub.appendChild(mk('span', 'hot', '予定を過ぎた ' + m.late));
       }
       // Task 32: 担当者の電話番号（設定で本人が入れたもの）を名前の横に小さく
       const head = mk('span', 'mh-name');
-      head.appendChild(mk('b', null, '👤 ' + m.name));
+      head.appendChild(Icon.prepend(mk('b', null, m.name), 'user'));
       const tm = teamMembers.find(x => x.user_id === m.user_id);
-      if (tm && tm.phone) head.appendChild(mk('span', 'mh-tel', '☎ ' + tm.phone));
+      if (tm && tm.phone) head.appendChild(Icon.prepend(mk('span', 'mh-tel', tm.phone), 'phone', 12));
       const card = teamCard('', head, sub);
       card.dataset.member = m.user_id;
       m.items.forEach(it => card.appendChild(teamRowEl(it, 'member')));
       cards.push(card);
     });
     if (g.unassigned.length > 0) {
-      const card = teamCard('warn', mk('b', null, '⚠️ 担当なし'), mk('span', 'mh-sub', '作業担当者を決めてください'));
+      const card = teamCard('warn', Icon.prepend(mk('b', null, '担当なし'), 'alert'), mk('span', 'mh-sub', '作業担当者を決めてください'));
       card.dataset.group = 'unassigned';
       g.unassigned.forEach(it => card.appendChild(teamRowEl(it, 'unassigned')));
       cards.push(card);
     }
     if (g.waiting.length > 0) {
-      const card = teamCard('', mk('b', null, '🟡 相手待ち'), mk('span', 'mh-sub', '期限を過ぎたもの・日付の早い順'));
+      const wh = mk('b', null);
+      wh.append(Icon.dot('them'), '相手待ち');
+      const card = teamCard('', wh, mk('span', 'mh-sub', '期限を過ぎたもの・日付の早い順'));
       card.dataset.group = 'waiting';
       g.waiting.forEach(it => card.appendChild(teamRowEl(it, 'waiting')));
       cards.push(card);

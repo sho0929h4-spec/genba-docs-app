@@ -134,7 +134,7 @@
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
     estimateDueLabel: '見積書提案期日',
     estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
-    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業担当者の 🔔 に「見積書を仕上げて提出（期限）」が入ります',
+    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業担当者の「確認してください」に「見積書を仕上げて提出（期限）」が入ります',
     resurveyReasonLabel: '再調査の理由',
     // Task 29: 見積書提案期日が今日＋2日より先のとき
     estimateDueWhyHead: '見積書提案期日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
@@ -647,7 +647,7 @@
   function photoNote(rooms) {
     const list = (Array.isArray(rooms) ? rooms : []).filter(r => r && typeof r === 'object');
     if (!list.length) return '';
-    return '📷 ' + list.map(roomHead).filter(uniq).join('・') + ': ' + PHOTO_NOTE;
+    return list.map(roomHead).filter(uniq).join('・') + ': ' + PHOTO_NOTE;
   }
 
   /* ---- Task 39: 報告書の号室（複数）。data.rooms = [{ room, role }]・report.room は先頭の号室（古い画面・PDF・検索の互換） ---- */

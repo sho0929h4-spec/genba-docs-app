@@ -198,7 +198,7 @@ function buildDetail() {
       if (ds.length === 1) { openMailDraft(ds[0].id); return; }
       const isNote = d => d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result';
       if (!ds.some(d => d.estimate_id || isNote(d))) { toReports(); return; }
-      mailList.replaceChildren(mk('b', null, '✉ 送信待ちの下書き ' + ds.length + '件'));
+      mailList.replaceChildren(mk('b', null, '送信待ちの下書き ' + ds.length + '件'));
       ds.forEach(d => {
         const line = mk('div', 'rep-draft-line');
         const ph = (currentCase.phases || []).find(p => p.id === d.phase_id) || null;
@@ -210,9 +210,11 @@ function buildDetail() {
       mailList.hidden = false;
     });
     mailBanner.id = 'case-mail-banner';
-    const cnt = mk('span', null, '✉ 送信待ちの下書き ' + pendingMails + '件');
+    const cnt = mk('span', null, '送信待ちの下書き ' + pendingMails + '件');
     cnt.id = 'case-mail-count';
-    mailBanner.append(cnt, mk('span', 'rep-sub', 'メールを確認して送る →'));
+    const lead = mk('span', 'rb-lead');
+    lead.append(Icon.el('mail'), cnt);
+    mailBanner.append(lead, mk('span', 'rep-sub', 'メールを確認して送る →'));
   }
 
   // 一番下に小さく「この案件を削除」（管理者だけ。js/case-trash.js）
@@ -237,9 +239,9 @@ function buildDetail() {
 let ctState = null;               // { caseId, data: {phases, reports, estimates, notices} | null, busy, err, banner（送信待ちの下書きのボタン） }
 const ctSel = new Map();          // 案件ごとに選んだ対応（この画面を開いている間だけ覚える。書類から戻ったとき同じ対応を選ぶ）
 const CT_TOOLS = [
-  { key: 'report', icon: '📋', title: '① 報告書作成ツール', id: 'case-tool-reports', list: 'reports', name: '報告書' },
-  { key: 'estimate', icon: '🧾', title: '② 見積書作成ツール', id: 'case-tool-estimates', list: 'estimates', name: '見積書' },
-  { key: 'notice', icon: '📢', title: '③ 工事掲示作成ツール', id: 'case-tool-notices', list: 'notices', name: '工事掲示' }
+  { key: 'report', icon: 'report', title: '① 報告書作成ツール', id: 'case-tool-reports', list: 'reports', name: '報告書' },
+  { key: 'estimate', icon: 'receipt', title: '② 見積書作成ツール', id: 'case-tool-estimates', list: 'estimates', name: '見積書' },
+  { key: 'notice', icon: 'megaphone', title: '③ 工事掲示作成ツール', id: 'case-tool-notices', list: 'notices', name: '工事掲示' }
 ];
 
 function syncCaseTools(caseId, data) {
@@ -323,7 +325,7 @@ function ctCard(def, state, sel) {
   const main = dBtn('', 'ctool-main', b => (go ? go() : ctCreate(b, def, sel)));
   main.dataset.open = def.key;
   main.disabled = !state || !!s.busy;
-  main.appendChild(mk('span', 'ctool-ic', def.icon));
+  main.appendChild(mk('span', 'ctool-ic')).appendChild(Icon.el(def.icon, { size: 20 }));
   const body = mk('span', 'ctool-t');
   body.appendChild(mk('b', null, def.title));
   let stText = '読み込み中…';
@@ -407,7 +409,7 @@ function syncCaseMailBanner(caseId, drafts) {
   if (!b || caseDetailId !== caseId) return;
   const n = (drafts || []).filter(d => d.status === 'draft' && !d.skipped_at).length;
   const c = $('case-mail-count');
-  if (c) c.textContent = '✉ 送信待ちの下書き ' + n + '件';
+  if (c) c.textContent = '送信待ちの下書き ' + n + '件';
   b.hidden = n === 0;
   if (n === 0 && $('case-mail-list')) $('case-mail-list').hidden = true;
 }
@@ -424,10 +426,10 @@ function renderHead() {
   card.appendChild(t);
 
   const meta = mk('div', 'meta');
-  meta.appendChild(mk('span', null, '👤 ' + (c.assignee_name || '担当者未設定')));
+  meta.appendChild(Icon.prepend(mk('span', null, c.assignee_name || '担当者未設定'), 'user', 14));
   const ds = CaseLogic.dueState(c.due_date, CaseLogic.todayStr());
   const hot = !done && (ds === 'overdue' || ds === 'near');
-  const due = mk('span', hot ? 'hot' : null, c.due_date ? '📅 期日 ' + CaseLogic.formatMD(c.due_date) : '📅 期日未設定');
+  const due = Icon.prepend(mk('span', hot ? 'hot' : null, c.due_date ? '期日 ' + CaseLogic.formatMD(c.due_date) : '期日未設定'), 'calendar', 14);
   meta.appendChild(due);
   card.appendChild(meta); // 元請・連絡先は下の「依頼元」欄（renderParties）
 
@@ -453,7 +455,7 @@ function renderHead() {
   const urls = CaseLogic.mapUrls(c.address);
   const addr = mk('div', 'addr');
   if (urls) {
-    addr.appendChild(mk('span', null, '📍 ' + c.address));
+    addr.appendChild(Icon.prepend(mk('span', null, c.address), 'pin', 14));
     const links = mk('span', 'maplinks');
     const a1 = mk('a', null, 'Googleマップ');
     a1.href = urls.google; a1.target = '_blank'; a1.rel = 'noopener';
@@ -462,7 +464,7 @@ function renderHead() {
     links.append(a1, document.createTextNode('｜'), a2);
     addr.appendChild(links);
   } else {
-    addr.appendChild(mk('span', 'muted', '📍 住所未設定（編集から追加）'));
+    addr.appendChild(Icon.prepend(mk('span', 'muted', '住所未設定（編集から追加）'), 'pin', 14));
   }
   card.appendChild(addr);
 
@@ -498,12 +500,12 @@ function renderHead() {
 function partyContact(email, tel) {
   const sub = mk('div', 'pty-sub');
   if (email) {
-    const a = mk('a', 'pty-mail', '✉ ' + email);
+    const a = Icon.prepend(mk('a', 'pty-mail', email), 'mail', 14);
     a.href = 'mailto:' + email;
     sub.appendChild(a);
   }
   if (tel) {
-    const a = mk('a', 'pty-tel', '☎ ' + tel);
+    const a = Icon.prepend(mk('a', 'pty-tel', tel), 'phone', 14);
     a.href = 'tel:' + String(tel).replace(/[^0-9+]/g, '');
     sub.appendChild(a);
   }

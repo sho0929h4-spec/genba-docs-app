@@ -176,7 +176,7 @@
       page.appendChild(el('div', 'rp-sec', cfg.checkCardTitle));
       const items = el('div', 'rp-items');
       const chips = RL().chipsForPdf(report);
-      if (chips.length) chips.forEach(c => items.appendChild(el('span', 'rp-badge', '☑ ' + c)));
+      if (chips.length) chips.forEach(c => items.appendChild(el('span', 'rp-badge', '✓ ' + c)));
       else items.appendChild(el('span', 'rp-nodata', RL().TEXT.noData));
       page.appendChild(items);
     }
@@ -209,8 +209,8 @@
     if (cl.length || keyReturn) {
       page.appendChild(el('div', 'rp-sec', RL().TEXT.checklistTitle));
       const box = el('div', 'rp-cl');
-      cl.forEach(i => box.appendChild(el('div', 'rp-cl-item' + (i.key ? ' rp-cl-keyline' : '') + (i.on ? '' : ' rp-cl-off'), (i.on ? '☑ ' : '☐ ') + i.text)));
-      if (keyReturn) box.appendChild(el('div', 'rp-cl-item rp-cl-key', `🔑 ${RL().TEXT.keyReturnLabel}：${keyReturn}`));
+      cl.forEach(i => box.appendChild(el('div', 'rp-cl-item' + (i.key ? ' rp-cl-keyline' : '') + (i.on ? '' : ' rp-cl-off'), (i.on ? '✓ ' : '－ ') + i.text)));
+      if (keyReturn) box.appendChild(el('div', 'rp-cl-item rp-cl-key', `${RL().TEXT.keyReturnLabel}：${keyReturn}`));
       page.appendChild(box);
     }
 

@@ -15,9 +15,9 @@ const PhotoMarkEditor = (() => {
   const PM = () => window.PhotoMarks;
   const DRAG_PX = 6;   // これ以上動いたらドラッグ（それ未満はタップ）
   const TOOLS = {
-    circle: { icon: '⭕', label: '丸', hint: '囲みたい所をなぞる（ドラッグ）と丸になります。タップでも丸を置けます' },
-    arrow: { icon: '➡', label: '矢印', hint: '始点から先端へなぞる（ドラッグ）と矢印になります' },
-    text: { icon: 'T', label: 'コメント', hint: 'コメントを置きたい所をタップして、文字を入れてください（40字まで）' }
+    circle: { icon: 'circle', label: '丸', hint: '囲みたい所をなぞる（ドラッグ）と丸になります。タップでも丸を置けます' },
+    arrow: { icon: 'arrow', label: '矢印', hint: '始点から先端へなぞる（ドラッグ）と矢印になります' },
+    text: { glyph: 'T', label: 'コメント', hint: 'コメントを置きたい所をタップして、文字を入れてください（40字まで）' }
   };
 
   const CSS = `
@@ -32,7 +32,7 @@ const PhotoMarkEditor = (() => {
 .pme-x{width:44px;height:44px;border:0;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;font-size:22px;line-height:1;flex:none;}
 .pme-tools{display:flex;gap:6px;padding:0 12px 6px;flex-wrap:wrap;}
 .pme-tool{min-width:44px;min-height:44px;padding:0 10px;border:1.5px solid rgba(255,255,255,.35);border-radius:10px;background:transparent;color:#fff;font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:4px;}
-.pme-tool .pme-ic{font-size:18px;line-height:1;}
+.pme-tool .pme-ic{font-size:18px;line-height:1;display:inline-flex;}
 .pme-tool[aria-pressed="true"]{background:#fff;color:#c00018;border-color:#fff;}
 .pme-tool:disabled{opacity:.35;cursor:default;}
 .pme-tool.pme-del{border-color:#ff8a8a;color:#ffb3b3;}
@@ -119,20 +119,25 @@ const PhotoMarkEditor = (() => {
     Object.keys(TOOLS).forEach(k => {
       const t = TOOLS[k];
       const b = btn('pme-tool', null, 'pme-tool-' + k, () => setTool(k));
-      b.append(mk('span', 'pme-ic', t.icon), mk('span', 'pme-lb', t.label));
+      const ic = mk('span', 'pme-ic', t.glyph);
+      if (t.icon) ic.appendChild(Icon.el(t.icon, { size: 18 }));
+      b.append(ic, mk('span', 'pme-lb', t.label));
       b.setAttribute('aria-label', t.label);
       toolBtns[k] = b;
       tools.appendChild(b);
     });
     tools.appendChild(mk('span', 'pme-sep'));
     const undoB = btn('pme-tool', null, 'pme-undo', () => undo());
-    undoB.append(mk('span', 'pme-ic', '↩'), mk('span', 'pme-lb', '1つ戻す'));
+    undoB.append(mk('span', 'pme-ic'), mk('span', 'pme-lb', '1つ戻す'));
+    undoB.firstChild.appendChild(Icon.el('undo', { size: 18 }));
     undoB.setAttribute('aria-label', '1つ戻す');
     const delB = btn('pme-tool pme-del', null, 'pme-del', () => delSelected());
-    delB.append(mk('span', 'pme-ic', '✕'), mk('span', 'pme-lb', 'この印を消す'));
+    delB.append(mk('span', 'pme-ic'), mk('span', 'pme-lb', 'この印を消す'));
+    delB.firstChild.appendChild(Icon.el('x', { size: 18 }));
     delB.setAttribute('aria-label', '選んだ印を消す');
     const clearB = btn('pme-tool', null, 'pme-clear', () => clearAll());
-    clearB.append(mk('span', 'pme-ic', '🗑'), mk('span', 'pme-lb', '全部消す'));
+    clearB.append(mk('span', 'pme-ic'), mk('span', 'pme-lb', '全部消す'));
+    clearB.firstChild.appendChild(Icon.el('trash', { size: 18 }));
     clearB.setAttribute('aria-label', '全部消す');
     tools.append(undoB, delB, clearB);
 
@@ -235,13 +240,13 @@ const PhotoMarkEditor = (() => {
       if (!st.marks.length || st.saving) return;
       closeText();
       push([]);
-      setMsg('全部消しました（↩ で戻せます）');
+      setMsg('全部消しました（「1つ戻す」で戻せます）');
     }
     function delSelected() {
       if (st.selected < 0 || st.saving) return;
       const i = st.selected;
       push(st.marks.filter((_, j) => j !== i));
-      setMsg('印を消しました（↩ で戻せます）');
+      setMsg('印を消しました（「1つ戻す」で戻せます）');
     }
 
     /* ---------- 指・マウス ---------- */

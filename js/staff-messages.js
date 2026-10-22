@@ -39,7 +39,7 @@ async function refreshMessagesBanner(rows, isAlive) {
     catch (e) { console.warn('日報の読み込みに失敗', e); }
     if (isAlive && !isAlive()) return;
   }
-  el.replaceChildren(mk('span', null, '📨 現場からの連絡 ' + n + '件'), mk('span', 'rep-sub', '見る →'));
+  el.replaceChildren(Icon.prepend(mk('span', null, '現場からの連絡 ' + n + '件'), 'message'), mk('span', 'rep-sub', '見る →'));
   el.hidden = n === 0;
 }
 
@@ -125,7 +125,7 @@ function smRender() {
     nodes.push(dBtn(s.caseId ? '← 案件ページ' : '← 案件一覧', 'back', () => {
       if (s.caseId) location.hash = '#case/' + s.caseId; else openCases();
     }));
-    nodes.push(mk('h2', 'ob-h', '📨 現場からの連絡'));
+    nodes.push(mk('h2', 'ob-h', '現場からの連絡'));
     nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、調査報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「タスク」に出ます。メールは送りません）'));
     if (s.caseId) {
       const c = smCaseOf(s.caseId);
@@ -177,7 +177,7 @@ function smMsgEl(m, isRoot) {
   if (PhaseLogic.messageForMe(m, me, smIsOwner() && !sm.field)) head.appendChild(mk('span', 'sm-new', '未読'));
   else if (m.from_user === me && m.read_at) head.appendChild(mk('span', 'sm-read', '既読'));
   box.appendChild(head);
-  if (isRoot) box.appendChild(mk('div', 'sm-subj', m.subject));
+  if (isRoot) box.appendChild(mk('div', 'sm-subj', PhaseLogic.plainSubject(m.subject)));
   const all = Array.isArray(m.attachments) ? m.attachments : [];
   // Task 32: 日報の PDF（開く・保存）は件名のすぐ下
   all.filter(a => StaffMessagesApi.isPdf(a)).forEach(a => box.appendChild(smPdfLinks(a)));
@@ -201,10 +201,10 @@ function smMsgEl(m, isRoot) {
 // 日報の PDF のリンク（署名URL・1時間。作れたら押せる）。現場用の送った日報の履歴でも使う
 function smPdfLinks(a) {
   const row = mk('div', 'sm-pdf');
-  const open = mk('a', 'btn sm ghost inline sm-pdf-open', '📄 日報のPDFを開く');
+  const open = Icon.prepend(mk('a', 'btn sm ghost inline sm-pdf-open', '日報のPDFを開く'), 'report');
   open.target = '_blank';
   open.rel = 'noopener';
-  const save = mk('a', 'btn sm ghost inline sm-pdf-save', '⬇ 保存');
+  const save = Icon.prepend(mk('a', 'btn sm ghost inline sm-pdf-save', '保存'), 'download');
   save.rel = 'noopener';
   [open, save].forEach(x => x.setAttribute('aria-disabled', 'true'));
   StaffMessagesApi.pdfUrl(a, false).then(u => { open.href = u; open.removeAttribute('aria-disabled'); }, () => { open.textContent = 'PDFを開けませんでした'; });
@@ -222,7 +222,7 @@ function smThreadEl(g) {
   card.dataset.threadId = r.id;
   card.dataset.source = r.source || 'staff';
   const top = mk('div', 'sm-top');
-  top.appendChild(mk('b', 'sm-case', daily ? '📝 日報' : (c && PhaseLogic.placeName(c)) || (r.source === 'case_delete' ? '削除した案件' : '（案件）')));
+  top.appendChild(mk('b', 'sm-case', daily ? '日報' : (c && PhaseLogic.placeName(c)) || (r.source === 'case_delete' ? '削除した案件' : '（案件）')));
   if (!daily) top.appendChild(mk('span', 'ob-ph', smPhaseTitle(c, r.phase_id)));
   card.appendChild(top);
   card.appendChild(smMsgEl(r, true));
@@ -305,7 +305,7 @@ async function smMarkRead(g) {
   s.busy.delete(r.id);
   if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
   if (!smAlive(s)) return;
-  if (!err) s.msg = '「' + r.subject + '」を既読にしました';
+  if (!err) s.msg = '「' + PhaseLogic.plainSubject(r.subject) + '」を既読にしました';
   await smLoad(s.seq);
   if (err) { const el = document.getElementById('sm-err-' + r.id); if (el) el.textContent = err; }
 }
@@ -345,7 +345,7 @@ async function smSendReply(g, text) {
 function smAfterSend(s) {
   if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
   if (!smAlive(s)) return;
-  s.msg = '管理者に連絡しました（管理者の画面の「📨 現場からの連絡」に出ます）';
+  s.msg = '管理者に連絡しました（管理者の画面の「現場からの連絡」に出ます）';
   smLoad(s.seq);
 }
 
@@ -453,7 +453,7 @@ function smOpenSheet(o) {
   file.multiple = true;
   file.id = 'sm-file';
   file.className = 'sr-only';
-  const pick = dBtn('📷 写真を添付', 'btn sm ghost inline sm-pick', () => file.click());
+  const pick = Icon.prepend(dBtn('写真を添付', 'btn sm ghost inline sm-pick', () => file.click()), 'camera');
   const picked = mk('span', 'rep-sub sm-picked', '');
   const clear = dBtn('写真を外す', 'linkbtn sm-clear', () => { st.files = []; syncFiles(); });
   const syncFiles = () => {

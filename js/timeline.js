@@ -91,7 +91,7 @@ function renderTimeline(root) {
   const fileList = mk('div', 'tl-files');
   const err = mk('div', 'err');
   const status = mk('span', 'tl-status');
-  const attach = mk('button', 'attach', '📎 写真・ファイル添付');
+  const attach = Icon.prepend(mk('button', 'attach', '写真・ファイル添付'), 'clip', 14);
   attach.type = 'button';
   attach.addEventListener('click', () => { if (!tlDraft.posting) fileInput.click(); });
   const submit = mk('button', 'btn sm', '記録する');
@@ -120,7 +120,7 @@ function renderTimeline(root) {
     const busy = tlDraft.posting;
     fileList.replaceChildren(...tlDraft.files.map((f, i) => {
       const chip = mk('span', 'tl-file');
-      chip.appendChild(mk('span', 'tl-file-name', (f.type === 'application/pdf' ? '📄 ' : '🖼 ') + (f.name || 'ファイル')));
+      chip.appendChild(Icon.prepend(mk('span', 'tl-file-name', f.name || 'ファイル'), f.type === 'application/pdf' ? 'report' : 'image', 14));
       const x = mk('button', 'tl-file-x', '×');
       x.type = 'button';
       x.title = '外す';
@@ -303,7 +303,7 @@ function tlAttachEl(inst, a) {
   const name = a.name || 'ファイル';
   const isImg = (a.type || '').startsWith('image/');
   const slot = mk('span', 'att');
-  const plain = suffix => slot.replaceChildren(mk('span', 'att-name', (isImg ? '🖼 ' : '📄 ') + name + (suffix || '')));
+  const plain = suffix => slot.replaceChildren(Icon.prepend(mk('span', 'att-name', name + (suffix || '')), isImg ? 'image' : 'report', 14));
 
   if (isImg) slot.appendChild(mk('span', 'thumb', '…'));
   else plain('');
@@ -325,7 +325,8 @@ function tlAttachEl(inst, a) {
       link.appendChild(img);
     } else {
       link.className = 'att-link';
-      link.textContent = '📄 ' + name;
+      link.textContent = name;
+      Icon.prepend(link, 'report', 14);
     }
     slot.replaceChildren(link);
   }).catch(() => {

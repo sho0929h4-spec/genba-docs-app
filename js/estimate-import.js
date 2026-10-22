@@ -124,7 +124,7 @@ const EstimateImport = (() => {
     const v = L().verifyImport(parsed.items, parsed.total, parsed.totalEx);
     let tail = '';
     if (v.ok === true) tail = '（読み取った合計 ' + yen(v.sum) + ' ＝ PDFの金額 ' + yen(v.ref) + (v.basis === 'inc' ? '（税込）' : '') + '）';
-    else if (v.ok === false) tail = '（⚠ 読み取った合計 ' + yen(v.sum) + ' と PDFの本体 ' + yen(v.ref) + ' が ' + yen(Math.abs(v.gap)) + ' 合いません。明細を確かめてください）';
+    else if (v.ok === false) tail = '（注意: 読み取った合計 ' + yen(v.sum) + ' と PDFの本体 ' + yen(v.ref) + ' が ' + yen(Math.abs(v.gap)) + ' 合いません。明細を確かめてください）';
     st.method = method;
     setMsg(s, v.ok === false ? 'warn' : 'ok', '✓ ' + n + '件の明細を原価として読み込みました' + tail, method, method === 'text' && aiNote ? 'AI は使えませんでした: ' + aiNote : '');
     // 元のPDFを非公開フォルダに保存（任意。失敗しても読み込みはそのまま）
@@ -164,7 +164,7 @@ const EstimateImport = (() => {
     st.src.hidden = !path && !note;
     if (note) { st.src.appendChild(mk('span', 'rep-sub', note)); return; }
     if (!path) return;
-    st.src.appendChild(mk('span', 'rep-sub', '📎 読み込んだ仕入先のPDF'));
+    st.src.appendChild(Icon.prepend(mk('span', 'rep-sub', '読み込んだ仕入先のPDF'), 'clip', 14));
     const open = dBtn('開く', 'linkbtn', async b => {
       b.disabled = true;
       try { window.open(await AppStorage.getUrl(path, 600), '_blank', 'noopener'); }
@@ -194,7 +194,7 @@ const EstimateImport = (() => {
     const drop = mk('label', 'eu-imp-drop');
     drop.id = 'eu-import-drop';
     drop.htmlFor = input.id;
-    drop.appendChild(mk('b', null, '📄 仕入先の見積PDFを読み込む'));
+    drop.appendChild(Icon.prepend(mk('b', null, '仕入先の見積PDFを読み込む'), 'report'));
     drop.appendChild(mk('span', 'eu-imp-hint', 'ここにドラッグ＆ドロップ、またはタップして選ぶ（PDFのみ・20MBまで）。明細は「原価」として入ります'));
     const over = on => drop.classList.toggle('over', on);
     drop.addEventListener('dragenter', e => { e.preventDefault(); over(true); });

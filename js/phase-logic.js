@@ -56,7 +56,6 @@
   };
   const steps = kind => (kind === 'survey' ? STEPS.survey : isWork(kind) ? STEPS.work : []);
 
-  const MARK = { us: '🔴', them: '🟡' };
   const SLOTS = [
     { slot: 'd3', days: 3, label: '3日前' },
     { slot: 'd1', days: 1, label: '前日' }
@@ -375,7 +374,7 @@
   }
 
   // 案件一覧の「次:」の行。🔴（自社）を先、🟡（相手）を後。同じ色はフェーズの並び順。済んだフェーズは出さない
-  //   → [{ phaseId, kind, title, key, label, ball, mark, date, late }]
+  //   → [{ phaseId, kind, title, key, label, ball, date, late }]（ball: us＝自社の番・them＝相手待ち。画面では小さな丸。Task 44）
   //   opts（Task 25）: { me, members, byWorker }。byWorker: 🟡 報告待ちのフェーズは作業担当者から見た段階（🔴 報告書を書いて提出）にする（チーム状況）
   function caseNext(phases, now, opts) {
     const o = opts || {};
@@ -387,12 +386,12 @@
       const st = o.byWorker ? workerStage(p, now, o) : stage(p, null, now, o);
       const base = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
         seq: p.seq != null ? p.seq : count[p.kind], workerId: p.worker_id || null, workerName: str(p.worker_name) || null };
-      rows.push({ i, row: Object.assign({}, base, { key: st.key, label: st.label, ball: st.ball, mark: MARK[st.ball] || '', date: st.date,
+      rows.push({ i, row: Object.assign({}, base, { key: st.key, label: st.label, ball: st.ball, date: st.date,
         late: !!st.late, due: st.due || null, dueAt: st.dueAt || null }) });
       // Task 23: 再調査の調査の見積書の期限も1行（やること・🔔 と同じ件数にする）
       const todo = p.kind === 'survey' ? estimateTodo(p, now) : null;
       if (todo) {
-        rows.push({ i, row: Object.assign({}, base, { key: 'estimate', label: `見積書作成必要（期日 ${fmtYmdMD(todo.due)}）`, ball: 'us', mark: MARK.us,
+        rows.push({ i, row: Object.assign({}, base, { key: 'estimate', label: `見積書作成必要（期日 ${fmtYmdMD(todo.due)}）`, ball: 'us',
           date: todo.due, late: todo.late, due: todo.due }) });
       }
     });
@@ -1313,7 +1312,7 @@
   function fieldTaskRow(it) {
     const x = it || {};
     const p = x.phase || null;
-    const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '📝 日報';
+    const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
     const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : TASK_TODO[x.type] || str(x.label);
     let due = '';
@@ -1566,8 +1565,8 @@
       const ws = c ? withSeq(c.phases) : [];
       const hit = ws.find(x => x.p.id === m.phase_id);
       out.push({ type: 'message', caseRow: c, phase: hit ? hit.p : null, title: hit ? phaseTitle(hit.p, hit.seq) : c ? '案件全体' : '日報',
-        // Task 28: 催促（source = nudge）は件名そのまま（⚠️ 催促: …）
-        label: m.source === 'nudge' ? str(m.subject) : `📨 管理者から: ${str(m.subject)}`, nudge: m.source === 'nudge',
+        // Task 28: 催促（source = nudge）は件名そのまま（「催促: …」。DB の件名の先頭の絵文字は表示で外す＝Task 44）
+        label: m.source === 'nudge' ? plainSubject(m.subject) : `管理者から: ${plainSubject(m.subject)}`, nudge: m.source === 'nudge',
         message: m, due: null, dueAt: null, late: false, from: '', fromAt: m.created_at, tomorrow: false, brief: '' });
     });
     for (const c of listOf(caseRows)) {
@@ -1963,7 +1962,7 @@
     const shortLabel = st.key === 'visit' ? '調査に行く' : st.key === 'issued' ? '見積書提出済み' :
       st.key === 'report' && isWork(p.kind) ? '完了報告必要' :
       st.key === 'approval' ? `発注待ち${st.date && days ? ` ${days}日` : ''}` : st.label;
-    const short = st.ball ? `${MARK[st.ball]} ${shortLabel}` : `✓ ${st.label}`;
+    const short = st.ball ? shortLabel : `✓ ${st.label}`;
     // 報告書: 一番進んでいるもの（共有・確認 > 確認済み > 提出済み > 下書き）
     const rank = { draft: 0, waiting: 1, submitted: 2, ready: 3, confirmed: 3, shared: 4, viewed: 5 };
     let report = { state: 'none', text: '未作成', date: null };
@@ -2052,7 +2051,7 @@
   }
 
   // 案件ページの上部の「今の状態」1行。phases はこの案件のフェーズ（各 estimates / reports 付き。stage と同じ）
-  //   → { us, them, next: caseNext の先頭（無ければ null）, text: '🔴 自社の番 2件 ・ 🟡 相手待ち 1件 ・ 次: 10/20 9:00 調査に行く' }
+  //   → { us, them, next: caseNext の先頭（無ければ null）, text: '自社の番 2件 ・ 相手待ち 1件 ・ 次: 10/20 9:00 調査に行く' }
   function caseNow(phases, now, opts) {
     const rows = caseNext(phases, now, opts);
     const us = rows.filter(r => r.ball === 'us').length;
@@ -2061,7 +2060,7 @@
     const list = listOf(phases);
     const tail = next ? `次: ${next.kind === 'survey' ? '' : next.title + ' '}${nextText(next)}`
       : list.length ? '次: なし（すべて済み）' : '次: 対応フェーズを追加してください';
-    return { us, them, next, text: `${MARK.us} 自社の番 ${us}件 ・ ${MARK.them} 相手待ち ${them}件 ・ ${tail}` };
+    return { us, them, next, text: `自社の番 ${us}件 ・ 相手待ち ${them}件 ・ ${tail}` };
   }
 
   // 作業員に報告書のURLを渡すときの文面（「送る文面をコピー」。LINE 等に貼る）
@@ -2114,7 +2113,7 @@
   function fieldStageLabel(st) {
     if (!st || !st.ball) return '';
     const label = st.key === 'visit' ? '調査に行く' : st.key === 'work' ? '工事待ち' : st.key === 'issued' ? '見積書提出済み' : st.label;
-    return `${MARK[st.ball]} ${label}`;
+    return label;
   }
   // 現場用の「自分の案件一覧」: 進行中で自分の担当の案件だけ（全部の切替は無い＝Ruling）。
   //   → [{ caseRow, phase（カードの対応・無ければ null）, title, when, stage, stageText, today, at }]
@@ -2464,7 +2463,10 @@
       p_scheduled_at: at.toISOString(), p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
   }
 
-  const api = { KINDS, KIND_KEYS, STEPS, LABEL_MAX, isWork, workName, NEW_CASE_MAX, jstInput, newCaseCheck, MARK, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
+  // Task 44: 件名の先頭の絵文字（migration 052 / 058 の催促は「⚠️ 催促: …」で保存される）を表示では外す
+  function plainSubject(s) { return str(s).replace(/^[\u26a0\u2600-\u27bf\ufe0f\s]+/u, ''); }
+
+  const api = { plainSubject, KINDS, KIND_KEYS, STEPS, LABEL_MAX, isWork, workName, NEW_CASE_MAX, jstInput, newCaseCheck, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
     phaseTitle, stage, workerStage, isBlankReport, estimateTodo, reportTodo, ymdAdd, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,

@@ -53,10 +53,10 @@ const FD_SURVEY_RE = new RegExp('^#f/case/' + FD_UUID + '/phase/' + FD_UUID + '/
 const fdPhaseHash = (caseId, phaseId) => '#f/case/' + String(caseId).toLowerCase() + '/phase/' + String(phaseId).toLowerCase();
 const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/history';
 const FD_TABS = [
-  { view: 'cases', hash: '#f', icon: '📋', label: '案件' },
-  { view: 'tasks', hash: '#f/tasks', icon: '✅', label: 'タスク' },
-  { view: 'daily', hash: '#f/daily', icon: '📝', label: '日報作成' },
-  { view: 'settings', hash: '#f/settings', icon: '⚙️', label: '設定' }
+  { view: 'cases', hash: '#f', icon: 'home', label: '案件' },
+  { view: 'tasks', hash: '#f/tasks', icon: 'tasks', label: 'タスク' },
+  { view: 'daily', hash: '#f/daily', icon: 'pen', label: '日報作成' },
+  { view: 'settings', hash: '#f/settings', icon: 'settings', label: '設定' }
 ];
 // 現場用からも開く共通の画面（報告書・見積書・工事掲示・送付メール）
 const FD_SHARED_RES = [
@@ -214,7 +214,7 @@ function fdTabs() {
     });
     b.dataset.tab = t.view;
     if (t.view === active) b.setAttribute('aria-current', 'page');
-    b.appendChild(mk('b', 'fd-tab-ic', t.icon));
+    b.appendChild(mk('b', 'fd-tab-ic')).appendChild(Icon.el(t.icon, { size: 22 }));
     b.appendChild(mk('span', null, t.label));
     return b;
   }));
@@ -325,7 +325,7 @@ function fdRenderCases() {
     // Task 40: カレンダーでは日時未定・前の月の提出済みが見えないので、一覧の「提出済み」の段への入口
     const subN = PhaseLogic.fieldSchedule(s.rows, fdMe(), new Date()).filter(x => x.group === 'submitted').length;
     if (subN) {
-      const b = dBtn('📄 提出済みの報告書 ' + subN + '件 ›', 'fd-sub-link', () => fdShowGroup('submitted'));
+      const b = Icon.prepend(dBtn('提出済みの報告書 ' + subN + '件 ›', 'fd-sub-link', () => fdShowGroup('submitted')), 'report');
       b.id = 'fd-sub-link';
       nodes.push(b);
     }
@@ -340,7 +340,7 @@ function fdRenderCases() {
       const late = tasks.filter(x => x.late).length;
       const b = dBtn('', 'fd-bell' + (late ? ' late' : ''), () => { location.hash = '#f/tasks'; });
       b.id = 'fd-bell';
-      b.appendChild(mk('b', null, '✅ タスク ' + tasks.length + '件' + (late ? '（期限超過 ' + late + '件）' : '')));
+      b.appendChild(Icon.prepend(mk('b', null, 'タスク ' + tasks.length + '件' + (late ? '（期限超過 ' + late + '件）' : '')), 'tasks'));
       b.appendChild(mk('span', 'fd-tiny', '見る ›'));
       nodes.push(b);
     }
@@ -411,13 +411,13 @@ function fdCaseCard(it) {
   if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', p.kind === 'other' ? String(p.label || '').trim() : it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
-  if (it.visit) main.appendChild(mk('span', 'fd-visit-short', '🚪 ' + it.visit)); // Task 31: 今回行く部屋「101・201号室」
+  if (it.visit) main.appendChild(Icon.prepend(mk('span', 'fd-visit-short', it.visit), 'door', 14)); // Task 31: 今回行く部屋「101・201号室」
   // Task 40: 提出済みの段は段階（🔴 報告書を送る = 管理者の仕事）の代わりに「報告書 提出済み 10/22」「報告書 再編集中」の札
   if (it.sub) main.appendChild(mk('span', 'fd-sub-tag' + (it.sub.key === 'editing' ? ' editing' : ''), it.sub.text));
   else if (it.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage) + (late ? ' late' : ''), it.stageText));
   card.appendChild(main);
   if (c.address) {
-    const a = mk('a', 'fd-tiny fd-addr fd-map', '📍 ' + c.address + '（地図）');
+    const a = Icon.prepend(mk('a', 'fd-tiny fd-addr fd-map', c.address + '（地図）'), 'pin', 14);
     a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(c.address);
     a.target = '_blank';
     a.rel = 'noopener';
@@ -556,7 +556,7 @@ function fdRenderCase() {
   // 住所（Googleマップ）・入居者の電話
   const info = mk('div', 'fd-info');
   if (c.address) {
-    const a = mk('a', 'fd-map', '📍 ' + c.address + '（Googleマップ）');
+    const a = Icon.prepend(mk('a', 'fd-map', c.address + '（Googleマップ）'), 'pin');
     a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(c.address);
     a.target = '_blank';
     a.rel = 'noopener';
@@ -581,7 +581,9 @@ function fdRenderCase() {
   const stText = sub ? sub.text + (sub.key === 'editing' ? '（直して「提出する」）' : '（管理者の確認待ち）')
     : PhaseLogic.fieldStageLabel(st) || (st.label ? '✓ ' + st.label : '');
   if (stText) {
-    const sl = mk('div', 'fd-stage-line' + (sub ? '' : fdBallClass(st)), '今: ' + stText);
+    const sl = mk('div', 'fd-stage-line' + (sub ? '' : fdBallClass(st)), '今: ');
+    if (!sub && st.ball) sl.appendChild(Icon.dot(st.ball));
+    sl.append(stText);
     sl.id = 'fd-stage-line';
     nodes.push(sl);
   }
@@ -599,9 +601,9 @@ function fdRenderCase() {
   const t = PhaseLogic.fieldTools(docs);
   const tools = mk('div', 'fd-tools');
   tools.id = 'fd-tools';
-  tools.appendChild(fdToolBtn(s, 'report', '📋', '① 報告書', t.report, () => fdOpenReport(s, c, sel, t.report)));
-  tools.appendChild(fdToolBtn(s, 'estimate', '🧾', '② 見積書', t.estimate, () => fdOpenEstimate(s, c, sel, phases, t.estimate)));
-  tools.appendChild(fdToolBtn(s, 'notice', '📢', '③ 工事掲示', t.notice, () => fdOpenNotice(s, c, sel, phases, t.notice)));
+  tools.appendChild(fdToolBtn(s, 'report', 'report', '① 報告書', t.report, () => fdOpenReport(s, c, sel, t.report)));
+  tools.appendChild(fdToolBtn(s, 'estimate', 'receipt', '② 見積書', t.estimate, () => fdOpenEstimate(s, c, sel, phases, t.estimate)));
+  tools.appendChild(fdToolBtn(s, 'notice', 'megaphone', '③ 工事掲示', t.notice, () => fdOpenNotice(s, c, sel, phases, t.notice)));
   nodes.push(tools);
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
@@ -733,7 +735,7 @@ function fdRenderSurvey() {
 function fdRequestCard(s, c, p) {
   const card = mk('div', 'fd-req');
   card.id = 'fd-request';
-  card.appendChild(mk('b', 'rq-title', '📋 依頼内容'));
+  card.appendChild(Icon.prepend(mk('b', 'rq-title', '依頼内容'), 'clipboard'));
   card.appendChild(RequestView.visitRows(p.plan, c, p.kind, { id: 'fd-visit-rows' }));
   const req = RequestView.build(c.request, { photoUrl: x => CasesApi.requestPhotoUrl(x), id: 'fd-request-detail' });
   if (req) card.appendChild(req);
@@ -784,7 +786,7 @@ function fdToolBtn(s, key, icon, title, state, onClick) {
   b.dataset.tool = key;
   b.dataset.state = state.state;
   b.disabled = !!s.busy;
-  b.appendChild(mk('span', 'fd-tool-ic', icon));
+  b.appendChild(mk('span', 'fd-tool-ic')).appendChild(Icon.el(icon, { size: 24 }));
   const txt = mk('span', 'fd-tool-t');
   txt.appendChild(mk('b', null, title));
   txt.appendChild(mk('span', 'fd-tool-st', s.busy === key ? '開いています…' : state.text));
@@ -912,7 +914,7 @@ function fdDailyRow(d, item, extra) {
   b.setAttribute('role', 'checkbox');
   b.setAttribute('aria-checked', on ? 'true' : 'false');
   b.disabled = !!d.busy;
-  b.appendChild(mk('span', 'dl-ck', on ? '☑' : '☐'));
+  b.appendChild(mk('span', 'dl-ck')).setAttribute('aria-hidden', 'true'); // Task 44: 四角の枠（オンで紺地に ✓。CSS）
   const txt = mk('span', 'dl-txt');
   txt.appendChild(mk('b', null, item.text || item.label));
   (item.sub || []).forEach(x => txt.appendChild(mk('span', 'dl-sub', x)));
@@ -971,7 +973,7 @@ function fdRenderDaily() {
     st.id = 'fd-daily-sent';
     card.appendChild(st);
   }
-  card.appendChild(mk('span', 'fd-tiny', '自動で入りました。行を押すと ☑／☐ が切り替わります（☑ の行だけが日報に入ります）'));
+  card.appendChild(mk('span', 'fd-tiny', '自動で入りました。行を押すと ✓ が付いたり外れたりします（✓ の行だけが日報に入ります）'));
   m.sections.forEach(sec => {
     const box = mk('div', 'dl-sec');
     box.dataset.sec = sec.key;
@@ -1083,7 +1085,7 @@ function fdRenderDaily() {
   file.id = 'fd-daily-file';
   file.className = 'sr-only';
   file.addEventListener('change', () => fdDailyAddPhotos(d, Array.from(file.files || [])));
-  const pick = dBtn('📷 写真を追加', 'btn sm ghost inline fd-daily-pick', () => file.click());
+  const pick = Icon.prepend(dBtn('写真を追加', 'btn sm ghost inline fd-daily-pick', () => file.click()), 'camera');
   pick.id = 'fd-daily-pick';
   pick.disabled = !!d.busy || count >= DailyLogic.PHOTOS_MAX;
   pb.append(pick, file);
@@ -1100,7 +1102,7 @@ function fdRenderDaily() {
   // 下に固定のボタン
   const bar = mk('div', 'dl-bar');
   bar.id = 'fd-daily-bar';
-  const pv = dBtn(d.busy === 'pdf' ? 'PDFを作っています…' : '📄 PDFを見る', 'btn ghost dl-pdf', () => fdDailyPreview(s));
+  const pv = dBtn(d.busy === 'pdf' ? 'PDFを作っています…' : 'PDFを見る', 'btn ghost dl-pdf', () => fdDailyPreview(s));
   pv.id = 'fd-daily-pdf';
   pv.disabled = !!d.busy;
   const send = dBtn(d.busy === 'send' ? '送っています…' : d.today ? '送り直す' : '送る', 'btn dl-send fd-daily-send', () => fdSendDaily(s));
@@ -1117,7 +1119,7 @@ function fdRenderDaily() {
     const box = mk('div', 'fd-card fd-daily-h');
     box.dataset.msgId = mm.id;
     const top = mk('div', 'fd-row');
-    top.appendChild(mk('b', null, mm.subject));
+    top.appendChild(mk('b', null, PhaseLogic.plainSubject(mm.subject)));
     top.appendChild(mk('span', 'fd-tiny', PhaseLogic.fmtMDHM(mm.created_at) + ' ・ ' + (mm.read_at ? '既読' : '未読')));
     box.appendChild(top);
     const atts = Array.isArray(mm.attachments) ? mm.attachments : [];
@@ -1229,7 +1231,7 @@ async function fdSendDaily(s) {
   let row = null, err = '';
   try {
     const body = DailyLogic.text(d.model, d.sel, { name: fdDailyName(), org: (ctx.org && ctx.org.name) || '', note: d.note });
-    if (body.length > StaffMessagesApi.BODY_MAX) throw new Error('日報が長すぎます（' + StaffMessagesApi.BODY_MAX + '文字まで）。☐ にする行を増やすか、一言を短くしてください');
+    if (body.length > StaffMessagesApi.BODY_MAX) throw new Error('日報が長すぎます（' + StaffMessagesApi.BODY_MAX + '文字まで）。✓ を外す行を増やすか、一言を短くしてください');
     const pdf = await fdDailyMakePdf(d);
     const old = d.today && Array.isArray(d.today.attachments) ? d.today.attachments : [];
     const drop = old.filter(a => !d.keep.some(k => k.path === a.path));
@@ -1241,7 +1243,7 @@ async function fdSendDaily(s) {
   if (err) { d.err = err; fdRenderDaily(); return; }
   d.photos.forEach(p => { try { URL.revokeObjectURL(p.url); } catch (e) { /* 無視 */ } });
   Object.assign(d, { photos: [], keepTouched: false, noteTouched: false, pdf: null,
-    msg: (row && row.resent ? '日報を送り直しました' : '日報を送りました') + '（管理者の「📨 現場からの連絡」で PDF を開けます）' });
+    msg: (row && row.resent ? '日報を送り直しました' : '日報を送りました') + '（管理者の「現場からの連絡」で PDF を開けます）' });
   try { localStorage.setItem(fdDailyKey(d.model.ymd), JSON.stringify({ sel: d.sel, note: null })); } catch (e) { /* 無視 */ }
   await fdLoadDaily(s.seq);
 }

@@ -70,7 +70,7 @@ function renderClients() {
     const sub = clientSubText(Object.assign({}, k, { tel: null }));
     if (sub) l.appendChild(mk('div', 'cl-sub', sub));
     if (k.tel) {
-      const a = mk('a', 'cl-tel', '☎ ' + k.tel);
+      const a = Icon.prepend(mk('a', 'cl-tel', k.tel), 'phone', 14);
       a.href = 'tel:' + String(k.tel).replace(/[^0-9+]/g, '');
       l.appendChild(a);
     }
