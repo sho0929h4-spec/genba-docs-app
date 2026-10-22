@@ -38,11 +38,10 @@ const CasesApi = (() => {
     async listMembers() {
       return must(await sb.from('memberships').select('user_id, display_name, email, role, phone').order('display_name'));
     },
+    // 管理画面の案件作成（rpc admin_create_case / migration 059。管理者だけ・cases への直接の insert は無い）。
+    //   送れるのは CASE_COLS だけ（ほかの列は DB が拒否）。保存件数の上限も DB が確かめる → 作った cases の行
     async createCase(fields) {
-      const q = await checkQuota(0, 1);
-      if (!q.ok) throw new Error(q.reason);
-      // cases の insert は表単位で付与済みだが、送る列は更新と同じ許可列に揃える（created_by 等は DB の既定値）
-      return must(await sb.from('cases').insert(pick(fields, CASE_COLS)).select().single());
+      return must(await sb.rpc('admin_create_case', { p: pick(fields, CASE_COLS) }));
     },
     // Task 37: 現場用の案件登録（作業担当者も）。案件＋その号室・入居者＋フェーズ1つ（作業担当者 = 自分）＋依頼内容を1回で作る
     //   （rpc field_create_case / migration 058。保存件数の上限・管理者への自動の連絡・タイムラインも DB が行う）→ { ok, case_id, phase_id }
