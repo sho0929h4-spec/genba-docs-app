@@ -71,6 +71,15 @@
   .rep-hint{display:block;font-size:11px;color:var(--muted);margin:-2px 0 6px;}
   .rep-photo-note{margin:6px 0 2px;padding:8px 10px;border-radius:8px;background:#fff6e0;border:1px solid #f0d48a;color:#6b4a00;font-size:13px;font-weight:700;line-height:1.5;overflow-wrap:anywhere;}
   .rep-g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px;}
+  /* Task 39: 号室の行（号室・役割・×）＋「＋ 号室を追加」 */
+  .rep-rooms{grid-column:1/-1;}
+  .rep-room-line{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+  .rep-ff .rep-room-line input.rep-room-no{flex:1 1 auto;width:auto;}
+  .rep-ff .rep-room-line select.rep-room-role{flex:0 0 8.5em;width:8.5em;padding:11px 8px;}
+  .rep-room-del{flex:0 0 40px;min-height:44px;border:1.5px solid var(--border);border-radius:10px;background:#f4f7fb;color:var(--muted);font-size:18px;font-family:inherit;cursor:pointer;}
+  .rep-room-del-sp{flex:0 0 40px;}
+  .rep-room-add{min-height:40px;padding:0 14px;border:1.5px dashed var(--border);border-radius:10px;background:#f4f7fb;color:var(--navy);font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;}
+  .rep-room-add[hidden]{display:none;}
   .rep-auto{background:#f4f7fb;border-radius:10px;padding:10px 12px;font-size:13px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 12px;margin-top:8px;}
   .rep-auto dt{color:var(--muted);font-size:12px;}
   .rep-auto dd{overflow-wrap:anywhere;}
@@ -220,16 +229,16 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=2467e95"></script>
-<script src="js/supabase-config.js?v=2467e95"></script>
-<script src="js/image.js?v=2467e95"></script>
-<script src="js/report-logic.js?v=2467e95"></script>
-<script src="js/phase-logic.js?v=2467e95"></script>
-<script src="js/request-view.js?v=2467e95"></script>
-<script src="js/case-band.js?v=2467e95"></script>
-<script src="js/photo-marks.js?v=2467e95"></script>
-<script src="js/photo-mark-editor.js?v=2467e95"></script>
-<script src="js/report-form.js?v=2467e95"></script>
-<script src="js/vendor.js?v=2467e95"></script>
+<script src="js/crypto-util.js?v=dd7fd16"></script>
+<script src="js/supabase-config.js?v=dd7fd16"></script>
+<script src="js/image.js?v=dd7fd16"></script>
+<script src="js/report-logic.js?v=dd7fd16"></script>
+<script src="js/phase-logic.js?v=dd7fd16"></script>
+<script src="js/request-view.js?v=dd7fd16"></script>
+<script src="js/case-band.js?v=dd7fd16"></script>
+<script src="js/photo-marks.js?v=dd7fd16"></script>
+<script src="js/photo-mark-editor.js?v=dd7fd16"></script>
+<script src="js/report-form.js?v=dd7fd16"></script>
+<script src="js/vendor.js?v=dd7fd16"></script>
 </body>
 </html>

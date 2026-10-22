@@ -154,7 +154,7 @@
       .filter(Boolean).join('　');
     const rows = [
       { k: '物件名', v: trim(caseRow.name), cls: 'rp-prop-name' },
-      { k: spaced('号室'), v: trim(report.room) },
+      { k: spaced('号室'), v: RL().roomsText(report) }, // Task 39: 「402号室（加害部屋）・302号室（被害部屋）」
       { k: '現場住所', v: trim(caseRow.address), opt: true },
       { k: '元請', v: trim(caseRow.client_name), opt: true },
       { k: '作業内容', v: RL().WORK_TYPE_LABEL[report.work_type] || RL().WORK_TYPE_LABEL.investigate },

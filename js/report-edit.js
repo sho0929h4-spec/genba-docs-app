@@ -191,6 +191,7 @@ function edBuild(s) {
   if (rc) nodes.push(rc);
 
   const info = s.info;
+  const ph = s.report.phase_id && Array.isArray(info.phases) ? info.phases.find(p => p.id === s.report.phase_id) : null;
   nodes.push(...rfBuildForm(s, {
     infoTitle: '案件情報（自動で入ります）',
     // Task 20: 対応フェーズの報告書は作業区分が決まっている（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。切替を出さない）
@@ -199,10 +200,10 @@ function edBuild(s) {
     fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
     infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
     // Task 25: 作業担当者への指示で「被害箇所の写真撮影」を選んだ号室の注意書き（このフェーズの指示）
-    photoNote: (() => {
-      const ph = s.report.phase_id && Array.isArray(info.phases) ? info.phases.find(p => p.id === s.report.phase_id) : null;
-      return ph && typeof PhaseLogic !== 'undefined' ? L.photoNote(PhaseLogic.photoRooms(ph.plan)) : '';
-    })(),
+    photoNote: ph && typeof PhaseLogic !== 'undefined' ? L.photoNote(PhaseLogic.photoRooms(ph.plan)) : '',
+    // Task 39: 号室の初期値 = このフェーズの指示の号室（行く部屋・役割つき）→ 無ければ案件の号室
+    initRooms: ph && typeof PhaseLogic !== 'undefined' ? PhaseLogic.visitRooms(ph.plan, info).rooms : null,
+    autoRoom: info.room,
     // 作業者: メンバー or その他（名前を入力。URL で入力する社外の担当者など）
     afterRoom(g2, basic) {
       const known = s.members.some(m => m.user_id === s.f.worker_id);
@@ -234,6 +235,7 @@ function edBuild(s) {
   });
 
   $('report-root').replaceChildren(...nodes);
+  if (s.roomsInit) edMarkDirty(s); // Task 39: 指示の号室を初期値に入れた → 保存する（r.html は提出のときに送る）
   // ro のときは入力欄を全部 disabled（リード専用）
   if (ro) $('report-root').querySelectorAll('input,select,textarea').forEach(e => { e.disabled = true; });
 }

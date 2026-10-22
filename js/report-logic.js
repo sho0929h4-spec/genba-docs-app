@@ -279,6 +279,7 @@
     d.causes = normalizeCauses(d.causes);
     d.nextAction = normalizeNext(d.nextAction);
     d.roomStatus = normalizeRoom(d.roomStatus);
+    if ('rooms' in raw) d.rooms = normRooms(raw.rooms); // Task 39: 無い（古い報告書）ときは足さない（startRooms が「まだ選んでいない」と分かるように）
     const oldKey = arr(raw.keyChecklist).map(str);
     if (typeof raw.keyBorrowed !== 'boolean') d.keyBorrowed = oldKey.some(x => KEY_CHECKLIST.includes(x)) || !!trim(raw.keyReturn);
     if (typeof raw.keyReturned !== 'boolean') d.keyReturned = oldKey.includes(KEY_CHECKLIST[1]);
@@ -636,15 +637,50 @@
   //   share_open の photo_rooms）→ '📷 402号室（加害部屋）・302号室: 被害箇所のアップの写真と、…撮ってください'。無ければ ''
   const PHOTO_NOTE = '被害箇所のアップの写真と、お部屋のどの位置かが分かるように引いた写真を撮ってください';
   const ROOM_ROLE_LABEL = { cause: '加害部屋', damage: '被害部屋', other: 'その他' };
+  // '402' → '402号室（加害部屋）'（号室が数字・英字で終わるときだけ「号室」を付ける）
+  const roomHead = r => {
+    const room = trim(r.room);
+    const no = !room ? '' : /[0-9０-９A-Za-zＡ-Ｚａ-ｚ]$/.test(room) ? room + '号室' : room;
+    return (no || '号室未設定') + (ROOM_ROLE_LABEL[r.role] ? '（' + ROOM_ROLE_LABEL[r.role] + '）' : '');
+  };
+  const uniq = (t, i, a) => a.indexOf(t) === i;
   function photoNote(rooms) {
     const list = (Array.isArray(rooms) ? rooms : []).filter(r => r && typeof r === 'object');
     if (!list.length) return '';
-    const label = r => {
-      const room = str(r.room);
-      const no = !room ? '' : /[0-9０-９A-Za-zＡ-Ｚａ-ｚ]$/.test(room) ? room + '号室' : room;
-      return (no || '号室未設定') + (ROOM_ROLE_LABEL[r.role] ? '（' + ROOM_ROLE_LABEL[r.role] + '）' : '');
-    };
-    return '📷 ' + list.map(label).filter((t, i, a) => a.indexOf(t) === i).join('・') + ': ' + PHOTO_NOTE;
+    return '📷 ' + list.map(roomHead).filter(uniq).join('・') + ': ' + PHOTO_NOTE;
+  }
+
+  /* ---- Task 39: 報告書の号室（複数）。data.rooms = [{ room, role }]・report.room は先頭の号室（古い画面・PDF・検索の互換） ---- */
+  const ROOMS_MAX = 20;
+  const ROOM_ROLE_KEYS = Object.keys(ROOM_ROLE_LABEL);
+  function normRooms(v) {
+    return arr(v).filter(x => x && typeof x === 'object').slice(0, ROOMS_MAX)
+      .map(x => ({ room: trim(x.room).slice(0, 40), role: ROOM_ROLE_KEYS.includes(x.role) ? x.role : '' }));
+  }
+  // 号室の行（いつも1行以上）。data.rooms が無い・空の古い報告書は report.room の1行。
+  //   1行目の号室はいつも report.room（古い画面・端末の退避で room だけ変わっても食い違わないように）
+  function reportRooms(report) {
+    const r = report || {};
+    const list = normRooms(r.data && r.data.rooms);
+    if (!list.length) list.push({ room: '', role: '' });
+    list[0].room = trim(r.room).slice(0, 40);
+    return list;
+  }
+  // 入力欄の最初の行 → { rows, applied }。保存済み（data.rooms）があればそれ。まだ選んでいない報告書で、号室が空か
+  //   自動で入れた案件の号室（autoRoom）のままなら、指示の号室（init = PhaseLogic.visitRooms の rooms。役割つき）を並べる（applied: true）
+  function startRooms(report, init, autoRoom) {
+    const r = report || {};
+    if (normRooms(r.data && r.data.rooms).length) return { rows: reportRooms(r), applied: false };
+    const fromInit = normRooms(init).filter(x => x.room);
+    const room = trim(r.room);
+    if (fromInit.length && (!room || room === trim(autoRoom))) return { rows: fromInit, applied: true };
+    return { rows: reportRooms(r), applied: false };
+  }
+  // PDF の号室欄「402号室（加害部屋）・302号室（被害部屋）」。号室1つで役割が無い（古い報告書）ときは今までどおりそのまま
+  function roomsText(report) {
+    const list = reportRooms(report).filter(x => x.room);
+    if (list.length === 1 && !list[0].role) return list[0].room;
+    return list.map(roomHead).filter(uniq).join('・');
   }
 
   const api = {
@@ -656,7 +692,8 @@
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
-    buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote
+    buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote,
+    ROOMS_MAX, ROOM_ROLE_LABEL, reportRooms, startRooms, roomsText
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ReportLogic = api;

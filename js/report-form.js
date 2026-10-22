@@ -141,10 +141,66 @@ function edPhaseOptions() {
   return Object.entries(ReportLogic.PHASES).map(([k, v]) => [k, v]);
 }
 
+// 号室の行（Task 39）: 号室・役割（加害部屋／被害部屋／その他）・× で消す（1行目は必須なので消せない）＋「＋ 号室を追加」。
+//   d.rooms = 全部の行、s.f.room = 先頭の号室（古い画面・PDF・検索の互換）。1行目の入力欄は今までどおり #rp-room
+//   o.initRooms: 指示の号室（PhaseLogic.visitRooms の rooms）。o.autoRoom: 自動で入れた号室（案件の号室）。ReportLogic.startRooms
+//   → 指示の号室を初期値に入れたら true（s.roomsInit。呼ぶ側で保存する）
+function edRooms(s, g2, o) {
+  const L = ReportLogic, d = s.f.data, els = s.els, ro = s.ro;
+  const st = L.startRooms({ room: s.f.room, data: d }, ro ? null : o.initRooms, o.autoRoom);
+  let rows = st.rows;
+  const wrap = rfMk('div', 'rep-ff rep-rooms');
+  wrap.id = 'rp-rooms';
+  const lbl = rfMk('label', null, '号室 *');
+  lbl.htmlFor = 'rp-room';
+  const list = rfMk('div', 'rep-rooms-list');
+  const add = rfMk('button', 'rep-room-add', '＋ 号室を追加');
+  add.type = 'button';
+  add.id = 'rp-room-add';
+  add.hidden = ro;
+  wrap.append(lbl, list, add);
+  g2.appendChild(wrap);
+  const sync = () => {
+    d.rooms = rows.map(r => ({ room: r.room, role: r.role }));
+    s.f.room = rows[0].room;
+  };
+  const changed = () => { sync(); rfDirty(s); };
+  const roleOpts = [['', '役割（任意）'], ...Object.entries(L.ROOM_ROLE_LABEL)];
+  const draw = focusIdx => {
+    list.replaceChildren(...rows.map((r, i) => {
+      const line = rfMk('div', 'rep-room-line');
+      line.dataset.i = String(i);
+      const no = edInput(i ? 'rp-room-' + i + '-no' : 'rp-room', 'text', r.room, v => { r.room = v; changed(); }, { placeholder: '例：302', autocomplete: 'off', maxLength: 40 });
+      no.className = 'rep-room-no';
+      if (i) no.setAttribute('aria-label', (i + 1) + 'つ目の号室');
+      const role = edSelect('rp-room-' + i + '-role', roleOpts, r.role, v => { r.role = v; changed(); });
+      role.className = 'rep-room-role';
+      role.setAttribute('aria-label', (i + 1) + 'つ目の号室の役割');
+      line.append(no, role);
+      if (i && !ro) {
+        const x = rfMk('button', 'rep-room-del', '×');
+        x.type = 'button';
+        x.setAttribute('aria-label', (i + 1) + 'つ目の号室（' + (r.room || '未入力') + '）を消す');
+        x.addEventListener('click', () => { rows.splice(i, 1); changed(); draw(Math.min(i, rows.length - 1)); });
+        line.appendChild(x);
+      } else if (!ro && rows.length > 1) line.appendChild(rfMk('span', 'rep-room-del-sp')); // 1行目も × の幅をあけて縦をそろえる
+      return line;
+    }));
+    els.room = list.querySelector('#rp-room');
+    add.hidden = ro || rows.length >= L.ROOMS_MAX;
+    if (focusIdx != null) list.children[focusIdx].querySelector('input').focus();
+  };
+  add.addEventListener('click', () => { rows.push({ room: '', role: '' }); changed(); draw(rows.length - 1); });
+  draw();
+  if (st.applied) sync();
+  return st.applied;
+}
+
 // 入力フォーム全体（基本・区分ごとのチップ・作業内容・写真・チェックリスト）のカード配列を返す
 // opts:
 //   infoTitle / infoRows … 基本カードの見出しと自動入力欄（[[項目, 値], ...]。省略すると出さない）
 //   afterRoom(g2, basic) … 号室の右/下に欄を足す（⑥の作業者）
+//   initRooms / autoRoom … 号室の初期値（Task 39。edRooms）
 //   fixedMode            … true なら作業区分の切替を出さない（⑧: 区分は発行時に社内で決める）
 //   photoHint            … 写真カードの説明（省略時は既定文）
 //   photoNote            … 写真カードの注意書き（Task 25: 指示で「被害箇所の写真撮影」を選んだ号室。ReportLogic.photoNote。空なら出さない）
@@ -165,8 +221,7 @@ function rfBuildForm(s, opts) {
 
   const g2 = rfMk('div', 'rep-g2');
   g2.style.marginTop = '12px';
-  els.room = edInput('rp-room', 'text', s.f.room, v => { s.f.room = v; rfDirty(s); }, { placeholder: '例：302', autocomplete: 'off', maxLength: 40 });
-  g2.appendChild(edField('号室 *', els.room));
+  const roomsInit = edRooms(s, g2, o);
   basic.appendChild(g2);
   if (o.afterRoom) o.afterRoom(g2, basic);
 
@@ -201,6 +256,8 @@ function rfBuildForm(s, opts) {
     segField.append(rfMk('label', null, '作業区分'), els.seg);
     basic.appendChild(segField);
   }
+
+  s.roomsInit = roomsInit; // 指示の号室を初期値に入れた（管理画面・現場用は保存する。report-edit.js）
 
   els.date = edInput('rp-date', 'date', s.f.work_date, v => { s.f.work_date = v; rfDirty(s); });
   basic.appendChild(edField('作業日 *', els.date));

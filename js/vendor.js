@@ -291,7 +291,10 @@
       infoTitle: '号室・作業日・時間',
       fixedMode: true,
       photoHint: 'カメラで撮るか、アルバムから選べます。写真は自動で圧縮して、選んだ時点で送信します',
-      photoNote: L.photoNote(info.photo_rooms) // Task 25: 指示で「被害箇所の写真撮影」を選んだ号室（migration 045 share_open）
+      photoNote: L.photoNote(info.photo_rooms), // Task 25: 指示で「被害箇所の写真撮影」を選んだ号室（migration 045 share_open）
+      // Task 39: 号室の初期値 = 指示の号室（share_open の brief = plan・case.room）→ 無ければ案件の号室
+      initRooms: info.phase ? PhaseLogic.visitRooms(info.brief, info.case).rooms : null,
+      autoRoom: info.case && info.case.room
     }));
     s.els.photoInput.addEventListener('change', () => {
       const files = Array.from(s.els.photoInput.files || []);
