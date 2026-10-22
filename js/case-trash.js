@@ -1,7 +1,9 @@
 // js/case-trash.js — 案件の削除（ゴミ箱）。対応フェーズ Task 13 / migration 031
-//   - 案件ページの一番下に小さく「この案件を削除」（管理者＝オーナーだけに出す。スタッフには出さない。DB でも管理者だけ）
-//   - 押すと確認シート: 「本当に削除しますか？」「管理者なら30日は戻せます」と物件名の入力だけ（2026-10-21 簡略化）。
-//     物件名をそのまま入力しないと「削除する」が押せない。入力があるので外側クリック・Esc では閉じない（× とキャンセルだけ）
+//   - 案件ページの一番下に小さく「この案件を削除」（管理者＝オーナーだけ。管理画面の案件ページ。DB でも cases の update は管理者だけ）
+//   - 押すと確認シート（Task 42 で2段階）: ①「本当に削除しますか？」「管理者なら30日は戻せます」→「削除に進む」
+//     ② 本人の今のパスワード →「削除する」（赤）。パスワードは sb.auth.signInWithPassword（本人のメール）で確かめ、違えば「パスワードが違います」。
+//     パスワードは保存・記録・URL に入れない。使ったら欄を空にする。入力があるので外側クリック・Esc では閉じない（× とキャンセルだけ）
+//   - Task 42: 現場用のツールページの一番下にも（fieldSection。自分が登録した案件だけ。rpc field_trash_case / migration 062）
 //   - 削除後は案件一覧に戻り「削除しました。設定 → 削除した案件 から30日以内なら戻せます」
 //   - 設定の「削除した案件」（管理者だけ）: 一覧と「元に戻す」（画面内で確かめる）。30日を過ぎた分の自動削除は後日（docs/phase0-deferred.md）
 //   ユーザー入力は createElement + textContent で描く（innerHTML は使わない）。alert / confirm は使わない。
@@ -12,18 +14,50 @@ const CaseTrash = (() => {
   const KEEP_DAYS = 30;
 
 
-  // ── 案件ページの一番下 ─────────────────────────────────────────────
+  // ── 案件ページの一番下（管理者） ──────────────────────────────────────
   function section(caseRow) {
     if (!isOwner() || !caseRow) return null;
-    const box = mk('div', 'trash-box');
-    box.id = 'case-trash';
-    const b = dBtn('この案件を削除', 'linkbtn danger trash-open', () => openSheet(caseRow));
+    return box(caseRow, '管理者だけに表示。削除しても30日以内なら設定から戻せます', {
+      trash: id => CasesApi.trashCase(id),
+      done: name => {
+        if (typeof setCaseListFlash === 'function') setCaseListFlash('「' + name + '」を削除しました。設定 → 削除した案件 から' + KEEP_DAYS + '日以内なら戻せます');
+        openCases(); // 一覧へ（openCases が URL の #case/… を消す。hashchange で2回開いて案内が消えないよう hash は直接変えない）
+      }
+    });
+  }
+  // ── 現場用のツールページの一番下（Task 42: 自分が登録した案件だけ。DB は rpc field_trash_case が現場用の登録かも確かめる） ──
+  function fieldSection(caseRow) {
+    if (!caseRow || !ctx || !ctx.user || caseRow.created_by !== ctx.user.id) return null;
+    return box(caseRow, '自分が登録した案件だけ削除できます。削除しても30日以内なら管理者が戻せます', {
+      trash: id => CasesApi.fieldTrashCase(id),
+      done: name => {
+        if (typeof fieldSetFlash === 'function') fieldSetFlash('「' + name + '」を削除しました。30日以内なら管理者が戻せます');
+        if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+        location.hash = '#f';
+      }
+    });
+  }
+  function box(caseRow, note, o) {
+    const el = mk('div', 'trash-box');
+    el.id = 'case-trash';
+    const b = dBtn('この案件を削除', 'linkbtn danger trash-open', () => openSheet(caseRow, o));
     b.id = 'case-trash-btn';
-    box.append(b, mk('span', 'trash-note', '管理者だけに表示。削除しても30日以内なら設定から戻せます'));
-    return box;
+    el.append(b, mk('span', 'trash-note', note));
+    return el;
   }
 
-  function openSheet(c) {
+  // 本人の今のパスワードか（Supabase に本人のメールでログインし直して確かめる。パスワードは保存・記録しない）
+  //   → true / false（違う）。通信の失敗などは例外
+  async function passwordOk(pw) {
+    const { error } = await sb.auth.signInWithPassword({ email: ctx.user.email, password: pw });
+    if (!error) return true;
+    if (error.status === 400 || error.code === 'invalid_credentials') return false;
+    throw error;
+  }
+
+  // 2段階（Task 42）: ①「本当に削除しますか？」→「削除に進む」 ② パスワード →「削除する」（赤）。
+  //   o: { trash(id): 削除する, done(name): 削除の後 }
+  function openSheet(c, o) {
     const prev = document.getElementById('trash-sheet');
     if (prev) prev.remove();
     const name = str(c.name);
@@ -45,29 +79,62 @@ const CaseTrash = (() => {
     const lead = mk('p', 'trash-lead');
     lead.append(mk('b', null, '「' + name + '」'), document.createTextNode(' を本当に削除しますか？'));
     const back = mk('p', 'trash-back', '管理者なら' + KEEP_DAYS + '日は戻せます（設定 → 削除した案件）。');
-
     const err = mk('div', 'err');
     err.id = 'trash-err';
     err.setAttribute('role', 'alert');
-    const act = mk('div', 'modal-act');
-    const cancel = dBtn('キャンセル', 'btn ghost', () => close());
-    cancel.id = 'trash-cancel';
+
+    // ① 確認
+    const act1 = mk('div', 'modal-act');
+    act1.id = 'trash-step1';
+    const cancel1 = dBtn('キャンセル', 'btn ghost', () => close());
+    cancel1.id = 'trash-cancel';
+    const next = dBtn('削除に進む', 'btn', () => step2());
+    next.id = 'trash-next';
+    act1.append(cancel1, next);
+
+    // ② パスワード
+    const step = mk('div', 'trash-step2');
+    step.id = 'trash-step2';
+    step.hidden = true;
+    const ff = mk('div', 'ff');
+    const lab = mk('label', null, '確認のため、ログインのパスワードを入れてください');
+    lab.htmlFor = 'trash-pw';
+    const pw = document.createElement('input');
+    pw.type = 'password';
+    pw.id = 'trash-pw';
+    pw.autocomplete = 'current-password';
+    ff.append(lab, pw);
+    const act2 = mk('div', 'modal-act');
+    const cancel2 = dBtn('キャンセル', 'btn ghost', () => close());
+    cancel2.id = 'trash-cancel2';
     const go = dBtn('削除する', 'btn danger-fill', b => withBusy(b, async () => {
       err.textContent = '';
-      cancel.disabled = true; x.disabled = true;
-      try { await CasesApi.trashCase(c.id); }
-      catch (e) {
-        err.textContent = '削除できませんでした: ' + errText(e);
-        cancel.disabled = false; x.disabled = false;
-        return;
-      }
+      const v = pw.value;
+      pw.value = ''; // 使ったらすぐ消す（画面にも残さない）
+      if (!v) { err.textContent = 'パスワードを入れてください'; pw.focus(); return; }
+      cancel2.disabled = true; x.disabled = true;
+      const fail = t => { err.textContent = t; cancel2.disabled = false; x.disabled = false; pw.focus(); };
+      let ok;
+      try { ok = await passwordOk(v); }
+      catch (e) { return fail('パスワードを確かめられませんでした: ' + errText(e)); }
+      if (!ok) return fail('パスワードが違います');
+      try { await o.trash(c.id); }
+      catch (e) { return fail('削除できませんでした: ' + errText(e)); }
       close();
-      if (typeof setCaseListFlash === 'function') setCaseListFlash('「' + name + '」を削除しました。設定 → 削除した案件 から' + KEEP_DAYS + '日以内なら戻せます');
-      openCases(); // 一覧へ（openCases が URL の #case/… を消す。hashchange で2回開いて案内が消えないよう hash は直接変えない）
+      o.done(name);
     }));
     go.id = 'trash-go';
-    act.append(cancel, go);
-    dlg.append(hd, lead, back, act, err);
+    pw.addEventListener('keydown', e => { if (e.key === 'Enter' && !go.disabled) { e.preventDefault(); go.click(); } });
+    act2.append(cancel2, go);
+    step.append(ff, act2);
+
+    function step2() {
+      act1.remove();
+      step.hidden = false;
+      pw.focus();
+    }
+
+    dlg.append(hd, lead, back, act1, step, err);
     bg.appendChild(dlg);
     // 外側のクリック・Esc では閉じない（入力のあるシート）。画面を移ったら閉じる
     document.body.appendChild(bg);
@@ -75,12 +142,13 @@ const CaseTrash = (() => {
     const onHash = () => close();
     window.addEventListener('hashchange', onHash);
     function close() {
+      pw.value = '';
       bg.remove();
       document.body.classList.remove('rm-open');
       window.removeEventListener('hashchange', onHash);
     }
     x.addEventListener('click', () => close());
-    cancel.focus();
+    cancel1.focus();
     return bg;
   }
 
@@ -148,6 +216,6 @@ const CaseTrash = (() => {
     return el;
   }
 
-  return { section, openSheet, renderCard };
+  return { section, fieldSection, openSheet, renderCard };
 })();
 window.CaseTrash = CaseTrash;

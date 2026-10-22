@@ -8,6 +8,7 @@
 //   Task 28: 現場用・担当者URLの「🕒 到着が遅れそう」でも自動の連絡が入る（source = late。「自動」の札）。
 //           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
 //   Task 37: 作業担当者が現場用で案件を登録すると自動の連絡（source = case_create。件名「○○が案件を登録した」・「自動」の札）。
+//   Task 42: 作業担当者が自分の登録した案件を削除すると自動の連絡（source = case_delete。件名「○○が案件を削除した」・「案件を開く」は出さない）。
 //   Task 32: 日報は PDF を添付（smPdfLinks で「📄 日報のPDFを開く」「⬇ 保存」）。
 //   Task 29: 報告書の期限超過（source = overdue。送った人なし →「自動のお知らせ」）と日報（source = daily。案件なし →「📝 日報」・返事は案件なし）。
 //           管理者の「📨 現場からの連絡 n件」は案件ごとの未読（case_summaries.staff_unread）＋案件の無い未読（日報）。
@@ -29,9 +30,12 @@ async function refreshMessagesBanner(rows, isAlive) {
   if (!el) return;
   if (isAlive && !isAlive()) return;
   let n = smIsOwner() ? (rows || []).reduce((a, r) => a + (Number(r.staff_unread) || 0), 0) : 0;
-  // Task 29: 案件の無い未読（日報）も数える
+  // Task 29: 案件の無い未読（日報）も数える。Task 42: 削除した案件の連絡（case_delete）は staff_unread に入らない（一覧に案件が無い）ので足す
   if (smIsOwner()) {
-    try { n += (await StaffMessagesApi.list({ noCase: true, unread: true })).filter(m => PhaseLogic.messageForMe(m, smMe(), true)).length; }
+    try {
+      const [daily, del] = await Promise.all([StaffMessagesApi.list({ noCase: true, unread: true }), StaffMessagesApi.list({ source: 'case_delete', unread: true })]);
+      n += daily.concat(del).filter(m => PhaseLogic.messageForMe(m, smMe(), true)).length;
+    }
     catch (e) { console.warn('日報の読み込みに失敗', e); }
     if (isAlive && !isAlive()) return;
   }
@@ -166,7 +170,7 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = ['report_submit', 'late', 'overdue', 'reedit', 'case_create'].includes(m.source); // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出・058: 現場用の案件登録も自動
+  const auto = ['report_submit', 'late', 'overdue', 'reedit', 'case_create', 'case_delete'].includes(m.source); // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出・058: 現場用の案件登録・062: 案件の削除も自動
   head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : m.source === 'overdue' ? '自動のお知らせ' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));
@@ -218,7 +222,7 @@ function smThreadEl(g) {
   card.dataset.threadId = r.id;
   card.dataset.source = r.source || 'staff';
   const top = mk('div', 'sm-top');
-  top.appendChild(mk('b', 'sm-case', daily ? '📝 日報' : (c && PhaseLogic.placeName(c)) || '（案件）'));
+  top.appendChild(mk('b', 'sm-case', daily ? '📝 日報' : (c && PhaseLogic.placeName(c)) || (r.source === 'case_delete' ? '削除した案件' : '（案件）')));
   if (!daily) top.appendChild(mk('span', 'ob-ph', smPhaseTitle(c, r.phase_id)));
   card.appendChild(top);
   card.appendChild(smMsgEl(r, true));
@@ -237,7 +241,7 @@ function smThreadEl(g) {
     rp.disabled = busy || (s.reply != null);
     acts.appendChild(rp);
   }
-  if (!daily) {
+  if (!daily && r.source !== 'case_delete') { // 062: 削除した案件は開けない（戻すのは設定 → 削除した案件）
     const open = dBtn('案件を開く', 'btn sm ghost inline sm-open', () => {
       if (s.field) {
         location.hash = '#f/case/' + r.case_id + (r.phase_id ? '/phase/' + r.phase_id : ''); // Task 31: その対応のツールページ

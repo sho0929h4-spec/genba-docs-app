@@ -15,6 +15,8 @@
 // Task 40: 自分が作業担当者で報告書を提出した対応（提出済み・確認済み＝依頼元へ送る前、再編集中）は案件タブの「提出済み（管理者の確認待ち）」の段
 //   （日時未定の上。札「報告書 提出済み 10/22」「報告書 再編集中」）に残す。依頼元へ送付したら段から消える（過去の対応履歴で見られる）。
 //   カレンダー表示では上に「📄 提出済みの報告書 N件 ›」（一覧のその段へ）。ツールの報告書は「提出済み 10/22 ・ 中身を見る・直す」（PhaseLogic.fieldTools）
+// Task 42: ツールページの一番下に小さく「この案件を削除」（自分が登録した案件だけ。CaseTrash.fieldSection。2段階＋パスワード →
+//   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -74,6 +76,8 @@ const fdSel = new Map(); // 案件ごとに最後に開いた対応（この画�
 // 書類の画面（報告書・見積書・工事掲示・メール）を開いたとき・操作したとき・画面に戻ったときは捨てて読み直す
 const FD_ROWS_TTL = 60000;
 let fdRowsCache = null; // { at, promise }
+let fdFlash = '';       // Task 42: 次に「案件」タブを開いたとき1回だけ出す案内（案件を削除した後。js/case-trash.js）
+function fieldSetFlash(text) { fdFlash = text || ''; }
 function fieldRows(force) {
   const now = Date.now();
   if (!force && fdRowsCache && now - fdRowsCache.at < FD_ROWS_TTL) return fdRowsCache.promise;
@@ -172,7 +176,7 @@ function openField(fm) {
   const host = $('field-root');
   host.replaceChildren();
   document.title = '現場ドキュメント';
-  if (fm.view === 'cases') { fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
+  if (fm.view === 'cases') { fd.msg = fdFlash; fdFlash = ''; fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
   if (fm.view === 'case') { fdBar('案件', '‹ 案件', '#f'); fdRenderCase(); return fdLoadCase(seq); }
   if (fm.view === 'history') { fdBar('過去の対応履歴', '‹ 案件', '#f'); fdRenderHistory(); return fdLoadCase(seq); }
   if (fm.view === 'survey') { fdBar('調査の内容', ...fdSurveyBack(fd)); fdRenderSurvey(); return fdLoadSurvey(seq); }
@@ -306,6 +310,12 @@ function fdRenderCases() {
   const nodes = [];
   const calOn = fieldCalOn();
   if (!s.err) nodes.push(fdCalSwitch(calOn));
+  if (s.msg) {
+    const m = mk('div', 'ob-msg', s.msg);
+    m.id = 'fd-msg';
+    m.setAttribute('role', 'status');
+    nodes.push(m);
+  }
   let calHost = null;
   if (s.loading) nodes.push(mk('div', 'empty', '読み込み中…'));
   else if (s.err) {
@@ -599,6 +609,9 @@ function fdRenderCase() {
   // Task 31: 「管理者に連絡」のボタンはここには出さない（タスクのタブにある）
   nodes.push(mk('div', 'fd-note', 'ツールの中身は管理画面の報告書・見積書・工事掲示と同じです。保存すると管理者の案件ページにそのまま反映されます。'));
   nodes.push(fdHistLink(c));
+  // Task 42: 一番下に小さく「この案件を削除」（自分が登録した案件だけ。2段階＋パスワード。js/case-trash.js）
+  const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.fieldSection(c) : null;
+  if (trash) nodes.push(trash);
   host.replaceChildren(...nodes);
 }
 

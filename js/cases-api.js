@@ -78,6 +78,10 @@ const CasesApi = (() => {
       if (!rows || rows.length === 0) throw new Error('削除できませんでした（削除できるのは管理者だけです。すでに削除されている可能性もあります）');
       await logSystem(id, '案件を削除した');
     },
+    // Task 42: 作業担当者が現場用で自分が登録した案件を削除（rpc field_trash_case / migration 062。ゴミ箱・管理者への連絡・タイムラインは DB）
+    async fieldTrashCase(id) {
+      return must(await sb.rpc('field_trash_case', { p_case: id }));
+    },
     async restoreCase(id) {
       const rows = must(await sb.from('cases').update({ deleted_at: null, deleted_by: null }).eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('元に戻せませんでした（戻せるのは管理者だけです）');
