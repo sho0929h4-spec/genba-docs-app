@@ -12,6 +12,9 @@
 //   自分で登録した案件は入居者の連絡先を最初から出す（PhaseLogic.residentTelOpen）
 // Task 38: 「案件」タブの上に「一覧／カレンダー」（端末に人ごとに覚える。fieldCalOn）。カレンダーは js/calendar-ui.js の calMount（自分が担当の予定だけ・
 //   押すとツールページ・「日時未定 N件 ›」で一覧の日時未定へ）。右下の＋はカレンダーで押した日（時間の枠ならその時刻）を訪問日時の初期値にする（fdAddClick）
+// Task 40: 自分が作業担当者で報告書を提出した対応（提出済み・確認済み＝依頼元へ送る前、再編集中）は案件タブの「提出済み（管理者の確認待ち）」の段
+//   （日時未定の上。札「報告書 提出済み 10/22」「報告書 再編集中」）に残す。依頼元へ送付したら段から消える（過去の対応履歴で見られる）。
+//   カレンダー表示では上に「📄 提出済みの報告書 N件 ›」（一覧のその段へ）。ツールの報告書は「提出済み 10/22 ・ 中身を見る・直す」（PhaseLogic.fieldTools）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -277,13 +280,15 @@ function fdCalOpts(s) {
     fab: false,
     bottom: 56,
     onEvent: ev => { fdSel.set(ev.caseId, ev.id); location.hash = fdPhaseHash(ev.caseId, ev.id); },
-    onUndated: () => {
-      setFieldCal(false);
-      fdRenderCases();
-      const gh = document.querySelector('#fd-list .fd-gh[data-group=tbd]');
-      if (gh) gh.scrollIntoView({ block: 'start' });
-    }
+    onUndated: () => fdShowGroup('tbd')
   };
+}
+// 一覧に切り替えてその段の見出しへ（カレンダーの「日時未定 N件 ›」・Task 40 の「提出済みの報告書 N件 ›」）
+function fdShowGroup(group) {
+  setFieldCal(false);
+  fdRenderCases();
+  const gh = document.querySelector('#fd-list .fd-gh[data-group=' + group + ']');
+  if (gh) gh.scrollIntoView({ block: 'start' });
 }
 // 右下の「＋」: カレンダーで日を押していればその日（週表示で時間の枠を押していればその時刻）を訪問日時の初期値に
 function fdAddClick() {
@@ -307,6 +312,13 @@ function fdRenderCases() {
     nodes.push(mk('div', 'err', s.err));
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'cases' })));
   } else if (calOn) {
+    // Task 40: カレンダーでは日時未定・前の月の提出済みが見えないので、一覧の「提出済み」の段への入口
+    const subN = PhaseLogic.fieldSchedule(s.rows, fdMe(), new Date()).filter(x => x.group === 'submitted').length;
+    if (subN) {
+      const b = dBtn('📄 提出済みの報告書 ' + subN + '件 ›', 'fd-sub-link', () => fdShowGroup('submitted'));
+      b.id = 'fd-sub-link';
+      nodes.push(b);
+    }
     calHost = mk('div', 'fd-cal-host');
     calHost.id = 'fd-cal';
     nodes.push(calHost);
@@ -390,7 +402,9 @@ function fdCaseCard(it) {
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
   if (it.visit) main.appendChild(mk('span', 'fd-visit-short', '🚪 ' + it.visit)); // Task 31: 今回行く部屋「101・201号室」
-  if (it.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage) + (late ? ' late' : ''), it.stageText));
+  // Task 40: 提出済みの段は段階（🔴 報告書を送る = 管理者の仕事）の代わりに「報告書 提出済み 10/22」「報告書 再編集中」の札
+  if (it.sub) main.appendChild(mk('span', 'fd-sub-tag' + (it.sub.key === 'editing' ? ' editing' : ''), it.sub.text));
+  else if (it.stageText) main.appendChild(mk('span', 'fd-stage' + fdBallClass(it.stage) + (late ? ' late' : ''), it.stageText));
   card.appendChild(main);
   if (c.address) {
     const a = mk('a', 'fd-tiny fd-addr fd-map', '📍 ' + c.address + '（地図）');
@@ -552,9 +566,12 @@ function fdRenderCase() {
   ph.appendChild(mk('span', 'fd-tiny', PhaseLogic.fieldWhen(sel.scheduled_at, new Date())));
   nodes.push(ph);
   const st = PhaseLogic.stage(sel, null, new Date(), { me: fdMe() });
-  const stText = PhaseLogic.fieldStageLabel(st) || (st.label ? '✓ ' + st.label : '');
+  // Task 40: 自分が提出した報告書は「🔴 報告書を送る」（管理者の仕事）でなく「報告書 提出済み 10/22（管理者の確認待ち）」
+  const sub = sel.worker_id === fdMe() ? PhaseLogic.fieldSubmitted(sel) : null;
+  const stText = sub ? sub.text + (sub.key === 'editing' ? '（直して「提出する」）' : '（管理者の確認待ち）')
+    : PhaseLogic.fieldStageLabel(st) || (st.label ? '✓ ' + st.label : '');
   if (stText) {
-    const sl = mk('div', 'fd-stage-line' + fdBallClass(st), '今: ' + stText);
+    const sl = mk('div', 'fd-stage-line' + (sub ? '' : fdBallClass(st)), '今: ' + stText);
     sl.id = 'fd-stage-line';
     nodes.push(sl);
   }

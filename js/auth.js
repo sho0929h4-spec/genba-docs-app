@@ -39,9 +39,10 @@ async function signOutUser() {
   location.reload();
 }
 
+// 再設定メールのリンクの戻り先。?reset=1 で「再設定のリンクから来た」と分かる（#reset はメールのリンクが付ける #access_token… とぶつかるので使わない）
 async function resetPassword(email) {
   const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: location.origin + location.pathname
+    redirectTo: location.origin + location.pathname + '?reset=1'
   });
   if (error) throw error;
 }

@@ -1348,6 +1348,10 @@
   .fd-addr{display:block;}
   .fd-stage{display:inline-flex;align-items:center;border-radius:999px;padding:1px 10px;font-size:12px;font-weight:700;background:#eef2f6;color:var(--muted);white-space:nowrap;}
   .fd-stage.us{background:#fbe9e7;color:var(--red);} .fd-stage.them{background:#fdf3e4;color:var(--amber);}
+  /* Task 40: 提出済みの段の札・カレンダーの上の「提出済みの報告書 N件 ›」 */
+  .fd-sub-tag{display:inline-flex;align-items:center;justify-self:start;border-radius:999px;padding:1px 10px;font-size:12px;font-weight:700;background:#eaf2fb;color:#1a3a5c;white-space:nowrap;}
+  .fd-sub-tag.editing{background:#fdf3e4;color:var(--amber);}
+  .fd-sub-link{display:block;width:100%;min-height:44px;margin:0 0 8px;padding:8px 12px;border:1px solid #d6e2ef;border-radius:10px;background:#f4f7fb;color:#1a3a5c;font-size:14px;font-weight:700;text-align:left;cursor:pointer;}
   .fd-tel{display:flex;align-items:center;min-height:44px;padding:4px 14px 8px;font-size:13px;font-weight:700;color:var(--navy2);text-decoration:none;overflow-wrap:anywhere;}
   .fd-res{padding:0 14px 10px;}
   .fd-info{display:grid;gap:2px;background:#fff;border:1px solid var(--border);border-radius:14px;padding:4px 0;}
@@ -1643,7 +1647,7 @@
       <button class="btn" type="submit" id="login-btn">ログイン</button>
       <div class="err" id="login-err"></div>
       <div class="login-foot">アカウントがない？ <a href="#" id="go-signup">会社を新規登録</a></div>
-      <div class="login-foot"><a href="#" id="go-reset">パスワードを忘れた</a></div>
+      <div class="login-foot"><a href="#" id="go-reset">パスワードを忘れた場合</a></div>
     </form>
   </div>
 </section>
@@ -1677,9 +1681,9 @@
         <div class="logo">現</div>
         <h1>パスワード再設定</h1>
       </div>
-      <p class="login-lead">登録したメールアドレスに再設定用のリンクを送ります</p>
+      <p class="login-lead">登録したメールアドレスに、パスワードを決め直すためのリンクを送ります</p>
       <div class="fld"><label for="reset-email">メールアドレス</label><input type="email" id="reset-email" placeholder="you@company.co.jp" autocomplete="username" required></div>
-      <button class="btn" type="submit" id="reset-btn">再設定メールを送る</button>
+      <button class="btn" type="submit" id="reset-btn">再設定のメールを送る</button>
       <div class="err" id="reset-msg"></div>
       <div class="login-foot"><a href="#" class="go-login">ログイン画面へ戻る</a></div>
     </form>
@@ -1694,10 +1698,10 @@
         <div class="logo">現</div>
         <h1>新しいパスワード</h1>
       </div>
-      <p class="login-lead">新しいパスワードを入力してください</p>
+      <p class="login-lead">新しいパスワードを2回入れてください（8文字以上）</p>
       <div class="fld"><label for="newpw-pw">新しいパスワード（8文字以上）</label><input type="password" id="newpw-pw" placeholder="••••••••" autocomplete="new-password" minlength="8" required></div>
       <div class="fld"><label for="newpw-pw2">新しいパスワード（確認）</label><input type="password" id="newpw-pw2" placeholder="••••••••" autocomplete="new-password" minlength="8" required></div>
-      <button class="btn" type="submit" id="newpw-btn">変更する</button>
+      <button class="btn" type="submit" id="newpw-btn">変更してログインする</button>
       <div class="err" id="newpw-msg"></div>
     </form>
   </div>
@@ -2232,71 +2236,71 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/crypto-util.js?v=dd7fd16"></script>
-<script src="js/supabase-config.js?v=dd7fd16"></script>
-<script src="js/supabase.js?v=dd7fd16"></script>
-<script src="js/auth.js?v=dd7fd16"></script>
-<script src="js/storage.js?v=dd7fd16"></script>
-<script src="js/quota.js?v=dd7fd16"></script>
-<script src="js/messages-api.js?v=dd7fd16"></script>
-<script src="js/case-logic.js?v=dd7fd16"></script>
-<script src="js/mail-templates.js?v=dd7fd16"></script>
-<script src="js/phase-logic.js?v=dd7fd16"></script>
-<script src="js/request-view.js?v=dd7fd16"></script>
-<script src="js/survey-view.js?v=dd7fd16"></script>
-<script src="js/case-band.js?v=dd7fd16"></script>
-<script src="js/image.js?v=dd7fd16"></script>
-<script src="js/cases-api.js?v=dd7fd16"></script>
-<script src="js/clients-api.js?v=dd7fd16"></script>
-<script src="js/phases-api.js?v=dd7fd16"></script>
+<script src="js/crypto-util.js?v=f236e29"></script>
+<script src="js/supabase-config.js?v=f236e29"></script>
+<script src="js/supabase.js?v=f236e29"></script>
+<script src="js/auth.js?v=f236e29"></script>
+<script src="js/storage.js?v=f236e29"></script>
+<script src="js/quota.js?v=f236e29"></script>
+<script src="js/messages-api.js?v=f236e29"></script>
+<script src="js/case-logic.js?v=f236e29"></script>
+<script src="js/mail-templates.js?v=f236e29"></script>
+<script src="js/phase-logic.js?v=f236e29"></script>
+<script src="js/request-view.js?v=f236e29"></script>
+<script src="js/survey-view.js?v=f236e29"></script>
+<script src="js/case-band.js?v=f236e29"></script>
+<script src="js/image.js?v=f236e29"></script>
+<script src="js/cases-api.js?v=f236e29"></script>
+<script src="js/clients-api.js?v=f236e29"></script>
+<script src="js/phases-api.js?v=f236e29"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=dd7fd16"></script>
-<script src="js/reports-api.js?v=dd7fd16"></script>
-<script src="js/photo-marks.js?v=dd7fd16"></script>
-<script src="js/report-pdf.js?v=dd7fd16"></script>
-<script src="js/daily-logic.js?v=dd7fd16"></script>
-<script src="js/daily-pdf.js?v=dd7fd16"></script>
-<script src="js/notice-logic.js?v=dd7fd16"></script>
-<script src="js/notices-api.js?v=dd7fd16"></script>
-<script src="js/notice-pdf.js?v=dd7fd16"></script>
-<script src="js/estimate-logic.js?v=dd7fd16"></script>
-<script src="js/estimates-api.js?v=dd7fd16"></script>
-<script src="js/estimate-pdf.js?v=dd7fd16"></script>
-<script src="js/estimate-presets-api.js?v=dd7fd16"></script>
-<script src="js/estimate-presets.js?v=dd7fd16"></script>
-<script src="js/estimate-layout.js?v=dd7fd16"></script>
-<script src="js/estimate-import.js?v=dd7fd16"></script>
-<script src="js/case-list.js?v=dd7fd16"></script>
-<script src="js/clients-ui.js?v=dd7fd16"></script>
-<script src="js/case-detail.js?v=dd7fd16"></script>
-<script src="js/case-rooms-api.js?v=dd7fd16"></script>
-<script src="js/case-rooms.js?v=dd7fd16"></script>
-<script src="js/case-request.js?v=dd7fd16"></script>
-<script src="js/edit-logic.js?v=dd7fd16"></script>
-<script src="js/case-trash.js?v=dd7fd16"></script>
-<script src="js/case-undo.js?v=dd7fd16"></script>
-<script src="js/phase-ui.js?v=dd7fd16"></script>
-<script src="js/phase-detail.js?v=dd7fd16"></script>
-<script src="js/billing-ui.js?v=dd7fd16"></script>
-<script src="js/team.js?v=dd7fd16"></script>
-<script src="js/tasks.js?v=dd7fd16"></script>
-<script src="js/calendar-logic.js?v=dd7fd16"></script>
-<script src="js/calendar-ui.js?v=dd7fd16"></script>
-<script src="js/timeline.js?v=dd7fd16"></script>
-<script src="js/photo-mark-editor.js?v=dd7fd16"></script>
-<script src="js/report-form.js?v=dd7fd16"></script>
-<script src="js/report-ui.js?v=dd7fd16"></script>
-<script src="js/report-share.js?v=dd7fd16"></script>
-<script src="js/report-edit.js?v=dd7fd16"></script>
-<script src="js/mail-ui.js?v=dd7fd16"></script>
-<script src="js/outbox-ui.js?v=dd7fd16"></script>
-<script src="js/staff-inbox.js?v=dd7fd16"></script>
-<script src="js/staff-messages.js?v=dd7fd16"></script>
-<script src="js/notice-ui.js?v=dd7fd16"></script>
-<script src="js/notice-edit.js?v=dd7fd16"></script>
-<script src="js/estimate-ui.js?v=dd7fd16"></script>
-<script src="js/field-ui.js?v=dd7fd16"></script>
-<script src="js/app.js?v=dd7fd16"></script>
+<script src="js/report-logic.js?v=f236e29"></script>
+<script src="js/reports-api.js?v=f236e29"></script>
+<script src="js/photo-marks.js?v=f236e29"></script>
+<script src="js/report-pdf.js?v=f236e29"></script>
+<script src="js/daily-logic.js?v=f236e29"></script>
+<script src="js/daily-pdf.js?v=f236e29"></script>
+<script src="js/notice-logic.js?v=f236e29"></script>
+<script src="js/notices-api.js?v=f236e29"></script>
+<script src="js/notice-pdf.js?v=f236e29"></script>
+<script src="js/estimate-logic.js?v=f236e29"></script>
+<script src="js/estimates-api.js?v=f236e29"></script>
+<script src="js/estimate-pdf.js?v=f236e29"></script>
+<script src="js/estimate-presets-api.js?v=f236e29"></script>
+<script src="js/estimate-presets.js?v=f236e29"></script>
+<script src="js/estimate-layout.js?v=f236e29"></script>
+<script src="js/estimate-import.js?v=f236e29"></script>
+<script src="js/case-list.js?v=f236e29"></script>
+<script src="js/clients-ui.js?v=f236e29"></script>
+<script src="js/case-detail.js?v=f236e29"></script>
+<script src="js/case-rooms-api.js?v=f236e29"></script>
+<script src="js/case-rooms.js?v=f236e29"></script>
+<script src="js/case-request.js?v=f236e29"></script>
+<script src="js/edit-logic.js?v=f236e29"></script>
+<script src="js/case-trash.js?v=f236e29"></script>
+<script src="js/case-undo.js?v=f236e29"></script>
+<script src="js/phase-ui.js?v=f236e29"></script>
+<script src="js/phase-detail.js?v=f236e29"></script>
+<script src="js/billing-ui.js?v=f236e29"></script>
+<script src="js/team.js?v=f236e29"></script>
+<script src="js/tasks.js?v=f236e29"></script>
+<script src="js/calendar-logic.js?v=f236e29"></script>
+<script src="js/calendar-ui.js?v=f236e29"></script>
+<script src="js/timeline.js?v=f236e29"></script>
+<script src="js/photo-mark-editor.js?v=f236e29"></script>
+<script src="js/report-form.js?v=f236e29"></script>
+<script src="js/report-ui.js?v=f236e29"></script>
+<script src="js/report-share.js?v=f236e29"></script>
+<script src="js/report-edit.js?v=f236e29"></script>
+<script src="js/mail-ui.js?v=f236e29"></script>
+<script src="js/outbox-ui.js?v=f236e29"></script>
+<script src="js/staff-inbox.js?v=f236e29"></script>
+<script src="js/staff-messages.js?v=f236e29"></script>
+<script src="js/notice-ui.js?v=f236e29"></script>
+<script src="js/notice-edit.js?v=f236e29"></script>
+<script src="js/estimate-ui.js?v=f236e29"></script>
+<script src="js/field-ui.js?v=f236e29"></script>
+<script src="js/app.js?v=f236e29"></script>
 </body>
 </html>

@@ -1,6 +1,9 @@
 // js/app.js
 let ctx = null;
 let recoveryMode = location.hash.includes('type=recovery');
+// メールのリンクが期限切れ・使用済みのとき、Supabase は #error=…&error_code=otp_expired を付けて戻す（Task 41）
+let authLinkErr = /[#&]error(_code)?=/.test(location.hash);
+const fromResetLink = /[?&]reset=1(&|$)/.test(location.search); // auth.js resetPassword の戻り先
 
 function $(id) { return document.getElementById(id); }
 
@@ -293,6 +296,15 @@ window.addEventListener('focus', onAppReturn);
 async function boot() {
   ctx = await getMyContext();
   if (recoveryMode) { showScreen('newpw'); return; }
+  if (authLinkErr) {
+    authLinkErr = false;
+    history.replaceState(null, '', location.pathname);
+    if (!ctx) {
+      if (fromResetLink) showReset('再設定のリンクの期限が切れているか、もう使われています。もう一度、再設定のメールを送ってください');
+      else { showScreen('login'); setMsg('login-err', 'メールのリンクの期限が切れているか、もう使われています'); }
+      return;
+    }
+  }
   if (ctx) { clearInviteHash(); routeFromHash(); return; }
   const token = inviteTokenFromHash();
   if (token) { prepareSignupForInvite(token); showScreen('signup'); return; }
@@ -303,6 +315,72 @@ async function boot() {
 sb.auth.onAuthStateChange((event) => {
   if (event === 'PASSWORD_RECOVERY') { recoveryMode = true; showScreen('newpw'); }
 });
+
+// ---- パスワードの再設定（Task 41） ----
+// 登録の有無で文言を変えない（登録されているかを漏らさない）
+const RESET_SENT = '登録されていれば、再設定のメールを送りました。届かないときは迷惑メールも確認してください';
+const RESET_WAIT_SEC = 60; // 連打防止。Supabase も同じ人へは60秒に1通
+const RESET_BTN = '再設定のメールを送る';
+let resetTimer = null;
+function showReset(msg) {
+  recoveryMode = false;
+  showScreen('reset');
+  setMsg('reset-msg', msg || '');
+}
+function resetCooldown() {
+  const btn = $('reset-btn');
+  const until = Date.now() + RESET_WAIT_SEC * 1000;
+  clearInterval(resetTimer);
+  const tick = () => {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    if (left <= 0) { clearInterval(resetTimer); resetTimer = null; btn.disabled = false; btn.textContent = RESET_BTN; return; }
+    btn.disabled = true;
+    btn.textContent = `もう一度送れるまで ${left} 秒`;
+  };
+  tick();
+  resetTimer = setInterval(tick, 1000);
+}
+async function onResetSubmit(ev) {
+  ev.preventDefault();
+  const btn = $('reset-btn');
+  if (btn.disabled) return;
+  const email = $('reset-email').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg('reset-msg', 'メールアドレスを正しく入れてください'); return; }
+  setMsg('reset-msg', '');
+  btn.disabled = true;
+  try {
+    await resetPassword(email);
+  } catch (e) {
+    // 送りすぎ（429）は登録されている人にだけ起きるので、送れたときと同じ文言にする
+    const tooMany = e && (e.status === 429 || /rate limit|security purposes/i.test(e.message || ''));
+    if (!tooMany) { setMsg('reset-msg', '送れませんでした。通信を確かめて、もう一度お試しください'); btn.disabled = false; return; }
+  }
+  setMsg('reset-msg', RESET_SENT, true);
+  resetCooldown();
+}
+async function onNewPwSubmit(ev) {
+  ev.preventDefault();
+  const pw = $('newpw-pw').value;
+  if (pw.length < 8) { setMsg('newpw-msg', 'パスワードは8文字以上にしてください'); return; }
+  if (pw !== $('newpw-pw2').value) { setMsg('newpw-msg', '2つのパスワードが同じではありません。もう一度入れてください'); return; }
+  setMsg('newpw-msg', '');
+  await withBusy($('newpw-btn'), async () => {
+    const { error } = await sb.auth.updateUser({ password: pw });
+    if (error) {
+      const m = error.message || '';
+      if (error.code === 'same_password' || /different from the old/i.test(m)) setMsg('newpw-msg', '今と同じパスワードです。別のパスワードにしてください');
+      else if (error.code === 'weak_password' || /weak|at least/i.test(m)) setMsg('newpw-msg', 'このパスワードは使えません。もっと長く、推測されにくいものにしてください');
+      else if (error.status === 401 || error.status === 403 || /session|expired|jwt/i.test(m)) showReset('再設定のリンクの期限が切れました。もう一度、再設定のメールを送ってください');
+      else setMsg('newpw-msg', '変更できませんでした。通信を確かめて、もう一度お試しください');
+      return;
+    }
+    $('newpw-pw').value = '';
+    $('newpw-pw2').value = '';
+    recoveryMode = false;
+    history.replaceState(null, '', location.pathname); // #access_token… と ?reset=1 を消す
+    await boot();
+  });
+}
 
 // ---- フォーム ----
 // 画面内の確認（confirm() の代わり。Task 23 M6）。host の中（先頭か末尾）に「文・やめる・okLabel」の欄を出し、押した方で true / false を返す。
@@ -387,41 +465,19 @@ function bindForms() {
     });
   });
 
-  $('reset-form').addEventListener('submit', async ev => {
-    ev.preventDefault();
-    setMsg('reset-msg', '');
-    await withBusy($('reset-btn'), async () => {
-      try {
-        await resetPassword($('reset-email').value.trim());
-        setMsg('reset-msg', '再設定用のメールを送りました。メールをご確認ください。', true);
-      } catch (e) { setMsg('reset-msg', e.message); }
-    });
-  });
-
-  $('newpw-form').addEventListener('submit', async ev => {
-    ev.preventDefault();
-    setMsg('newpw-msg', '');
-    await withBusy($('newpw-btn'), async () => {
-      try {
-        const pw = $('newpw-pw').value;
-        if (pw.length < 8) throw new Error('パスワードは8文字以上にしてください');
-        if (pw !== $('newpw-pw2').value) throw new Error('確認用パスワードが一致しません');
-        const { error } = await sb.auth.updateUser({ password: pw });
-        if (error) throw error;
-        setMsg('newpw-msg', '変更しました', true);
-        recoveryMode = false;
-        history.replaceState(null, '', location.pathname + location.search);
-        await boot();
-      } catch (e) { setMsg('newpw-msg', e.message); }
-    });
-  });
+  $('reset-form').addEventListener('submit', onResetSubmit);
+  $('newpw-form').addEventListener('submit', onNewPwSubmit);
 
   $('go-signup').addEventListener('click', ev => {
     ev.preventDefault();
     if (!inviteTokenFromHash()) resetSignupMode();
     showScreen('signup');
   });
-  $('go-reset').addEventListener('click', ev => { ev.preventDefault(); showScreen('reset'); });
+  $('go-reset').addEventListener('click', ev => {
+    ev.preventDefault();
+    if (!$('reset-email').value) $('reset-email').value = $('login-email').value.trim();
+    showScreen('reset');
+  });
   document.querySelectorAll('.go-login').forEach(a =>
     a.addEventListener('click', ev => { ev.preventDefault(); clearInviteHash(); resetSignupMode(); showScreen('login'); }));
   document.querySelectorAll('.js-logout').forEach(b => b.addEventListener('click', signOutUser));

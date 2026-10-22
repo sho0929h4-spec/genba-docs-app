@@ -2166,7 +2166,10 @@
       // Task 25: 報告書はいつも担当者URL付き（「調査報告待ち」の表示はやめた）。下書きは「続きを書く」
       report = r.status === 'draft'
         ? { state: 'draft', text: more(reports.length, r.reedit_mark ? `再編集中（写真 ${photos}枚）` : `下書きあり（写真 ${photos}枚）`) + (r.reedit_mark ? ' ・ 直して再提出' : ' ・ 続きを書く'), open: r, count: reports.length }
-        : { state: 'done', text: more(reports.length, '提出済み') + ' ・ 開く', open: r, count: reports.length };
+        // Task 40: 提出後も中身を見る・直す（直すのは依頼元へ送付の前だけ。Task 35 の再編集）
+        : { state: 'done', open: r, count: reports.length,
+          text: more(reports.length, r.status === 'sent' ? '依頼元へ送付済み' : r.status === 'confirmed' ? '確認済み' : ('提出済み ' + fmtMD(r.submitted_at)).trim())
+            + (r.status === 'sent' ? ' ・ 中身を見る' : ' ・ 中身を見る・直す') };
     }
     // 見積: 系列ごとの最新の版。一番新しい系列の最新版を開く
     const live = liveEstimates(d.estimates);
@@ -2196,7 +2199,17 @@
   //   none（自分が担当の案件で対応がまだ無い）。済んだフェーズ（今日のもの以外）は出さない。進行中の案件だけ
   //   → [{ caseRow, phase, title, group, at, when, time, date（'10/22（水）'）, visit（Task 31: 今回行く部屋「101・201号室」）, stage, stageText, today }]
   // Task 31: today（本日）→ tomorrow（明日）→ later（明日以降）→ past → none → tbd（日時未定は最後）
-  const SCHEDULE_GROUPS = ['today', 'tomorrow', 'later', 'past', 'none', 'tbd'];
+  // Task 40: submitted（自分が作業担当者で報告書を提出済み〜依頼元へ送る前・再編集中）は日時未定の上
+  const SCHEDULE_GROUPS = ['today', 'tomorrow', 'later', 'past', 'none', 'submitted', 'tbd'];
+  // Task 40: 対応の最新の報告書が 提出済み・確認済み（依頼元へ送る前）か再編集中なら案件タブの印 → { key, text, at } か null
+  function fieldSubmitted(phase) {
+    const reports = listOf(phase && phase.reports).slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    const r = reports[reports.length - 1];
+    if (!r) return null;
+    if (r.status === 'draft' && r.reedit_mark) return { key: 'editing', text: '報告書 再編集中', at: r.reedit_at || r.submitted_at || null };
+    if (r.status !== 'submitted' && r.status !== 'confirmed') return null;
+    return { key: r.status, text: ('報告書 提出済み ' + fmtMD(r.submitted_at)).trim() + (r.status === 'confirmed' ? ' ・ 確認済み' : ''), at: r.submitted_at || null };
+  }
   function fieldSchedule(caseRows, meId, now) {
     const nowAt = toDate(now) || new Date();
     const today = jstYmd(nowAt);
@@ -2216,8 +2229,10 @@
       for (const { p, seq } of list) {
         const st = stage(p, null, nowAt, { me: meId });
         const at = p.scheduled_at || null;
+        const sub = p.worker_id === meId ? fieldSubmitted(p) : null;
         let group;
-        if (at && jstYmd(at) === today) group = 'today';
+        if (sub) group = 'submitted';
+        else if (at && jstYmd(at) === today) group = 'today';
         else if (at && jstYmd(at) === tomorrow) group = 'tomorrow';
         else if (at && jstYmd(at) > today) group = 'later';
         else if (!at) group = st.ball ? 'tbd' : '';
@@ -2225,12 +2240,13 @@
         if (!group) continue;
         const pj = jst(at);
         out.push({ caseRow: c, phase: p, title: phaseTitle(p, seq), group, at, when: fieldWhen(at, nowAt), time: pj ? fmtHM(pj) : '', date: fmtMDW(at),
-          visit: visitShort(p.plan, c), stage: st, stageText: fieldStageLabel(st) || (st.label ? '✓ ' + st.label : ''), today: group === 'today' });
+          visit: visitShort(p.plan, c), stage: st, stageText: fieldStageLabel(st) || (st.label ? '✓ ' + st.label : ''), today: group === 'today', sub });
       }
     }
     const gi = x => SCHEDULE_GROUPS.indexOf(x.group);
     return out.sort((a, b) => gi(a) - gi(b)
-      || (a.group === 'today' || a.group === 'tomorrow' || a.group === 'later' ? ms(a.at) - ms(b.at) : a.group === 'past' ? ms(b.at) - ms(a.at) : 0)
+      || (a.group === 'today' || a.group === 'tomorrow' || a.group === 'later' ? ms(a.at) - ms(b.at) : a.group === 'past' ? ms(b.at) - ms(a.at)
+        : a.group === 'submitted' ? (ms(b.sub.at) || 0) - (ms(a.sub.at) || 0) : 0)
       || str(a.caseRow.name).localeCompare(str(b.caseRow.name), 'ja') || str(a.title).localeCompare(str(b.title), 'ja'));
   }
 
@@ -2239,7 +2255,7 @@
     const nowAt = toDate(now) || new Date();
     if (group === 'today') return `本日（${fmtMDW(nowAt)}）`;
     if (group === 'tomorrow') return `明日（${fmtMDW(ms(nowAt) + 86400000)}）`;
-    return { later: '明日以降', past: '日時を過ぎた対応（まだ自分の番）', none: '対応がまだ無い案件', tbd: '日時未定' }[group] || '';
+    return { later: '明日以降', past: '日時を過ぎた対応（まだ自分の番）', none: '対応がまだ無い案件', submitted: '提出済み（管理者の確認待ち）', tbd: '日時未定' }[group] || '';
   }
   // 古いリンク #f/case/{id} の行き先（Task 31）: 自分が担当（作業担当者。案件の担当者なら全部）で未完了のフェーズのうち、今に一番近い予定のもの
   //   （日時未定は後ろ・その中では新しいもの）。無ければ null（履歴ページへ）
@@ -2447,7 +2463,7 @@
     paymentDueDefault, isOverdue, fmtYmdMD,
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
-    SCHEDULE_GROUPS, fieldSchedule, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
+    SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
