@@ -234,6 +234,7 @@ function routeFromHash() {
   else if ((m = h.match(REPORT_PDF_HASH_RE))) openReportPdf(m[1]);      // ⑩ PDFプレビュー
   else if ((m = h.match(REPORT_HASH_RE))) openReport(m[1]);             // ⑥ 報告書の入力
   else if (h === '#team') openTeam();
+  else if (h === '#calendar' && typeof openCalendar === 'function') openCalendar(); // カレンダー（js/calendar-ui.js。Task 38）
   else if (h === '#tasks' && typeof openTasks === 'function') openTasks(); // やること（js/tasks.js。Task 17）
   else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
   else if ((m = h.match(SM_HASH_RE)) && typeof openMessages === 'function') openMessages(m[1] || null); // 📨 現場からの連絡（js/staff-messages.js。Task 23）

@@ -10,6 +10,8 @@
 //   訪問日時・フェーズ（調査／原因元工事／復旧工事／その他＋名前）・依頼内容詳細（任意）→ rpc field_create_case（案件＋フェーズ1つ＋依頼内容。
 //   作業担当者 = 自分。保存件数の上限・管理者への自動の連絡・タイムラインは DB）→ その対応のツールページへ。入力中の値は画面を離れても残す。
 //   自分で登録した案件は入居者の連絡先を最初から出す（PhaseLogic.residentTelOpen）
+// Task 38: 「案件」タブの上に「一覧／カレンダー」（端末に人ごとに覚える。fieldCalOn）。カレンダーは js/calendar-ui.js の calMount（自分が担当の予定だけ・
+//   押すとツールページ・「日時未定 N件 ›」で一覧の日時未定へ）。右下の＋はカレンダーで押した日（時間の枠ならその時刻）を訪問日時の初期値にする（fdAddClick）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -235,14 +237,79 @@ async function fdUnreadMessages() {
   return (await StaffMessagesApi.list({ toUser: fdMe(), unread: true })) || [];
 }
 
+// Task 38: 「案件」タブの上の「一覧／カレンダー」（どちらを選んだかは端末に人ごとに覚える）
+const fdCalKey = () => 'genba-docs.fdcal.' + (fdMe() || '');
+let fdCalMem = '';
+function fieldCalOn() {
+  let v = '';
+  try { v = localStorage.getItem(fdCalKey()) || ''; } catch (e) { /* 覚えられない端末 */ }
+  return (v || fdCalMem) === 'cal';
+}
+function setFieldCal(on) {
+  fdCalMem = on ? 'cal' : 'list';
+  try { localStorage.setItem(fdCalKey(), fdCalMem); } catch (e) { /* この画面の間だけ */ }
+}
+function fdCalSwitch(on) {
+  const sw = mk('div', 'viewtabs fd-calsw');
+  sw.id = 'fd-calsw';
+  sw.setAttribute('role', 'tablist');
+  [['list', '一覧'], ['cal', 'カレンダー']].forEach(([k, label]) => {
+    const b = dBtn(label, 'vt' + ((k === 'cal') === on ? ' on' : ''), () => {
+      if ((k === 'cal') === fieldCalOn()) return;
+      setFieldCal(k === 'cal');
+      if (fd && fd.view === 'cases') fdRenderCases();
+    });
+    b.dataset.view = k;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', (k === 'cal') === on ? 'true' : 'false');
+    sw.appendChild(b);
+  });
+  return sw;
+}
+// カレンダー（js/calendar-ui.js）: 自分が担当の予定だけ・押すとその対応のツールページ・日時未定は一覧の「日時未定」へ
+function fdCalOpts(s) {
+  const me = fdMe();
+  return {
+    rows: s.rows,
+    include: (c, p) => c.assignee_id === me || p.worker_id === me,
+    titleOf: c => PhaseLogic.placeName(c) || '（物件名なし）',
+    showWho: false,
+    fab: false,
+    bottom: 56,
+    onEvent: ev => { fdSel.set(ev.caseId, ev.id); location.hash = fdPhaseHash(ev.caseId, ev.id); },
+    onUndated: () => {
+      setFieldCal(false);
+      fdRenderCases();
+      const gh = document.querySelector('#fd-list .fd-gh[data-group=tbd]');
+      if (gh) gh.scrollIntoView({ block: 'start' });
+    }
+  };
+}
+// 右下の「＋」: カレンダーで日を押していればその日（週表示で時間の枠を押していればその時刻）を訪問日時の初期値に
+function fdAddClick() {
+  const sel = fieldCalOn() && typeof calSelection === 'function' ? calSelection() : null;
+  if (sel) {
+    if (!fdNewDraft) fdNewDraft = fdNewBlank();
+    fdNewDraft.at = CalendarLogic.prefillAt(sel.ymd, sel.hour == null ? undefined : sel.hour);
+  }
+  location.hash = '#f/new';
+}
+
 function fdRenderCases() {
   const s = fd;
   const host = $('field-root');
   const nodes = [];
+  const calOn = fieldCalOn();
+  if (!s.err) nodes.push(fdCalSwitch(calOn));
+  let calHost = null;
   if (s.loading) nodes.push(mk('div', 'empty', '読み込み中…'));
   else if (s.err) {
     nodes.push(mk('div', 'err', s.err));
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openField({ view: 'cases' })));
+  } else if (calOn) {
+    calHost = mk('div', 'fd-cal-host');
+    calHost.id = 'fd-cal';
+    nodes.push(calHost);
   } else {
     const now = new Date();
     // タスクの件数（期限超過があれば赤）→ タスクのタブへ
@@ -287,14 +354,15 @@ function fdRenderCases() {
   }
   // Task 37: 右下の丸い「＋」（案件の登録。タブバーの上・safe-area）。一番下の行が隠れないよう余白
   if (!s.loading) {
-    nodes.push(mk('div', 'fd-fab-space'));
-    const fab = dBtn('＋', 'fd-fab', () => { location.hash = '#f/new'; });
+    if (!calOn) nodes.push(mk('div', 'fd-fab-space'));
+    const fab = dBtn('＋', 'fd-fab', fdAddClick);
     fab.id = 'fd-add';
     fab.setAttribute('aria-label', '案件を登録');
     fab.title = '案件を登録';
     nodes.push(fab);
   }
   host.replaceChildren(...nodes);
+  if (calHost) calMount(calHost, fdCalOpts(s));
 }
 
 function fdKindBadge(kind) {
