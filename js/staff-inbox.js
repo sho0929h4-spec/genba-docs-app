@@ -7,6 +7,9 @@
 //   Task 33 追加: 各行は4項目だけ（物件名 号室／フェーズ／やること／期限。PhaseLogic.fieldTaskRow）の行全体ボタン（右端「›」）。押すと続き
 //   （見積を作る・報告書を書く・ツールページ・連絡は既読にしてやり取り）。0件は「今やることはありません」。
 //   上に1行の小さなボタン「📨 管理者に連絡」（シート）と「やり取りを見る」（#f/contact）。説明の段落は無い。管理画面の #inbox-staff は今まで通り
+//   Task 43: 対応のある行の右に小さな「…」→ 行の下にメニュー。自分が現場用で登録した案件（created_by = 自分）は「このタスクを削除」
+//   （パスワード。CaseTrash.openSheet と同じシート・rpc field_task_dismiss）、それ以外は「差し戻す」（内容は必須・rpc field_task_sendback）。
+//   差し戻し中の行には「差し戻し中」の印（管理者が返事・済みにすると消える）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、showScreen / renderHeaders / $ は app.js
 
@@ -37,7 +40,7 @@ async function openStaffInbox(opts) {
     showScreen('inbox-staff');
   }
   const seq = ++siSeq;
-  si = { seq, rows: [], loading: true, err: '', msg: '', busy: new Set(), field, root: field ? opts.root : null, opts: opts || null };
+  si = { seq, rows: [], loading: true, err: '', msg: '', busy: new Set(), field, root: field ? opts.root : null, opts: opts || null, menu: null };
   siRender();
   await siLoad(seq);
 }
@@ -141,11 +144,117 @@ function siFieldItemEl(it) {
   if (r.kind) sub.appendChild(mk('span', 'ph-kind k-' + r.kind, r.kindText));
   sub.appendChild(mk('span', 'si-todo', r.todo));
   if (r.due) sub.appendChild(mk('span', 'si-due' + (r.late ? ' late' : ''), r.due));
+  if (r.sendback) sub.appendChild(mk('span', 'si-sendback', '差し戻し中'));
   main.appendChild(sub);
   row.appendChild(main);
   row.appendChild(mk('span', 'si-chev', '›'));
-  row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due].filter(Boolean).join(' '));
-  return row;
+  row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due, r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
+  if (it.type === 'message' || !p) return row;
+  // Task 43: 小さな「…」→ 行の下にメニュー（もう一度押すと閉じる）
+  //   「…」は行の右端（「›」の場所）に重ねる（行の幅を減らさない＝4項目が1行に収まる）
+  const wrap = mk('div', 'si-fwrap');
+  const box = mk('div', 'si-fbox');
+  const open = si.menu === key;
+  const more = dBtn('…', 'si-more', () => { si.menu = open ? null : key; siRender(); });
+  more.setAttribute('aria-label', 'メニュー: ' + r.place + ' ' + r.todo);
+  more.setAttribute('aria-expanded', open ? 'true' : 'false');
+  more.disabled = row.disabled;
+  box.append(row, more);
+  wrap.appendChild(box);
+  if (open) wrap.appendChild(siTaskMenu(it, r));
+  return wrap;
+}
+
+// Task 43: 「…」のメニュー。自分が登録した案件 →「このタスクを削除」、それ以外 →「差し戻す」（差し戻し中なら内容だけ）
+function siTaskMenu(it, r) {
+  const box = mk('div', 'si-menu');
+  if (it.caseRow && it.caseRow.created_by === siMyId()) {
+    box.append(dBtn('このタスクを削除', 'linkbtn danger si-dismiss', () => siDismissSheet(it, r)),
+      mk('span', 'si-menu-note', '自分が登録した案件なので削除できます（対応そのものは消えません）'));
+  } else if (it.sendback) {
+    box.appendChild(mk('span', 'si-menu-note', '差し戻し中（管理者の返事を待っています）: ' + it.sendback.body));
+  } else {
+    box.append(dBtn('差し戻す', 'linkbtn si-sendback-open', () => siSendbackSheet(it, r)),
+      mk('span', 'si-menu-note', '管理者が作った案件のタスクは、理由を書いて管理者に戻せます'));
+  }
+  return box;
+}
+
+// タスクの削除: パスワードで確かめて（案件の削除と同じシート）→ 自分の一覧から消える・管理者に連絡
+function siDismissSheet(it, r) {
+  const s = si;
+  CaseTrash.openSheet({ id: it.phase.id, name: r.place + '・' + r.todo }, {
+    title: 'このタスクを削除',
+    oneStep: true,
+    back: '自分の一覧から消えます（期限を過ぎた知らせも止まります）。対応そのものは消えません。管理者に知らせます（管理者は戻せます）。',
+    trash: () => PhasesApi.dismissTask(it.phase.id, it.type),
+    done: async () => {
+      if (si !== s) return;
+      s.menu = null;
+      s.msg = '「' + r.todo + '」（' + r.place + '）を削除しました。管理者に知らせました';
+      if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+      await siLoad(s.seq);
+    }
+  });
+}
+
+// 差し戻し: 内容（必須）を書いて管理者に送る。入力があるので × とキャンセルだけで閉じる
+function siSendbackSheet(it, r) {
+  const prev = document.getElementById('si-sendback-sheet');
+  if (prev) prev.remove();
+  const s = si;
+  let busy = false;
+  const bg = mk('div', 'lt-bg');
+  bg.id = 'si-sendback-sheet';
+  const dlg = mk('div', 'lt-sheet');
+  dlg.setAttribute('role', 'dialog');
+  dlg.setAttribute('aria-modal', 'true');
+  dlg.setAttribute('aria-labelledby', 'si-sendback-title');
+  const close = () => { if (busy) return; bg.remove(); window.removeEventListener('hashchange', close); };
+  const hd = mk('div', 'lt-hd');
+  const h = mk('h3', null, '差し戻す');
+  h.id = 'si-sendback-title';
+  const x = dBtn('×', 'lt-x', close);
+  x.id = 'si-sendback-x';
+  x.setAttribute('aria-label', '閉じる');
+  hd.append(h, x);
+  const ta = document.createElement('textarea');
+  ta.id = 'si-sendback-body';
+  ta.rows = 4;
+  ta.maxLength = 1000;
+  ta.placeholder = '例: 見積は不要と依頼元から聞きました';
+  const fl = mk('label', 'lt-f', '差し戻す理由（必須）');
+  fl.appendChild(ta);
+  const err = mk('div', 'lt-err');
+  err.id = 'si-sendback-err';
+  err.setAttribute('role', 'alert');
+  ta.addEventListener('input', () => { err.textContent = ''; });
+  const acts = mk('div', 'lt-acts');
+  const cancel = dBtn('キャンセル', 'lt-cancel', close);
+  const send = dBtn('差し戻す', 'lt-send si-sendback-send', async () => {
+    if (busy) return;
+    const body = ta.value.trim();
+    if (!body) { err.textContent = '差し戻す理由を書いてください'; ta.focus(); return; }
+    busy = true;
+    [x, cancel, send, ta].forEach(e => { e.disabled = true; });
+    let e2 = '';
+    try { await PhasesApi.sendBackTask(it.phase.id, it.type, body); }
+    catch (e) { e2 = '差し戻せませんでした: ' + errText(e); }
+    busy = false;
+    if (e2) { err.textContent = e2; [x, cancel, send, ta].forEach(e => { e.disabled = false; }); return; }
+    close();
+    if (si !== s) return;
+    s.menu = null;
+    s.msg = '「' + r.todo + '」（' + r.place + '）を管理者に差し戻しました（返事はこのタスクに出ます）';
+    if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+    await siLoad(s.seq);
+  });
+  acts.append(cancel, send);
+  dlg.append(hd, mk('div', 'lt-sub', r.place + '・' + [r.kindText, r.todo].filter(Boolean).join(' ') + '。管理者に理由を送ります。'), fl, err, acts);
+  bg.appendChild(dlg);
+  document.body.appendChild(bg);
+  window.addEventListener('hashchange', close); // 画面を移ったら閉じる（外側クリック・Esc では閉じない）
+  ta.focus();
 }
 const siKey = it => (it.type === 'message' ? 'msg-' + it.message.id : it.type === 'estimate' ? 'est-' + it.phase.id : it.type === 'report' ? 'rep-' + it.phase.id : it.phase.id);
 // 行を押した → そのタスクの続き（今までの「その場で進めるボタン」と同じ行き先）

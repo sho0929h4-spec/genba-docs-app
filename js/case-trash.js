@@ -56,7 +56,8 @@ const CaseTrash = (() => {
   }
 
   // 2段階（Task 42）: ①「本当に削除しますか？」→「削除に進む」 ② パスワード →「削除する」（赤）。
-  //   o: { trash(id): 削除する, done(name): 削除の後 }
+  //   o: { trash(id): 削除する, done(name): 削除の後 }。Task 43（タスクの削除）は o.title / o.back（説明の文）/ o.oneStep（① を飛ばして
+  //   すぐパスワード）で同じシートを使う
   function openSheet(c, o) {
     const prev = document.getElementById('trash-sheet');
     if (prev) prev.remove();
@@ -68,7 +69,7 @@ const CaseTrash = (() => {
     dlg.setAttribute('aria-modal', 'true');
     dlg.setAttribute('aria-labelledby', 'trash-sheet-title');
     const hd = mk('div', 'modal-hd');
-    const h = mk('h3', null, 'この案件を削除');
+    const h = mk('h3', null, o.title || 'この案件を削除');
     h.id = 'trash-sheet-title';
     const x = mk('button', 'modal-x', '×');
     x.type = 'button';
@@ -78,7 +79,7 @@ const CaseTrash = (() => {
 
     const lead = mk('p', 'trash-lead');
     lead.append(mk('b', null, '「' + name + '」'), document.createTextNode(' を本当に削除しますか？'));
-    const back = mk('p', 'trash-back', '管理者なら' + KEEP_DAYS + '日は戻せます（設定 → 削除した案件）。');
+    const back = mk('p', 'trash-back', o.back || '管理者なら' + KEEP_DAYS + '日は戻せます（設定 → 削除した案件）。');
     const err = mk('div', 'err');
     err.id = 'trash-err';
     err.setAttribute('role', 'alert');
@@ -148,7 +149,8 @@ const CaseTrash = (() => {
       window.removeEventListener('hashchange', onHash);
     }
     x.addEventListener('click', () => close());
-    cancel1.focus();
+    if (o.oneStep) step2();
+    else cancel1.focus();
     return bg;
   }
 

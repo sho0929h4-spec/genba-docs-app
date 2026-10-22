@@ -1323,7 +1323,22 @@
       if (at) due = at + 'まで' + (x.late ? '・超過' : '');
     } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
     else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
-    return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && (x.type === 'report' || x.type === 'estimate') };
+    return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && (x.type === 'report' || x.type === 'estimate'), sendback: !!x.sendback };
+  }
+  // Task 43: フェーズの有効なタスクの記録（phase.task_flags = phase_task_flags の行。PhasesApi.attachTaskFlags が付ける）。
+  //   task: report / estimate / notice / tomorrow、action: dismiss（削除）/ sendback（差し戻し）→ 1件 or null（closed_at があるものは済み）
+  function taskFlag(phase, task, action) {
+    return listOf(phase && phase.task_flags).find(f => f.task === task && f.action === action && !f.closed_at) || null;
+  }
+  // 管理者の「やること」の差し戻し（進行中の案件・有効なもの・古い順）→ [{ caseRow, phase, title, flag, todo }]
+  function taskSendbacks(caseRows) {
+    const out = [];
+    for (const c of listOf(caseRows)) {
+      if ((c.status && c.status !== 'open') || c.deleted_at) continue;
+      withSeq(c.phases).forEach(({ p, seq }) => listOf(p.task_flags).filter(f => f.action === 'sendback' && !f.closed_at)
+        .forEach(f => out.push({ caseRow: c, phase: p, title: phaseTitle(p, seq), flag: f, todo: TASK_TODO[f.task] || '' })));
+    }
+    return out.sort((a, b) => ms(a.flag.created_at) - ms(b.flag.created_at));
   }
   /* ---------- 調査結果と注意事項（Task 5b。case_phases.result） ---------- */
   // 文言の元は工事掲示（NoticeLogic.WORK_TYPES）と見積（EstimateLogic.NOTE_FIRST）。phase-logic.js の方が先に読み込まれるので、
@@ -1589,13 +1604,17 @@
           request: requestSummary(c.request) }); // Task 28: 案件の依頼内容の要約（指示の前に出す）
       }
     }
-    // Task 31: 対応のある行には「今回行く部屋: …」
-    out.forEach(x => { x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : ''; });
+    // Task 31: 対応のある行には「今回行く部屋: …」。Task 43: 削除したタスクは出さない・差し戻し中の印
+    const list = out.filter(x => x.type === 'message' || !taskFlag(x.phase, x.type, 'dismiss'));
+    list.forEach(x => {
+      x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : '';
+      x.sendback = x.type === 'message' ? null : taskFlag(x.phase, x.type, 'sendback');
+    });
     const rank = { nudge: 0, message: 1, report: 2, estimate: 3, notice: 4, tomorrow: 5 };
     const dueMs = x => (x.dueAt ? ms(x.dueAt) : ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0)));
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? dueMs(x) : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
     const rk = x => (x.nudge ? rank.nudge : rank[x.type]);
-    return out.sort((a, b) => rk(a) - rk(b) || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
+    return list.sort((a, b) => rk(a) - rk(b) || (b.late ? 1 : 0) - (a.late ? 1 : 0) || t(a) - t(b));
   }
 
   /* ---------- 現場からの連絡（staff_messages。Task 23） ---------- */
@@ -2291,7 +2310,7 @@
     for (const c of listOf(caseRows)) {
       if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       for (const p of listOf(c.phases)) {
-        if (!p.id || p.report_overdue_at) continue;
+        if (!p.id || p.report_overdue_at || taskFlag(p, 'report', 'dismiss')) continue; // Task 43: 報告書作成を削除している間は知らせない
         const rt = reportTodo(p, now);
         if (rt && rt.late) out.push({ caseRow: c, phase: p });
       }
@@ -2453,7 +2472,7 @@
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
-    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
+    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,

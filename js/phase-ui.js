@@ -83,7 +83,9 @@ async function phLoad() {
       EstimatesApi.listByCase(s.caseId),
       ReportsApi.listByCase(s.caseId),
       NoticesApi.listByCase(s.caseId),
-      ReportsApi.listDrafts(s.caseId)
+      ReportsApi.listDrafts(s.caseId),
+      // Task 43: 作業担当者のタスクの削除・差し戻し（読めなくても表は出す）
+      PhasesApi.listTaskFlags(s.caseId).catch(e => { console.warn('タスクの記録を読み込めませんでした', e); return []; })
     ]);
   } catch (e) {
     if (!phAlive(s) || seq !== phSeq) return '';
@@ -95,6 +97,7 @@ async function phLoad() {
   const [phases, series, reports] = res;
   const notices = res[3];
   let drafts = res[4];
+  PhasesApi.attachTaskFlags(phases || [], res[5]);
   // 担当者URL（URL が使えるか = share_active。case_summaries の reports と同じ形にそろえる）
   let shares = [];
   try { shares = await ReportsApi.listSharesByReports((reports || []).map(r => r.id)); }
@@ -543,11 +546,44 @@ function phTableRow(p, multi) {
   if (row.brief) cb.classList.add('brief');
 
   if (open) tr.appendChild(phPanel(p, open, docs, errId, row));
+  const fl = phFlagsEl(p, errId);
+  if (fl) tr.appendChild(fl);
   const err = mk('div', 'err ph-row-err');
   err.id = errId;
   err.setAttribute('role', 'alert');
   tr.appendChild(err);
   return tr;
+}
+
+// Task 43: 作業担当者がこの対応のタスクを削除した・差し戻した（有効なものだけ）。管理者は「戻す」「済みにする」（rpc task_flag_close）
+function phFlagsEl(p, errId) {
+  const list = p.task_flags || [];
+  if (!list.length) return null;
+  const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+  const box = mk('div', 'ph-flags');
+  list.forEach(f => {
+    const m = phMembers().find(x => x.user_id === f.created_by);
+    const who = (m && m.display_name) || '作業担当者';
+    const todo = PhaseLogic.TASK_TODO[f.task] || '';
+    const el = mk('div', 'ph-flag ' + f.action);
+    el.dataset.flagId = f.id;
+    el.dataset.action = f.action;
+    const t = mk('span', 'ph-flag-t');
+    if (f.action === 'sendback') {
+      t.append(mk('span', 'ph-flag-tag', '差し戻し'), document.createTextNode(who + '「' + todo + '」' + PhaseLogic.fmtMD(f.created_at) + ': ' + f.body));
+    } else {
+      t.append(mk('span', 'ph-flag-tag', '削除'), document.createTextNode(who + 'が「' + todo + '」のタスクを削除（' + PhaseLogic.fmtMD(f.created_at) + '）。対応はそのままです'));
+    }
+    el.appendChild(t);
+    if (owner) {
+      const label = f.action === 'sendback' ? '済みにする' : '戻す';
+      const b = dBtn(label, 'linkbtn ph-flag-close', btn => phRun(btn, errId, f.action === 'sendback' ? '差し戻しを済みにする' : 'タスクを戻す', () => PhasesApi.closeTaskFlag(f.id)));
+      b.setAttribute('aria-label', label + ': ' + who + 'の「' + todo + '」');
+      el.appendChild(b);
+    }
+    box.appendChild(el);
+  });
+  return box;
 }
 
 // Task 35: 表のセルに再編集の小さな札（「再編集中」「再編集あり」。いつ・誰がは title と読み上げ）

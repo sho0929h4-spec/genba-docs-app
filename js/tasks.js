@@ -6,6 +6,8 @@
 //   日程調整必要 → 工事日（調査日）を決める（詳細ページの日時の入力を開く）／調査に行く → ボタンなし（開くだけ）／
 //   報告書を書く・確認する → 報告書を開く／報告書を送る → 送るメールへ（未送信の下書き。無ければ確認して作る）／
 //   完了報告必要 → 報告書を作る（自社で作って編集画面へ）／報告書を開く／請求する → 請求した（入金期限を入れて画面内で確かめてから記録）
+// Task 43: 一番上に「差し戻し」（作業担当者が差し戻したタスク。PhaseLogic.taskSendbacks。「自分の分だけ」に関係なく出す）。
+//   各行に「済みにする」（rpc task_flag_close。連絡に返事をしても済みになる）と「開く」
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、openMailDraftFrom は mail-ui.js、pdOpenWhen は phase-detail.js、
 // $ / setMsg / showScreen / renderHeaders / withBusy は app.js
@@ -65,6 +67,8 @@ function tkRender() {
   note.hidden = !s.notice;
 
   const cards = shown ? g.groups.map(gr => tkGroupEl(gr)) : [];
+  const sbs = shown ? PhaseLogic.taskSendbacks(s.rows) : [];
+  if (sbs.length) cards.unshift(tkSendbackGroupEl(sbs));
   $('tasks-body').replaceChildren(...cards);
   $('tasks-loading').hidden = !s.loading;
   $('tasks-empty').hidden = !shown || cards.length > 0;
@@ -87,6 +91,47 @@ function tkGroupEl(gr) {
   h.appendChild(sub);
   card.appendChild(h);
   gr.items.forEach(it => card.appendChild(tkRowEl(it)));
+  return card;
+}
+
+// Task 43: 差し戻し（作業担当者が理由を書いて戻したタスク）
+function tkSendbackGroupEl(list) {
+  const s = tk;
+  const card = mk('div', 'member tk-group tk-sendback');
+  card.dataset.group = 'sendback';
+  const h = mk('div', 'member-h');
+  h.append(mk('b', null, '差し戻し'), mk('span', 'mh-sub tk-n', list.length + '件'));
+  card.appendChild(h);
+  list.forEach(x => {
+    const it = { group: 'sendback', phaseId: x.flag.id }; // tkKey 用（記録ごと）
+    const m = s.members.find(y => y.user_id === x.flag.created_by);
+    const place = [x.caseRow.name || '(案件名なし)', PhaseLogic.roomLabel(x.caseRow.room)].filter(Boolean).join(' ');
+    const row = mk('div', 'mt-row tk-row');
+    row.dataset.phase = x.phase.id;
+    row.dataset.group = 'sendback';
+    row.dataset.flagId = x.flag.id;
+    const l = mk('div', 'mt-l');
+    l.appendChild(mk('b', null, '差し戻し: ' + x.todo));
+    l.appendChild(mk('span', 'mt-case', place + ' ・ ' + x.title + ' ・ ' + ((m && m.display_name) || '作業担当者') + '「' + x.flag.body + '」'));
+    row.appendChild(l);
+    const r = mk('div', 'mt-r');
+    const done = dBtn('済みにする', 'btn sm inline tk-act tk-sendback-done', b => tkRun(it, b, '済みにできませんでした', async () => {
+      await PhasesApi.closeTaskFlag(x.flag.id);
+      s.notice = place + ' ・ ' + x.title + 'の差し戻し（' + x.todo + '）を済みにしました';
+      if (tkAlive(s)) await tkLoad(s.seq);
+    }));
+    done.disabled = s.busy.has(tkKey(it));
+    const open = mk('button', 'poke tk-open', '開く');
+    open.type = 'button';
+    open.setAttribute('aria-label', '開く: ' + place + ' ' + x.title);
+    open.addEventListener('click', () => { location.hash = '#case/' + x.caseRow.id + '/phase/' + x.phase.id; });
+    r.append(done, open);
+    row.appendChild(r);
+    const err = mk('div', 'err tk-err', s.rowErr.get(tkKey(it)) || '');
+    if (!err.textContent) err.hidden = true;
+    row.appendChild(err);
+    card.appendChild(row);
+  });
   return card;
 }
 

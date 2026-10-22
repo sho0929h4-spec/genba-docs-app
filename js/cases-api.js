@@ -26,7 +26,15 @@ const CasesApi = (() => {
   }
 
   return {
-    async listSummaries() { return must(await sb.from('case_summaries').select('*')); },
+    // Task 43: 各フェーズにタスクの削除・差し戻しの記録（task_flags）を付ける。読めなくても一覧は出す（記録なしとして扱う）
+    async listSummaries() {
+      const [rows, flags] = await Promise.all([
+        sb.from('case_summaries').select('*').then(must),
+        PhasesApi.listTaskFlags().catch(e => { console.warn('タスクの記録を読み込めませんでした', e); return []; })
+      ]);
+      PhasesApi.attachTaskFlags((rows || []).flatMap(r => r.phases || []), flags);
+      return rows;
+    },
     async getSummary(id) { return must(await sb.from('case_summaries').select('*').eq('id', id).maybeSingle()); },
     // 本人の担当者名・電話番号（Task 32 / migration 056。本人の行だけ・列 grant は display_name と phone）
     async updateMe(fields) {

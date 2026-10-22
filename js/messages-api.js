@@ -7,7 +7,8 @@ const StaffMessagesApi = (() => {
   // source（047）: staff = 現場からの連絡／report_submit = 調査報告の提出で自動／late = 到着が遅れそうの報告で自動（052）／
   //   nudge = 催促（052）／overdue = 報告書の期限超過で自動（053）／daily = 日報（053。rpc staff_daily_send だけ。case_id は空）／
   //   reedit = 報告書・見積書の再編集と再提出で自動（057。Task 35）／case_create = 現場用の案件登録で自動（058。Task 37・rpc field_create_case）／
-  //   case_delete = 現場用で登録した案件の削除で自動（062。Task 42・rpc field_trash_case）。画面からは作れない
+  //   case_delete = 現場用で登録した案件の削除で自動（062。Task 42・rpc field_trash_case）／task_delete = タスクの削除で自動・
+  //   sendback = タスクの差し戻し（063。Task 43・rpc field_task_dismiss / field_task_sendback。返事をすると差し戻しは済みになる）。画面からは作れない
   const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source, daily_date';
   const SUBJECT_MAX = 100;
   const BODY_MAX = 4000;

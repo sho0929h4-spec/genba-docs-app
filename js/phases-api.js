@@ -298,6 +298,32 @@ const PhasesApi = (() => {
     async reportOverdue(phaseId) {
       return must(await sb.rpc('phase_report_overdue', { p_phase: phaseId }));
     },
+    // Task 43 / migration 063: タスクの削除と差し戻し（phase_task_flags。書くのは rpc だけ）
+    //   listTaskFlags(caseId?): 有効な記録（closed_at が空）。caseId を渡すとその案件だけ
+    async listTaskFlags(caseId) {
+      let q = sb.from('phase_task_flags').select('id, case_id, phase_id, task, action, body, message_id, created_by, created_at, closed_at').is('closed_at', null);
+      if (caseId) q = q.eq('case_id', caseId);
+      return must(await q.order('created_at', { ascending: true })) || [];
+    },
+    // phases（case_summaries の phases か case_phases の行）の各要素に task_flags を付ける（PhaseLogic.taskFlag が読む）
+    attachTaskFlags(phases, flags) {
+      const by = new Map();
+      (flags || []).forEach(f => { if (!by.has(f.phase_id)) by.set(f.phase_id, []); by.get(f.phase_id).push(f); });
+      (phases || []).forEach(p => { p.task_flags = by.get(p.id) || []; });
+      return phases;
+    },
+    // 作業担当者: 現場用で自分が登録した案件のタスクを削除（task: report / estimate / notice / tomorrow）
+    async dismissTask(phaseId, task) {
+      return must(await sb.rpc('field_task_dismiss', { p_phase: phaseId, p_task: task }));
+    },
+    // 作業担当者: それ以外の案件のタスクを差し戻す（内容は必須）
+    async sendBackTask(phaseId, task, body) {
+      return must(await sb.rpc('field_task_sendback', { p_phase: phaseId, p_task: task, p_body: body }));
+    },
+    // 管理者: 削除を戻す／差し戻しを済みにする
+    async closeTaskFlag(id) {
+      return must(await sb.rpc('task_flag_close', { p_id: id }));
+    },
     // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
     async nudge(phaseId, text, note) {
       return must(await sb.rpc('phase_nudge', { p_phase: phaseId, p_text: text, p_note: note || '' }));
