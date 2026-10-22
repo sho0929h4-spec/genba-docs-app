@@ -240,13 +240,13 @@ const EstimatesApi = (() => {
       const c = await CasesApi.getSummary(est.case_id);
       const phases = c && Array.isArray(c.phases) ? c.phases : [];
       const p = phases.find(x => x.id === est.phase_id);
-      if (!p || (p.kind !== 'cause' && p.kind !== 'repair')) return null;
+      if (!p || !PhaseLogic.isWork(p.kind)) return null; // 工事（原因元工事・復旧工事）と その他（Task 37）
       const notices = (await NoticesApi.listByCase(est.case_id)) || [];
       if (notices.some(n => n.phase_id === p.id)) return null;
       const data = PhaseLogic.autoNoticeData({ phase: p, caseRow: c, phases, estimate: est });
       if (!data) return null;
       const ch = PhaseLogic.fieldPhaseChips(phases, new Date()).find(x => x.id === p.id);
-      return NoticesApi.create(est.case_id, c, { phase_id: p.id, phaseTitle: ch ? ch.title : PhaseLogic.kindLabel(p.kind), auto: true, data });
+      return NoticesApi.create(est.case_id, c, { phase_id: p.id, phaseTitle: ch ? ch.title : PhaseLogic.phaseTitle(p), auto: true, data });
     },
     // 提出済み/送付済みの版から次の版の下書きを作り、前の版を superseded にする。
     // DB 関数 new_estimate_version が1トランザクションで行う（系列の行をロック・最新版か検査・明細の引き継ぎ規則は

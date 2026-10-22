@@ -7,6 +7,7 @@
 //   Task 27: 調査報告の提出（次の対応方針が原因元工事／再調査）で DB が自動の連絡を入れる（source = report_submit。「自動」の札）。
 //   Task 28: 現場用・担当者URLの「🕒 到着が遅れそう」でも自動の連絡が入る（source = late。「自動」の札）。
 //           担当者URLからの提出は送った人が空 →「担当者URL」と出す。返事の相手（社内の人）がいないやり取りには「返事を書く」を出さない
+//   Task 37: 作業担当者が現場用で案件を登録すると自動の連絡（source = case_create。件名「○○が案件を登録した」・「自動」の札）。
 //   Task 32: 日報は PDF を添付（smPdfLinks で「📄 日報のPDFを開く」「⬇ 保存」）。
 //   Task 29: 報告書の期限超過（source = overdue。送った人なし →「自動のお知らせ」）と日報（source = daily。案件なし →「📝 日報」・返事は案件なし）。
 //           管理者の「📨 現場からの連絡 n件」は案件ごとの未読（case_summaries.staff_unread）＋案件の無い未読（日報）。
@@ -165,7 +166,7 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = m.source === 'report_submit' || m.source === 'late' || m.source === 'overdue' || m.source === 'reedit'; // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出も自動
+  const auto = ['report_submit', 'late', 'overdue', 'reedit', 'case_create'].includes(m.source); // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出・058: 現場用の案件登録も自動
   head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : m.source === 'overdue' ? '自動のお知らせ' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));

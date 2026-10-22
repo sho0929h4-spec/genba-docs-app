@@ -36,7 +36,7 @@
   const ROOM_PET = [{ key: true, label: 'あり' }, { key: false, label: 'なし' }];
   const RESIDENTS_MAX = 20;
   // 報告書の作業区分はフェーズの種類で決まる（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。Task 20）
-  const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'restore' };
+  const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'restore', other: 'repair' }; // Task 37: その他は設備修繕の書式
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
   const RESTORE_PARTS = ['天井', '壁', '床', 'ダウンライト'];
   const AFTER_STATUS = ['正常に復旧', '様子見（経過観察）', '一部未完了（再訪予定）', '要追加工事'];

@@ -6,6 +6,10 @@
 //   自分が担当で未完了の直近の対応へ振り向ける（PhaseLogic.fieldRedirectPhase。無ければ履歴）。ツールページの1行目（帯の直下）に
 //   「🚪 今回行く部屋: …」（plan.visitRooms → Task 33 で「依頼内容」の号室ごとの行に集約）。「管理者に連絡」はタスクのタブだけ。「本日」「明日」は案件タブの見出しだけ（ほかは具体の日付）
 // Task 36: 調査の内容ページ #f/case/{id}/phase/{調査}/survey/{見積}（読むだけ。見積書の入力画面の欄から。「‹ 見積書に戻る」）
+// Task 37: 案件の登録 #f/new（「案件」タブの右下の丸い「＋」から。作業担当者も登録できる）。物件名・号室・住所・入居者の名前・連絡先（任意）・
+//   訪問日時・フェーズ（調査／原因元工事／復旧工事／その他＋名前）・依頼内容詳細（任意）→ rpc field_create_case（案件＋フェーズ1つ＋依頼内容。
+//   作業担当者 = 自分。保存件数の上限・管理者への自動の連絡・タイムラインは DB）→ その対応のツールページへ。入力中の値は画面を離れても残す。
+//   自分で登録した案件は入居者の連絡先を最初から出す（PhaseLogic.residentTelOpen）
 // 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
@@ -114,6 +118,7 @@ function fdMatch(h) {
   if (h === '#f/daily') return { view: 'daily' };
   if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡（Task 29: タブには出さない）
   if (h === '#f/settings') return { view: 'settings' };
+  if (h === '#f/new') return { view: 'new' }; // Task 37: 案件の登録
   const m = h.match(FD_CASE_RE);
   if (m) return { view: 'case', caseId: m[1].toLowerCase(), phaseId: null }; // 古いリンク: 読み込んでから直近の対応へ振り向ける
   const mp = h.match(FD_PHASE_RE);
@@ -172,6 +177,7 @@ function openField(fm) {
     return openStaffInbox({ field: true, root: host });
   }
   if (fm.view === 'daily') { fdBar('日報作成'); fdRenderDaily(); return fdLoadDaily(seq); }
+  if (fm.view === 'new') { fdBar('案件を登録', '‹ 案件', '#f'); document.title = '案件を登録 - 現場ドキュメント'; return fdRenderNew(); }
   if (fm.view === 'contact') {
     if (location.hash === '#f/outbox') fdReplace('#f/contact');
     fdBar('管理者とのやり取り', '‹ タスク', '#f/tasks');
@@ -191,7 +197,7 @@ function fdBar(title, backLabel, backHash) {
 }
 function fdTabs() {
   const nav = $('fd-tabs');
-  const active = fd && (fd.view === 'case' || fd.view === 'history' || fd.view === 'survey') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
+  const active = fd && (fd.view === 'case' || fd.view === 'history' || fd.view === 'survey' || fd.view === 'new') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
       // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
@@ -279,6 +285,15 @@ function fdRenderCases() {
     });
     nodes.push(wrap);
   }
+  // Task 37: 右下の丸い「＋」（案件の登録。タブバーの上・safe-area）。一番下の行が隠れないよう余白
+  if (!s.loading) {
+    nodes.push(mk('div', 'fd-fab-space'));
+    const fab = dBtn('＋', 'fd-fab', () => { location.hash = '#f/new'; });
+    fab.id = 'fd-add';
+    fab.setAttribute('aria-label', '案件を登録');
+    fab.title = '案件を登録';
+    nodes.push(fab);
+  }
   host.replaceChildren(...nodes);
 }
 
@@ -303,7 +318,7 @@ function fdCaseCard(it) {
   const when = it.group === 'today' || it.group === 'tomorrow' ? it.time : it.group === 'none' ? '対応なし' : it.when;
   top.appendChild(mk('b', 'fd-when', when));
   if (p) top.appendChild(fdKindBadge(p.kind));
-  if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
+  if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', p.kind === 'other' ? String(p.label || '').trim() : it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
   if (it.visit) main.appendChild(mk('span', 'fd-visit-short', '🚪 ' + it.visit)); // Task 31: 今回行く部屋「101・201号室」
@@ -321,10 +336,12 @@ function fdCaseCard(it) {
   return card;
 }
 // 入居者の電話（Task 28）: そのフェーズで「到着が遅れそう」を報告していれば tel: の一覧、まだなら「🕒 到着が遅れそう」のボタン
+//   Task 37: 自分で登録した案件（cases.created_by = 自分）は最初から電話を出す（ボタンは出さない）
 function fdLateBox(c, p, onDone) {
-  const late = PhaseLogic.residentTelOpen(p);
+  const late = !!(p && p.late_at);
+  const own = !late && PhaseLogic.residentTelOpen(p, c, fdMe());
   const box = RequestView.residentsBox({
-    residents: PhaseLogic.caseResidents(c), late,
+    residents: own ? fdOwnResidents(c) : PhaseLogic.caseResidents(c), late, own,
     lateText: late ? PhaseLogic.fmtMDHM(p.late_at) : '',
     disabled: !!(fd && fd.busy),
     onLate: () => RequestView.openLateSheet({
@@ -336,6 +353,19 @@ function fdLateBox(c, p, onDone) {
   box.dataset.phaseId = p.id;
   box.classList.add('fd-late');
   return box;
+}
+
+// 自分で登録した案件の入居者（電話が無くメールだけの人もメールを出す）
+function fdOwnResidents(c) {
+  const list = PhaseLogic.caseResidents(c);
+  const r = list.find(x => x.own);
+  const email = String(c.resident_email || '').trim();
+  if (email && !(r && r.tel)) {
+    if (r) r.email = email;
+    else list.unshift({ room: String(c.room || '').trim(), role: 'damage', own: true, name: '', tel: '', email,
+      label: PhaseLogic.briefRoomHead({ room: String(c.room || '').trim(), role: 'damage' }) });
+  }
+  return list;
 }
 
 /* ---------- #f/case/{id} ツールページ ---------- */
@@ -1130,6 +1160,131 @@ function fdPhoneNorm(v) {
   if (!t) return '';
   return t.length <= 30 && /^[0-9+()\- ]+$/.test(t) ? t : null;
 }
+/* ---------- #f/new 案件の登録（Task 37） ---------- */
+let fdNewDraft = null; // 入力中の値（画面を離れても残す。登録したら消す）
+const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', kind: '', label: '', request: '' });
+const FD_NEW_KINDS = () => PhaseLogic.KINDS.map(k => ({ key: k.key, label: k.label }));
+function fdRenderNew() {
+  const s = fd;
+  const host = $('field-root');
+  const v = fdNewDraft || (fdNewDraft = fdNewBlank());
+  const card = mk('div', 'fd-card fd-set fd-new');
+  card.id = 'fd-new';
+  card.appendChild(mk('b', null, '新しい案件'));
+  card.appendChild(mk('div', 'fd-tiny fd-new-note', '＊は必ず入れてください。登録すると管理者に知らせが届きます（元請などの依頼元は管理者があとで入れます）'));
+  const errEls = {};
+  const errOf = key => {
+    const e = mk('div', 'err fd-new-err', '');
+    e.id = 'fd-new-err-' + key;
+    errEls[key] = e;
+    return e;
+  };
+  const head = (label, req) => {
+    const h = mk('span', 'fd-new-k', label);
+    if (req) h.appendChild(mk('span', 'fd-new-req', '＊'));
+    return h;
+  };
+  const field = (key, label, o) => {
+    const lb = mk('label', 'fd-set-f fd-new-f');
+    lb.id = 'fd-new-f-' + key;
+    lb.appendChild(head(label, o.req));
+    const inp = document.createElement(o.area ? 'textarea' : 'input');
+    if (!o.area) inp.type = o.type || 'text';
+    else inp.rows = 4;
+    inp.id = 'fd-new-' + key;
+    inp.value = v[key] || '';
+    if (o.ph) inp.placeholder = o.ph;
+    if (o.max) inp.maxLength = o.max;
+    if (o.mode) inp.inputMode = o.mode;
+    inp.autocomplete = 'off';
+    if (o.req) inp.setAttribute('aria-required', 'true');
+    inp.addEventListener('input', () => {
+      v[key] = inp.value;
+      if (errEls[key].textContent) errEls[key].textContent = '';
+      const all = $('fd-new-err');
+      if (all && Object.values(errEls).every(e => !e.textContent)) all.textContent = '';
+    });
+    lb.appendChild(inp);
+    lb.appendChild(errOf(key));
+    return lb;
+  };
+  const M = PhaseLogic.NEW_CASE_MAX;
+  card.appendChild(field('name', '物件名', { req: true, ph: '例: みどり荘', max: M.name }));
+  card.appendChild(field('room', '号室', { req: true, ph: '例: 203', max: M.room }));
+  card.appendChild(field('address', '住所', { req: true, ph: '例: 東京都新宿区西新宿2-8-1', max: M.address }));
+  card.appendChild(field('resident', '入居者の名前', { req: true, ph: '例: 山本 花子', max: M.resident }));
+  card.appendChild(field('contact', '連絡先（任意）', { ph: '電話番号かメールアドレス', max: M.contact }));
+  card.appendChild(field('at', '訪問日時', { req: true, type: 'datetime-local' }));
+  // フェーズ（4つから1つ。押して選ぶ）
+  const kb = mk('div', 'fd-set-f fd-new-f');
+  kb.id = 'fd-new-f-kind';
+  kb.appendChild(head('フェーズ', true));
+  const chips = mk('div', 'fd-new-kinds');
+  chips.setAttribute('role', 'radiogroup');
+  chips.setAttribute('aria-label', 'フェーズ');
+  const labelBox = field('label', 'その他の名前', { req: true, ph: '例: 点検・清掃', max: PhaseLogic.LABEL_MAX });
+  labelBox.classList.add('fd-new-label');
+  const paint = () => {
+    chips.querySelectorAll('button').forEach(b => {
+      const on = b.dataset.kind === v.kind;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    labelBox.hidden = v.kind !== 'other';
+  };
+  FD_NEW_KINDS().forEach(k => {
+    const b = dBtn(k.label, 'fd-new-kind k-' + k.key, () => {
+      v.kind = k.key;
+      errEls.kind.textContent = '';
+      paint();
+      if (k.key === 'other') { const i = $('fd-new-label'); if (i && !i.value) i.focus(); }
+    });
+    b.dataset.kind = k.key;
+    b.setAttribute('role', 'radio');
+    chips.appendChild(b);
+  });
+  kb.appendChild(chips);
+  kb.appendChild(errOf('kind'));
+  card.appendChild(kb);
+  card.appendChild(labelBox);
+  paint();
+  card.appendChild(field('request', '依頼内容詳細（任意）', { area: true, ph: '例: 台所の床が濡れている。お部屋の荷物が多い', max: M.request }));
+  const err = mk('div', 'err', '');
+  err.id = 'fd-new-err';
+  err.setAttribute('role', 'alert');
+  card.appendChild(err);
+  const submit = dBtn('登録する', 'btn fd-new-submit', btn => fdNewSubmit(s, btn, errEls, err));
+  submit.id = 'fd-new-submit';
+  card.appendChild(submit);
+  host.replaceChildren(card);
+}
+async function fdNewSubmit(s, btn, errEls, err) {
+  if (!fdAlive(s) || s.busy) return;
+  const v = fdNewDraft || fdNewBlank();
+  const chk = PhaseLogic.newCaseCheck(v);
+  Object.keys(errEls).forEach(k => { errEls[k].textContent = chk.errors[k] || ''; });
+  err.textContent = '';
+  if (!chk.ok) {
+    err.textContent = '入っていない欄があります（赤い字の所）';
+    const first = ['name', 'room', 'address', 'resident', 'contact', 'at', 'kind', 'label', 'request'].find(k => chk.errors[k]);
+    const el = first && (first === 'kind' ? document.querySelector('#fd-new-f-kind button') : $('fd-new-' + first));
+    if (el) { el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'center' }); }
+    return;
+  }
+  s.busy = 'new';
+  let res = null;
+  await withBusy(btn, async () => {
+    try { res = await CasesApi.fieldCreateCase(chk.args); }
+    catch (e) { err.textContent = '登録できませんでした: ' + errText(e); }
+  });
+  s.busy = '';
+  if (!res || !res.case_id || !res.phase_id) return;
+  fdNewDraft = null;
+  fieldRowsInvalidate();
+  fdSel.set(String(res.case_id).toLowerCase(), String(res.phase_id).toLowerCase());
+  if (fdAlive(s)) location.hash = fdPhaseHash(res.case_id, res.phase_id);
+}
+
 function fdRenderSettings() {
   const host = $('field-root');
   const nodes = [];

@@ -19,7 +19,7 @@
 //   現場担当への指示（case_phases.plan。Task 9）の段の中身は js/phase-detail.js（phBriefBody）
 // 日時の入力は日本時間（端末のタイムゾーンに関係なく、入力欄の値を日本時間として読む）
 
-const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore' }; // 報告書の作業区分
+const PH_WORK_TYPE = { survey: 'investigate', cause: 'repair', repair: 'restore', other: 'repair' }; // 報告書の作業区分（Task 37: その他は設備修繕）
 const PH_STEP_INDEX = {
   survey: { schedule: 0, visit: 1, waiting: 1, write: 1, check: 3, report: 3, approval: 4, done: 5 }, // 2 = 調査結果（段階 check / report で未入力なら 2）
   work: { estimate: 0, issued: 0, approval: 0, schedule: 1, work: 1, report: 3, bill: 4, payment: 4, done: 5 } // 2（完了の段）は Task 16 で無くした
@@ -217,11 +217,14 @@ function phDraw() {
   head.appendChild(mk('span', 'ph-hint', 'フェーズ名を押すと詳細、各欄を押すとその場で変えられます'));
   const adds = mk('div', 'ph-adds');
   PhaseLogic.KINDS.forEach(k => {
-    const b = dBtn('＋ ' + k.label, 'ph-add k-' + k.key, btn => phAdd(btn, k.key));
+    // Task 37: 「＋ その他」は名前の欄を開く（名前を入れて「追加」）
+    const b = dBtn('＋ ' + k.label, 'ph-add k-' + k.key, btn => (k.key === 'other' ? phOtherOpen() : phAdd(btn, k.key)));
     b.dataset.kind = k.key;
     if (!s.data || s.adding) b.disabled = true;
+    if (k.key === 'other') b.setAttribute('aria-expanded', s.otherForm ? 'true' : 'false');
     adds.appendChild(b);
   });
+  if (s.otherForm && s.data) adds.appendChild(phOtherForm(s));
   const nodes = [head];
   const err = mk('div', 'err ph-box-err');
   err.id = 'case-phases-err';
@@ -239,7 +242,7 @@ function phDraw() {
   if (s.cell && ((s.cell.col === 'when' && !s.editing.has(s.cell.id)) || (s.cell.col === 'bill' && !s.billForm.has(s.cell.id)
     && !(s.data.phases.find(p => p.id === s.cell.id) || {}).billed_at))) s.cell = null;
   if (s.data.phases.length === 0) {
-    nodes.push(mk('div', 'ph-empty', 'まだありません。調査に行くときは「＋ 調査」、工事をするときは「＋ 原因元工事」「＋ 復旧工事」を押してください（同じ種類を何回でも追加できます）'));
+    nodes.push(mk('div', 'ph-empty', 'まだありません。調査に行くときは「＋ 調査」、工事をするときは「＋ 原因元工事」「＋ 復旧工事」、点検・清掃などは「＋ その他」を押してください（同じ種類を何回でも追加できます）'));
   } else {
     nodes.push(phTable());
   }
@@ -261,12 +264,48 @@ function phKeepFocus(keep) {
   }
 }
 
-function phAdd(btn, kind) {
+// Task 37: 「＋ その他」の名前の欄（画面内の行。名前は1〜40字・例: 点検・清掃）
+function phOtherOpen() {
+  const s = ph;
+  if (!s || !s.data) return;
+  s.otherForm = !s.otherForm;
+  phDraw();
+  const i = s.otherForm && s.root.querySelector('#ph-other-name');
+  if (i) i.focus();
+}
+function phOtherForm(s) {
+  const box = mk('div', 'ph-other-form');
+  box.id = 'ph-other-form';
+  const lb = mk('label', 'ph-other-lb', 'その他の名前');
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.id = 'ph-other-name';
+  inp.maxLength = PhaseLogic.LABEL_MAX;
+  inp.placeholder = '例: 点検・清掃';
+  inp.value = s.otherName || '';
+  inp.addEventListener('input', () => { s.otherName = inp.value; });
+  lb.htmlFor = inp.id;
+  const add = dBtn('追加', 'btn sm', btn => {
+    const name = String(inp.value || '').trim();
+    if (!name) { phMsg('case-phases-err', '「その他」の名前を入れてください（例: 点検・清掃）'); inp.focus(); return; }
+    if (Array.from(name).length > PhaseLogic.LABEL_MAX) { phMsg('case-phases-err', '「その他」の名前は' + PhaseLogic.LABEL_MAX + '文字までです'); return; }
+    return phAdd(btn, 'other', name);
+  });
+  add.id = 'ph-other-add';
+  const cancel = dBtn('キャンセル', 'btn sm ghost', () => { s.otherForm = false; s.otherName = ''; phMsg('case-phases-err', ''); phDraw(); });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); add.click(); } });
+  box.append(lb, inp, add, cancel);
+  return box;
+}
+
+function phAdd(btn, kind, label) {
   const s = ph;
   return phRun(btn, 'case-phases-err', '追加', async () => {
     const n = s.data ? s.data.phases.filter(x => x.kind === kind).length + 1 : 1;
-    const row = await PhasesApi.create(s.caseId, kind, currentCase, PhaseLogic.kindLabel(kind) + ' ' + n + '回目');
+    const title = kind === 'other' ? PhaseLogic.phaseTitle({ kind, label }) : PhaseLogic.kindLabel(kind) + ' ' + n + '回目';
+    const row = await PhasesApi.create(s.caseId, kind, currentCase, title, kind === 'other' ? label : null);
     s.newId = row.id;
+    if (kind === 'other') { s.otherForm = false; s.otherName = ''; }
   }).then(() => {
     if (!phAlive(s) || !s.newId) return;
     const card = s.root.querySelector('[data-phase-id="' + s.newId + '"]');
@@ -412,7 +451,8 @@ function phTableRow(p, multi) {
   const name = mk('button', 'ph-c ph-c-name');
   name.type = 'button';
   name.append(mk('span', 'ph-kind k-' + p.kind, PhaseLogic.kindLabel(p.kind)));
-  if (multi) name.appendChild(mk('span', 'ph-n', seq + '回目'));
+  if (p.kind === 'other') name.appendChild(mk('span', 'ph-n ph-label', String(p.label || '').trim())); // Task 37: その他は名前（回目なし）
+  else if (multi) name.appendChild(mk('span', 'ph-n', seq + '回目'));
   name.appendChild(mk('span', 'ph-go', '›'));
   name.setAttribute('aria-label', row.title + 'の詳細を開く');
   name.title = row.title + 'の詳細（日時・調査結果・作業担当者への指示・書類・請求の全部）';
@@ -730,7 +770,7 @@ function phCard(p) {
 
   const hd = mk('div', 'ph-hd');
   hd.appendChild(mk('span', 'ph-kind k-' + p.kind, PhaseLogic.kindLabel(p.kind)));
-  hd.appendChild(mk('b', 'ph-n', phSeqOf(p) + '回目'));
+  hd.appendChild(mk('b', 'ph-n', p.kind === 'other' ? String(p.label || '').trim() : phSeqOf(p) + '回目'));
   hd.appendChild(mk('span', 'ph-sp'));
   const tag = mk('span', 'ph-stage ' + (st.ball === 'us' ? 'us' : st.ball === 'them' ? 'them' : 'done'),
     st.ball ? PhaseLogic.MARK[st.ball] + ' ' + st.label : '✓ ' + st.label);

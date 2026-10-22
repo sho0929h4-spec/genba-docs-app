@@ -44,6 +44,12 @@ const CasesApi = (() => {
       // cases の insert は表単位で付与済みだが、送る列は更新と同じ許可列に揃える（created_by 等は DB の既定値）
       return must(await sb.from('cases').insert(pick(fields, CASE_COLS)).select().single());
     },
+    // Task 37: 現場用の案件登録（作業担当者も）。案件＋その号室・入居者＋フェーズ1つ（作業担当者 = 自分）＋依頼内容を1回で作る
+    //   （rpc field_create_case / migration 058。保存件数の上限・管理者への自動の連絡・タイムラインも DB が行う）→ { ok, case_id, phase_id }
+    //   args は PhaseLogic.newCaseCheck の args（p_name, p_room, p_address, p_resident_name, p_contact, p_scheduled_at, p_kind, p_label, p_request）
+    async fieldCreateCase(args) {
+      return must(await sb.rpc('field_create_case', args));
+    },
     // before: 変更前の行（渡すと、依頼元が変わったときタイムラインに記録する）
     async updateCase(id, fields, before) {
       const row = must(await sb.from('cases').update(pick(fields, CASE_COLS)).eq('id', id).select().single());

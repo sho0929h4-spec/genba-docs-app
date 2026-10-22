@@ -188,18 +188,25 @@ const RequestView = (() => {
   const LATE_BTN = '🕒 到着が遅れそう（押すと管理者に報告し、入居者の電話番号が出ます）';
 
   // 入居者の電話（報告後）または「到着が遅れそう」のボタン
-  //   o: { residents: [{ label, name, tel }], late: late_at（あれば電話を出す）, onLate()（ボタンを押したとき）, disabled, id, note }
+  //   o: { residents: [{ label, name, tel }], late: late_at（あれば電話を出す）, onLate()（ボタンを押したとき）, disabled, id, note,
+  //        own（Task 37: 自分で登録した案件。遅れの報告なしで最初から電話を出す） }
   function residentsBox(o) {
     const box = el('div', 'lt-box');
     if (o.id) box.id = o.id;
-    if (o.late) {
+    if (o.late || o.own) {
       const list = (o.residents || []).filter(x => x.tel || x.name);
-      const head = el('div', 'lt-done', '🕒 到着の遅れを報告しました' + (o.lateText ? '（' + o.lateText + '）' : '') + '。入居者の電話:');
+      const head = el('div', 'lt-done', o.late
+        ? '🕒 到着の遅れを報告しました' + (o.lateText ? '（' + o.lateText + '）' : '') + '。入居者の電話:'
+        : '入居者の連絡先（自分で登録した案件）:');
       box.appendChild(head);
       if (!list.length) box.appendChild(el('div', 'lt-none', '入居者の電話番号は登録されていません'));
       list.forEach(x => {
         const who = [x.label, x.name ? x.name + '様' : ''].filter(Boolean).join(' ');
-        if (x.tel) {
+        if (x.email && !x.tel) {
+          const a = el('a', 'lt-tel', '✉ ' + (who ? who + ' ' : '') + x.email);
+          a.href = 'mailto:' + x.email;
+          box.appendChild(a);
+        } else if (x.tel) {
           const a = el('a', 'lt-tel', '☎ ' + (who ? who + ' ' : '') + x.tel);
           a.href = 'tel:' + String(x.tel).replace(/[^0-9+]/g, '');
           box.appendChild(a);
