@@ -41,6 +41,7 @@ async function refreshMessagesBanner(rows, isAlive) {
   }
   el.replaceChildren(Icon.prepend(mk('span', null, '現場からの連絡 ' + n + '件'), 'message'), mk('span', 'rep-sub', '見る →'));
   el.hidden = n === 0;
+  if (smIsOwner() && typeof talkBadgeRefresh === 'function') talkBadgeRefresh(false); // Task 46: ヘッダーの「メッセージ」の未読
 }
 
 /* ---------- 報告書の期限超過（Task 29） ---------- */

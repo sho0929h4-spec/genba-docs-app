@@ -259,7 +259,7 @@ function siSendbackSheet(it, r) {
 const siKey = it => (it.type === 'message' ? 'msg-' + it.message.id : it.type === 'estimate' ? 'est-' + it.phase.id : it.type === 'report' ? 'rep-' + it.phase.id : it.phase.id);
 // 行を押した → そのタスクの続き（今までの「その場で進めるボタン」と同じ行き先）
 //   見積書作成 → 見積の作成／続き、報告書作成 → 報告書の作成／続き、確認依頼・翌日の予定 → その対応のツールページ（「確認した」は依頼内容の一番下）、
-//   管理者からの返事・催促 → 既読にして、やり取り（#f/contact。日報への返事は日報作成のタブ）
+//   管理者からの返事・催促 → 既読にして、その案件のメッセージのトーク（Task 46: #f/msg/{案件ID}。案件の無い返事（日報への返事）は全体 #f/msg/all）
 async function siFieldOpen(it) {
   if (it.type === 'estimate') return siMakeEstimate(it);
   if (it.type === 'report') return siMakeReport(it);
@@ -279,7 +279,7 @@ async function siOpenMessage(it) {
   s.busy.delete(key);
   if (si !== s) return;
   if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
-  if (!err) { location.hash = it.caseRow ? '#f/contact' : '#f/daily'; return; }
+  if (!err) { location.hash = '#f/msg/' + (it.caseRow ? it.caseRow.id : 'all'); return; }
   s.msg = err;
   siRender();
 }
@@ -362,11 +362,11 @@ function siRender() {
     // 管理者に連絡（Task 29: タブから外したので、ここから）。Task 33 追加: 1行の小さなボタン2つ
     const bar = mk('div', 'si-contact');
     const nb = Icon.prepend(dBtn('管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
-      if (si && si.field) { si.msg = '管理者に連絡しました（返事はこのタスクに出ます）'; siRender(); }
+      if (si && si.field) { si.msg = '管理者に連絡しました（やり取りは「メッセージ」に残ります）'; siRender(); }
     } })), 'message');
     nb.id = 'si-contact-new';
     nb.disabled = si.loading || !!si.err;
-    const hb = dBtn('やり取りを見る ›', 'btn sm ghost inline si-contact-list', () => { location.hash = '#f/contact'; });
+    const hb = dBtn('やり取りを見る ›', 'btn sm ghost inline si-contact-list', () => { location.hash = '#f/msg'; }); // Task 46: メッセージのタブ
     hb.id = 'si-contact-list';
     bar.append(nb, hb);
     nodes.push(bar);

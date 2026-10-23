@@ -17,7 +17,8 @@
 //   カレンダー表示では上に「📄 提出済みの報告書 N件 ›」（一覧のその段へ）。ツールの報告書は「提出済み 10/22 ・ 中身を見る・直す」（PhaseLogic.fieldTools）
 // Task 42: ツールページの一番下に小さく「この案件を削除」（自分が登録した案件だけ。CaseTrash.fieldSection。2段階＋パスワード →
 //   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
-// 下のタブバー 案件／タスク／日報作成／設定（safe-area）。旧ルート #f/inbox は #f/tasks、#f/outbox は #f/contact へ。
+// 下のタブバー 案件／タスク／メッセージ／設定（safe-area。Task 46: 日報作成は設定の中の項目 → #f/daily）。旧ルート #f/inbox は #f/tasks、
+//   #f/contact・#f/outbox はメッセージ #f/msg へ（Task 46: 管理者とのやり取りは LINE 風のトーク #f/msg/{案件ID}・#f/msg/all。js/talk-ui.js）。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
 // 入口（fieldRoute: app.js の routeFromHash の最初に呼ぶ）:
 //   スタッフ（memberships.role = 'member'）は現場用の画面だけ。管理画面のルートを開いても現場用に戻す
@@ -55,7 +56,7 @@ const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/histo
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: 'home', label: '案件' },
   { view: 'tasks', hash: '#f/tasks', icon: 'tasks', label: 'タスク' },
-  { view: 'daily', hash: '#f/daily', icon: 'pen', label: '日報作成' },
+  { view: 'msg', hash: '#f/msg', icon: 'chat', label: 'メッセージ' }, // Task 46: 日報作成は設定の中の項目に移した（#f/daily はそのまま）
   { view: 'settings', hash: '#f/settings', icon: 'settings', label: '設定' }
 ];
 // 現場用からも開く共通の画面（報告書・見積書・工事掲示・送付メール）
@@ -125,7 +126,10 @@ function fdMatch(h) {
   if (h === '#f' || h === '#f/') return { view: 'cases' };
   if (h === '#f/tasks' || h === '#f/inbox') return { view: 'tasks' }; // Task 29: 確認（🔔）→ タスク
   if (h === '#f/daily') return { view: 'daily' };
-  if (h === '#f/contact' || h === '#f/outbox') return { view: 'contact' }; // Task 23: 送るメール → 管理者に連絡（Task 29: タブには出さない）
+  // Task 46: 管理者とのやり取り（#f/contact・古い #f/outbox）はメッセージ（LINE 風のトーク）に統合
+  if (h === '#f/contact' || h === '#f/outbox' || h === '#f/msg') return { view: 'msg', key: null };
+  const mm = h.match(new RegExp('^#f/msg/(all|' + FD_UUID + ')$', 'i'));
+  if (mm) return { view: 'msg', key: mm[1].toLowerCase() };
   if (h === '#f/settings') return { view: 'settings' };
   if (h === '#f/new') return { view: 'new' }; // Task 37: 案件の登録
   const m = h.match(FD_CASE_RE);
@@ -143,7 +147,9 @@ function fdRedirectOf(h) {
   const m = h.match(new RegExp('^#case/' + FD_UUID + '(?:/phase/' + FD_UUID + ')?', 'i'));
   if (m) return m[2] ? fdPhaseHash(m[1], m[2]) : '#f/case/' + m[1].toLowerCase(); // フェーズ詳細のリンク → その対応のツールページ
   if (h === '#inbox-staff') return '#f/tasks';
-  if (h === '#outbox' || /^#messages/.test(h)) return '#f/contact';
+  const tm = h.match(/^#(?:talk|messages)\/(all|[0-9a-f-]{36})$/i); // Task 46: メッセージのトーク・案件の連絡 → その案件のトーク
+  if (tm) return '#f/msg/' + tm[1].toLowerCase();
+  if (h === '#outbox' || h === '#talk' || /^#messages/.test(h)) return '#f/msg';
   return '#f';
 }
 
@@ -153,7 +159,8 @@ function fieldRoute() {
   const fm = fdMatch(h);
   if (!isFieldMode()) {
     fdSetMode(false);
-    if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' || fm.view === 'survey' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '') : ''); // 管理画面にしている管理者 → 管理画面
+    if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' || fm.view === 'survey' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '')
+      : fm.view === 'msg' ? '#talk' + (fm.key ? '/' + fm.key : '') : ''); // 管理画面にしている管理者 → 管理画面（Task 46: メッセージは #talk）
     return false;
   }
   if (fm) { fdSetMode(true); openField(fm); return true; }
@@ -172,10 +179,13 @@ function openField(fm) {
   showScreen('field');
   const seq = ++fdSeq;
   fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, estId: fm.estId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
+  document.body.classList.remove('talk-open'); // Task 46: トークの中だけ下のタブを隠す（talk-ui が付ける）
   fdTabs();
   fdAddedPaint();
   if (fm.view !== 'cases' && fm.view !== 'tasks') fdBadgeRefresh(seq); // 案件・タスクは読み込んだ後に数える
+  if (fm.view !== 'msg' && typeof talkBadgeRefresh === 'function') talkBadgeRefresh(true); // Task 46: メッセージの未読（メッセージのタブは読み込みで数える）
   const host = $('field-root');
+  host.classList.remove('talk-in');
   host.replaceChildren();
   document.title = '現場ドキュメント';
   if (fm.view === 'cases') { fd.msg = fdFlash; fdFlash = ''; fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
@@ -187,12 +197,13 @@ function openField(fm) {
     fdBar('タスク');
     return openStaffInbox({ field: true, root: host });
   }
-  if (fm.view === 'daily') { fdBar('日報作成'); fdRenderDaily(); return fdLoadDaily(seq); }
+  if (fm.view === 'daily') { fdBar('日報作成', '‹ 設定', '#f/settings'); fdRenderDaily(); return fdLoadDaily(seq); } // Task 46: 設定の中の項目
   if (fm.view === 'new') { fdBar('案件を登録', '‹ 案件', '#f'); document.title = '案件を登録 - 現場ドキュメント'; return fdRenderNew(); }
-  if (fm.view === 'contact') {
-    if (location.hash === '#f/outbox') fdReplace('#f/contact');
-    fdBar('管理者とのやり取り', '‹ タスク', '#f/tasks');
-    return openFieldContact(host);
+  if (fm.view === 'msg') { // Task 46: メッセージ（一覧 → 案件ごとのトーク。js/talk-ui.js）
+    if (location.hash === '#f/contact' || location.hash === '#f/outbox') fdReplace('#f/msg');
+    if (fm.key) fdBar('', '‹ メッセージ', '#f/msg'); else fdBar('メッセージ'); // トークの名前は下の帯（物件名 号室）
+    document.title = 'メッセージ - 現場ドキュメント';
+    return openTalk({ field: true, key: fm.key, root: host });
   }
   fdBar('設定');
   fdRenderSettings();
@@ -208,7 +219,7 @@ function fdBar(title, backLabel, backHash) {
 }
 function fdTabs() {
   const nav = $('fd-tabs');
-  const active = fd && (fd.view === 'case' || fd.view === 'history' || fd.view === 'survey' || fd.view === 'new') ? 'cases' : fd && fd.view === 'contact' ? 'tasks' : fd && fd.view;
+  const active = fd && (fd.view === 'case' || fd.view === 'history' || fd.view === 'survey' || fd.view === 'new') ? 'cases' : fd && fd.view === 'daily' ? 'settings' : fd && fd.view;
   nav.replaceChildren(...FD_TABS.map(t => {
     const b = dBtn('', 'fd-tab' + (t.view === active ? ' on' : ''), () => {
       // 今のタブをもう一度押したら読み直す（集計の使い回しを捨てる）
@@ -221,6 +232,11 @@ function fdTabs() {
     if (t.view === 'tasks') { // Task 45: タスクの数のバッジ（fieldTaskBadge が入れる）
       const bd = ic.appendChild(mk('span', 'fd-badge'));
       bd.id = 'fd-task-badge';
+      bd.hidden = true;
+    }
+    if (t.view === 'msg') { // Task 46: メッセージの未読の数（talkBadgeSet が入れる）
+      const bd = ic.appendChild(mk('span', 'fd-badge'));
+      bd.id = 'fd-msg-badge';
       bd.hidden = true;
     }
     b.appendChild(mk('span', null, t.label));
@@ -1537,6 +1553,11 @@ function fdRenderSettings() {
     inp.addEventListener('blur', () => { if (fdSetTimer) save(); });
   });
   nodes.push(me);
+  // Task 46: 日報作成は下のタブから設定の中の項目に移した（中身は今のまま）
+  const daily = dBtn('', 'fd-set-daily', () => { location.hash = '#f/daily'; });
+  daily.id = 'fd-set-daily';
+  daily.append(Icon.prepend(mk('span', null, '日報作成'), 'pen', 18), mk('span', null, '›'));
+  nodes.push(daily);
   if (fdIsOwner()) nodes.push(fieldViewCard('fd-set-view'));
   const out = dBtn('ログアウト', 'btn ghost fd-logout', () => signOutUser());
   out.id = 'fd-logout';

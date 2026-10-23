@@ -9,7 +9,7 @@ const StaffMessagesApi = (() => {
   //   reedit = 報告書・見積書の再編集と再提出で自動（057。Task 35）／case_create = 現場用の案件登録で自動（058。Task 37・rpc field_create_case）／
   //   case_delete = 現場用で登録した案件の削除で自動（062。Task 42・rpc field_trash_case）／task_delete = タスクの削除で自動・
   //   sendback = タスクの差し戻し（063。Task 43・rpc field_task_dismiss / field_task_sendback。返事をすると差し戻しは済みになる）。画面からは作れない
-  const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source, daily_date';
+  const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source, daily_date, as_client'; // 065: as_client（元請から）
   const SUBJECT_MAX = 100;
   const BODY_MAX = 4000;
   const FILES_MAX = 10;
@@ -17,7 +17,8 @@ const StaffMessagesApi = (() => {
     const base = String(n || '').replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '').replace(/^[._-]+/, '').slice(0, 60);
     return (base || 'photo') + '.jpg';
   };
-  const dirOf = caseId => `${ctx.org.id}/cases/${caseId}/messages`;
+  // 065: 案件の無い書き込み（全体のトーク）の写真は日報と同じ {org}/daily/{自分}/（DB の staff_messages_check と同じ）
+  const dirOf = caseId => (caseId ? `${ctx.org.id}/cases/${caseId}/messages` : `${ctx.org.id}/daily/${ctx.user.id}`);
   const dailyDir = () => `${ctx.org.id}/daily/${ctx.user.id}`; // 053: 日報の写真
   const api = {
     SUBJECT_MAX, BODY_MAX, FILES_MAX,
@@ -33,7 +34,7 @@ const StaffMessagesApi = (() => {
       return must(await q.order('created_at', { ascending: false }).limit(opts.limit || 300)) || [];
     },
     // 送る。files（File の配列）は先にアップロードして、失敗したら片付ける
-    //   { caseId, phaseId, toUser（null = 管理者全員）, subject, body, files, replyTo }
+    //   { caseId（Task 46: null = 全体のトーク）, phaseId, toUser（null = 管理者全員）, subject, body, files, replyTo, asClient（065: 元請から。管理者だけ） }
     async send(f) {
       const subject = String(f.subject || '').trim();
       if (!subject) throw new Error('件名を入れてください');
@@ -56,8 +57,8 @@ const StaffMessagesApi = (() => {
           bytes += p.size;
         }
         const row = must(await sb.from('staff_messages').insert({
-          case_id: f.caseId, phase_id: f.phaseId || null, to_user: f.toUser || null,
-          subject, body, attachments: done, reply_to: f.replyTo || null
+          case_id: f.caseId || null, phase_id: f.phaseId || null, to_user: f.toUser || null,
+          subject, body, attachments: done, reply_to: f.replyTo || null, ...(f.asClient ? { as_client: true } : {})
         }).select(COLS).single());
         if (bytes) { try { await addUsage(bytes, 0); } catch (e) { console.warn('使用量の更新に失敗', e); } }
         return row;
@@ -115,7 +116,10 @@ const StaffMessagesApi = (() => {
       const rows = must(await sb.from('staff_messages').update({ read_at: new Date().toISOString() }).eq('id', id).is('read_at', null).select('id'));
       return !!(rows && rows.length);
     },
-    photoUrl(path) { return AppStorage.getUrl(path); }
+    photoUrl(path) { return AppStorage.getUrl(path); },
+    // Task 46（migration 065）: トークを最後に読んだ時刻（自分の分だけ見える）と、開いたときの既読（そのトークの自分あての未読も既読になる）
+    async talkReads() { return must(await sb.from('talk_reads').select('case_id, read_at')) || []; },
+    async markTalkRead(caseId) { return must(await sb.rpc('talk_mark_read', { p_case: caseId || null })); }
   };
   return api;
 })();

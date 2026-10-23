@@ -480,6 +480,10 @@ function renderHead() {
   // 「今の状態」の行の右に「↩ 1つ前に戻す」（js/case-undo.js）。確かめる欄はその下
   const nowRow = mk('div', 'case-now-row');
   nowRow.appendChild(nowLine);
+  // Task 46: この案件のメッセージ（LINE 風のトーク。js/talk-ui.js）。行を増やさないよう「今の状態」の行の右
+  const talkBtn = Icon.prepend(dBtn('メッセージ', 'linkbtn case-talk', () => { location.hash = '#talk/' + c.id; }), 'chat', 14);
+  talkBtn.id = 'case-talk-open';
+  nowRow.appendChild(talkBtn);
   let undoPanel = null;
   if (typeof CaseUndo !== 'undefined') {
     const u = CaseUndo.mount();
