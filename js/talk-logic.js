@@ -9,19 +9,20 @@
 (function (root) {
   const inNode = typeof module !== 'undefined' && module.exports;
   const PL = () => (inNode ? require('./phase-logic.js') : root.PhaseLogic);
+  const EL = () => (inNode ? require('./estimate-logic.js') : root.EstimateLogic);
   const str = v => String(v == null ? '' : v).trim();
   const listOf = v => (Array.isArray(v) ? v.filter(Boolean) : []);
   const ms = v => { const d = PL().toDate(v); return d ? d.getTime() : null; };
   const ALL = 'all'; // 「全体」のトークの key
 
-  // 対応の呼び名（ログ用）: 調査の2回目からは「再調査」、工事は「原因元工事」（2回目から「原因元工事 2回目」）、その他は名前（点検）
+  // 対応の呼び名（ログ用）: 調査の2回目から・調査報告から作った調査（source_phase_id。Task 47）は「再調査」、工事は「原因元工事」（2回目から「原因元工事 2回目」）、その他は名前（点検）
   function kindName(p, seq) {
     if (!p) return '';
-    if (p.kind === 'survey') return seq > 1 ? '再調査' : '調査';
+    if (p.kind === 'survey') return seq > 1 || p.source_phase_id ? '再調査' : '調査';
     const name = PL().workName(p.kind, p);
     return seq > 1 ? `${name} ${seq}回目` : name;
   }
-  const RANK = { card: 0, log: 1, msg: 2 };
+  const RANK = { card: 0, cond: 1, log: 2, msg: 3 };
   // 自動の連絡のうち、ログの行にするもの（report_submit は報告書の受領の行と重なるので出さない）
   const LOG_SOURCES = ['nudge', 'late', 'overdue', 'reedit', 'case_create', 'task_delete'];
   // タイムラインの自動記録のうち、フェーズの記録に無いものだけを短くする（ほかは出さない。重ならないように）
@@ -65,13 +66,16 @@
     const seqd = c ? withSeq(c.phases) : [];
     const phaseOf = id => seqd.find(x => x.p.id === id) || null;
     const log = (at, what) => { if (ms(at) != null && what) out.push({ kind: 'log', at, text: [PL().fmtMD(at), room, what].filter(Boolean).join(' ') }); };
+    // Task 47: 段階を手で直したときは、そのログ（staff_messages source stage）を出して、同じ時刻の完了・請求・入金の自動のログは出さない（重なるので）
+    const manual = new Set(listOf(o.messages).filter(m => m.source === 'stage' && m.phase_id).map(m => m.phase_id + '|' + ms(m.created_at)));
+    const auto = (p, at, what) => { if (!manual.has(p.id + '|' + ms(at))) log(at, what); };
     // フェーズの記録
     for (const { p, seq } of seqd) {
       const k = kindName(p, seq);
       const reports = listOf(p.reports);
       const ests = listOf(p.estimates);
       if (p.schedule_set_at && p.scheduled_at) log(p.schedule_set_at, `${k}日程決定（${PL().fmtMDHM(p.scheduled_at)}）`);
-      if (p.done_at) log(p.done_at, k + (p.kind === 'survey' ? '実施' : '完了'));
+      if (p.done_at) auto(p, p.done_at, k + (p.kind === 'survey' ? '実施' : '完了'));
       for (const r of reports) {
         if (r.submitted_at) {
           out.push({ kind: 'card', doc: 'report', id: r.id, at: r.submitted_at, text: `${k}報告書`, from: r.submitted_by || null,
@@ -93,14 +97,20 @@
             from: e.created_by || null, fromName: nameOf(e.created_by), mine: !!me && e.created_by === me, phaseId: p.id });
           log(e.issued_at, `${k}見積書受領`);
         }
+        // Task 47: 工事の見積書の提出 → 工事の日程の条件（備考と明細から）のカードとログ。備考に無い項目は「未記入」
+        if (e.issued_at && PL().isWork(p.kind) && e.status !== 'draft') {
+          const cond = EL().conditions(e);
+          out.push({ kind: 'cond', id: 'cond-' + e.id, at: e.issued_at, text: `${k}の工事の条件`, cond, phaseId: p.id, from: e.created_by || null, mine: true });
+          log(e.issued_at, `${k} 工事の条件を記録` + (cond.missing.length ? `（${cond.missing.join('・')}は未記入）` : ''));
+        }
         if (e.sent_at) log(e.sent_at, `${k}見積書発注待ち`);
         if (e.accepted_at) {
           log(e.accepted_at, `${k}発注済み`);
           if (p.kind !== 'survey' && !p.scheduled_at && !p.done_at) log(new Date(ms(e.accepted_at) + 1).toISOString(), `${k}日程調整中`);
         }
       }
-      if (p.billed_at) log(p.billed_at, `${k}請求済み`);
-      if (p.paid_at) log(p.paid_at, `${k}入金済み`);
+      if (p.billed_at) auto(p, p.billed_at, `${k}請求済み`);
+      if (p.paid_at) auto(p, p.paid_at, `${k}入金済み`);
     }
     const push = (m, text, after) => out.push({ kind: 'msg', at: after ? new Date(ms(m.created_at) + 1).toISOString() : m.created_at, msg: m, id: m.id,
       from: m.from_user || null, asClient: !!m.as_client, mine: !!me && m.from_user === me && !m.as_client,
@@ -111,6 +121,11 @@
       const k = hit ? kindName(hit.p, hit.seq) : '';
       const subj = PL().plainSubject(m.subject);
       if (m.source === 'report_submit' || m.source === 'case_delete') continue;
+      if (m.source === 'stage') { // Task 47: 「10/27 501号室 原因元工事 失注」
+        const lab = /「(.+?)」/.exec(subj);
+        log(m.created_at, [k, lab ? lab[1] : subj].filter(Boolean).join(' '));
+        continue;
+      }
       if (LOG_SOURCES.includes(m.source)) {
         let what = subj;
         if (m.source === 'nudge') what = k + (/見積/.test(subj) ? '見積書催促' : /報告/.test(subj) ? '報告書催促' : '催促');
@@ -129,7 +144,7 @@
     }
     const read = ms(o.readAt);
     out.forEach(x => {
-      x.unread = x.kind !== 'log' && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
+      x.unread = (x.kind === 'msg' || x.kind === 'card') && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
         : x.kind === 'msg' && PL().messageForMe(x.msg, me, !!o.isOwner));
     });
     return out.sort((a, b) => ms(a.at) - ms(b.at) || RANK[a.kind] - RANK[b.kind]);
@@ -155,6 +170,7 @@
   function lastLine(x) {
     if (!x) return '';
     if (x.kind === 'card') return x.text + 'が届きました';
+    if (x.kind === 'cond') return x.text;
     if (x.kind === 'msg') return (x.asClient ? '元請から: ' : '') + String(x.text || '').split('\n')[0];
     return x.text;
   }
@@ -191,7 +207,21 @@
     return ids.size === 1 ? [...ids][0] : null;
   }
 
-  const api = { ALL, kindName, timelineLine, bubbleText, subjectOf, items, withDays, lastLine, threads, unreadTotal, recipient };
+  // Task 47: このトークでフェーズ管理を直せるか（DB の phase_set_stage と同じ）: 管理者、または現場用で自分が登録した案件
+  //   （登録した本人で、その案件に案件登録の自動の連絡 source case_create がある）。messages = そのトークの連絡
+  function canManage(caseRow, me, isOwner, messages) {
+    const c = caseRow || {};
+    if (!c.id) return false;
+    if (isOwner) return true;
+    return !!me && c.created_by === me && listOf(messages).some(m => m.case_id === c.id && m.source === 'case_create');
+  }
+  // 日程調整中のときの入力欄の例（具体の日付: 1週間後とその次の日）
+  function scheduleHint(now) {
+    const t = ms(now) != null ? ms(now) : Date.now();
+    return `例: 日程候補日 ${PL().fmtMD(t + 7 * 86400000)}・${PL().fmtMD(t + 8 * 86400000)} の午前中希望`;
+  }
+
+  const api = { ALL, kindName, canManage, scheduleHint, timelineLine, bubbleText, subjectOf, items, withDays, lastLine, threads, unreadTotal, recipient };
   if (inNode) module.exports = api;
   else root.TalkLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -157,6 +157,39 @@
     return out.join('\n');
   }
 
+  // ── 工事の日程の条件（Task 47）────────────────────────────────────────────────
+  // 見積書の備考（工期○日間・工事時間・荷物の移動依頼）と明細の品名・内容（断水・排水制限）から日程を決めるための条件を取り出す。
+  //   est: 見積書の行 { data: { notes }, lines } か case_summaries の見積の要素 { notes, line_texts }。notes は備考の欄（buildNotes の形）か文字
+  //   → { days: '2日間'|'', time: '9:00〜17:00'|'', move: '必要（…）'|'', water: bool, drain: bool, missing: ['工期','工事時間','荷物の移動依頼'] の無いもの }
+  const COND_ITEMS = ['工期', '工事時間', '荷物の移動依頼'];
+  function conditions(est) {
+    const e = est || {};
+    const raw = e.data && e.data.notes !== undefined ? e.data.notes : e.notes;
+    const notes = typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? buildNotes(raw) : '';
+    const lineText = (Array.isArray(e.line_texts) ? e.line_texts
+      : (Array.isArray(e.lines) ? e.lines : []).map(l => [l && l.description, l && l.detail].filter(Boolean).join(' '))).map(String).join('\n');
+    const all = notes + '\n' + lineText;
+    const kokiM = /工期[：:]\s*(\d+)\s*日/.exec(notes);
+    const days = kokiM && Number(kokiM[1]) > 0 ? `${Number(kokiM[1])}日間` : '';
+    const jikanM = /工事時間[：:][ \t\u3000]*([^\n]*)/.exec(notes);
+    const time = jikanM ? jikanM[1].trim() : '';
+    const nimotsuM = /荷物の移動依頼[：:][ \t\u3000]*([^\n]*)/.exec(notes);
+    const move = nimotsuM ? (nimotsuM[1].trim() ? `必要（${nimotsuM[1].trim()}）` : '必要')
+      : /荷物の移動をお願い/.test(notes) ? '必要' : '';
+    const water = /断水/.test(all);
+    const drain = /排水(制限|停止|不可|禁止)|排水を伴うご使用をお控え/.test(all);
+    const missing = COND_ITEMS.filter((_, i) => ![days, time, move][i]);
+    return { days, time, move, water, drain, missing };
+  }
+  // 工事時間の文字 '9:00〜17:00' → { start: '09:00', end: '17:00' } か null（工事掲示の時刻に使う）
+  function timeRange(text) {
+    const m = /(\d{1,2})[:：](\d{2})\s*[〜~～\-－ーから]+\s*(\d{1,2})[:：](\d{2})/.exec(String(text || ''));
+    if (!m) return null;
+    const hm = (h, mi) => (+h <= 23 && +mi <= 59 ? `${String(+h).padStart(2, '0')}:${mi}` : '');
+    const start = hm(m[1], m[2]), end = hm(m[3], m[4]);
+    return start && end && start < end ? { start, end } : null;
+  }
+
   // ── 作成・版 ────────────────────────────────────────────────────────────────
   function emptyEstimate(caseRow, org, me, today) {
     const c = caseRow || {};
@@ -674,7 +707,7 @@
     newLine, isRealLine, totals, withTotals,
     recalcShokehi, addShokehi, addQuick, adjustToHundred, adjustLine, isAdjustLine,
     unitPrice, commitAmount, normAmount,
-    defaultNotes, buildNotes,
+    defaultNotes, buildNotes, COND_ITEMS, conditions, timeRange,
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
     hankoParts, hankoCols, validate,

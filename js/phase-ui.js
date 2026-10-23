@@ -2012,8 +2012,8 @@ function phWorkerBody(p, docs, errId, opts) {
         return PhasesApi.notifyWorker(cur, currentCase, phTitle(p), members);
       })));
     box.appendChild(empty);
-    // Task 28: 催促する（作業担当者が自分以外のとき。期限を過ぎて未提出なら赤）
-    if (p.worker_id !== phMyId()) {
+    // Task 28: 催促する（作業担当者が自分以外のとき。期限を過ぎて未提出なら赤）。Task 47: 失注の対応は催促しない
+    if (p.worker_id !== phMyId() && !p.lost_at) {
       const nd = phNudgeState(p, docs);
       const nb = dBtn('催促する', 'btn sm inline ph-wk-nudge' + (nd.urge ? ' red' : ' ghost'), () => phNudgeSheet(p, nd, errId));
       if (nd.urge) nb.title = '期限を過ぎています（' + (nd.info ? nd.info.text : '') + '）';

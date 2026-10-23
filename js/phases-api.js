@@ -325,6 +325,10 @@ const PhasesApi = (() => {
       return must(await sb.rpc('task_flag_close', { p_id: id }));
     },
     // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
+    // Task 47: 段階を手で直す（失注・取り消し・対応待ち・対応済み・請求依頼中・請求済み・入金済み）。管理者か、現場用で自分が登録した案件の本人だけ（DB が確かめる）
+    async setStage(phaseId, stage) {
+      return must(await sb.rpc('phase_set_stage', { p_phase: phaseId, p_stage: stage }));
+    },
     async nudge(phaseId, text, note) {
       return must(await sb.rpc('phase_nudge', { p_phase: phaseId, p_text: text, p_note: note || '' }));
     },

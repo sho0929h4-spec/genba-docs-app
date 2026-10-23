@@ -116,7 +116,7 @@
     for (const c of Array.isArray(caseRows) ? caseRows : []) {
       if (!c || c.deleted_at) continue;
       for (const p of Array.isArray(c.phases) ? c.phases : []) {
-        if (!p || (o.include && !o.include(c, p))) continue;
+        if (!p || p.lost_at || (o.include && !o.include(c, p))) continue; // Task 47: 失注はカレンダーに出さない
         if (toMs(p.scheduled_at) == null) {
           if (caseOpen(c) && phaseOpen(p)) undated.push({ caseRow: c, phase: p });
           continue;
