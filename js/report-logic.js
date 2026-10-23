@@ -20,8 +20,11 @@
     { key: 'washroom', label: '洗面所', input: 'detail' },
     { key: 'bath', label: '浴室', input: 'detail' },
     { key: 'balcony', label: 'ベランダ', input: 'detail' },
-    { key: 'other', label: 'その他', input: 'other' }
+    { key: 'other', label: 'その他', input: 'other' },
+    // Task 45: 不明（選ぶと次の対応方針は「再調査」だけ。migration 064 が提出のときに確かめる）
+    { key: 'unknown', label: '不明' }
   ];
+  const CAUSE_UNKNOWN = 'unknown';
   const CAUSE_KEYS = CAUSES.map(c => c.key);
   // 次の対応方針（1つ選ぶ。data.nextAction = { type, estimateDue, reason, detail, other, estimateDueReason, estimateDueBy }）
   //   Task 29: 見積書提案期日は通常2日以内。今日（日本時間）＋2日より先なら estimateDueReason（理由）と estimateDueBy（いつまでに提出できるか）が必須
@@ -115,7 +118,7 @@
     afterReasonLabel: '理由 *',
     afterReasonPlaceholder: '「正常に復旧」でない理由（必須・自由記載）',
     f2Label: '原因',
-    f2Hint: '特定できた場合のみ。不明な場合は次の対応方針へ。',
+    f2Hint: '分からないときは「不明」を押してください（次の対応方針は「再調査」になります）',
     reasonLabel: '原因と判断した理由',
     reasonHint: 'そう判断した根拠・確認した事実など（自由記載）',
     // Task 26: 記載例（薄い文字）。社内・現場用・担当者URL のページ（r.html）で共通
@@ -132,12 +135,14 @@
     tenantReasonPlaceholder: '例：洗濯機の排水ホースを外したまま使用',
     causeOtherLabel: '原因（その他）',
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
-    estimateDueLabel: '見積書提案期日',
-    estimateDueHint: '提出すると、案件の管理者に「見積書作成必要（期日）」として知らせます',
-    resurveyDueHint: '提出すると「調査（次の回）」が作られ、作業担当者の「確認してください」に「見積書を仕上げて提出（期限）」が入ります',
+    // Task 45: 「見積書の提出予定日」（必須。何を入れる欄かの説明つき。DB の列・管理者あての連絡の「見積書提案期日」は同じもの）
+    estimateDueLabel: '見積書の提出予定日',
+    estimateDueHint: '原因元工事の見積書をいつまでに出すかの日付です。提出すると、作業担当者のタスクに「原因元工事の見積書作成」（この日が期限）が入ります',
+    resurveyDueHint: '再調査の見積書をいつまでに出すかの日付です。提出すると「調査（次の回）」が作られ、作業担当者のタスクに「再調査の見積書作成」（この日が期限）が入ります',
+    unknownNextHint: '原因が「不明」なので「再調査」です（「不明」を外すとほかも選べます）',
     resurveyReasonLabel: '再調査の理由',
     // Task 29: 見積書提案期日が今日＋2日より先のとき
-    estimateDueWhyHead: '見積書提案期日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
+    estimateDueWhyHead: '見積書の提出予定日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
     estimateDueReasonLabel: '2日より先になる理由',
     estimateDueReasonPlaceholder: '例：部材メーカーの見積が届くのが来週になる',
     estimateDueByLabel: 'いつまでに提出できるか',
@@ -482,14 +487,16 @@
     // Task 20: 次の対応方針（原因元工事は見積書提案期日が必須・再調査は理由と内容が必須）
     if (cfg.pickNext) {
       const n = d.nextAction;
-      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書提案期日を入れてください');
-      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書提案期日を入れてください'); // Task 21
+      // Task 45: 原因が「不明」なら次の対応方針は「再調査」だけ
+      if (cfg.pickCause && hasCause(d, CAUSE_UNKNOWN) && n.type !== 'resurvey') errors.push('原因が「不明」のときは、次の対応方針を「再調査」にしてください');
+      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書の提出予定日を入れてください');
+      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書の提出予定日を入れてください'); // Task 21
       if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
       if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
       // Task 29: 期日が今日＋2日より先なら、理由といつまでに提出できるか（日付）が必須
       if ((n.type === 'cause' || n.type === 'resurvey') && estimateDueNeedsReason(n.estimateDue, o.today)) {
-        if (!trim(n.estimateDueReason)) errors.push('見積書提案期日が2日より先です。「理由」を入れてください');
-        if (!isYmd(n.estimateDueBy)) errors.push('見積書提案期日が2日より先です。「いつまでに提出できるか」を入れてください');
+        if (!trim(n.estimateDueReason)) errors.push('見積書の提出予定日が2日より先です。「理由」を入れてください');
+        if (!isYmd(n.estimateDueBy)) errors.push('見積書の提出予定日が2日より先です。「いつまでに提出できるか」を入れてください');
       }
     }
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
@@ -684,7 +691,7 @@
   }
 
   const api = {
-    INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
+    INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,

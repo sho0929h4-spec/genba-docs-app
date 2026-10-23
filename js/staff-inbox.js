@@ -306,7 +306,7 @@ function siItemEl(it) {
     row.appendChild(mk('div', 'rep-sub', [it.from ? it.from + 'さんから' : '', PhaseLogic.fmtMDHM(it.fromAt)].filter(Boolean).join(' ') +
       (it.tomorrow ? ' ・ 前日のお知らせ' : '')));
   } else if (it.type === 'estimate') {
-    row.appendChild(mk('div', 'rep-sub', '調査報告の「次の対応方針」で決まった期限です。見積書を提出するまで残ります'));
+    row.appendChild(mk('div', 'rep-sub', (it.name === '調査の見積書作成' ? '調査の報告書を提出した翌日が期限です' : '調査報告の「次の対応方針」で決まった期限です') + '。見積書を提出するまで残ります')); // Task 45
   } else if (it.type === 'report') {
     row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '作業が終わってから1時間以内が期限です（作業終了時間が無ければ、調査日時の3時間後を作業の終わりとみなします）'
       : '工事日の翌日が期限です') + '。報告書を提出するまで残ります' + (it.late ? '（管理者にも知らせています）' : '')));
@@ -381,6 +381,18 @@ function siRender() {
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox(si.opts)));
   } else {
     const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs });
+    if (si.field) {
+      // Task 45: 下のタブの数のバッジと、上の注意の帯「期限超過 N件／本日期限 N件」（あるときだけ）
+      if (typeof fieldTaskBadge === 'function') fieldTaskBadge(items);
+      const b = PhaseLogic.taskBadge(items, new Date());
+      if (b.late || b.today) {
+        const al = Icon.prepend(mk('div', 'si-alert' + (b.late ? ' late' : ''),
+          [b.late ? '期限超過 ' + b.late + '件' : '', b.today ? '本日期限 ' + b.today + '件' : ''].filter(Boolean).join('／')), 'alert', 18);
+        al.id = 'si-alert';
+        al.setAttribute('role', 'status');
+        nodes.push(al);
+      }
+    }
     if (!items.length) {
       const e = mk('div', 'empty', si.field ? '今やることはありません' : '確認することはありません');
       e.id = 'staff-inbox-empty';

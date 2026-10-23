@@ -192,6 +192,26 @@
     const nowAt = toDate(now) || new Date();
     return { due, late: due < jstYmd(nowAt) };
   }
+  // Task 45: 調査の見積書作成（調査費用の見積）。調査の報告書を提出した（下書き以外・提出日あり）・その調査の見積がまだ提出されていない・
+  //   請求も入金もまだ・再調査で作った調査ではない（source_phase_id なし）・見積書の期限（estimate_due）が無い（あれば estimateTodo）
+  //   → { due: 最初の提出日（日本時間）の翌日, late, survey: true }。それ以外は null
+  //   shortcut: SURVEY_ESTIMATE_FROM より前の提出は出さない（前からある調査がまとめて「期限超過」にならないように）。期限を DB で持つなら列を足す
+  const SURVEY_ESTIMATE_FROM = '2026-10-23';
+  function surveyEstimateTodo(phase, now) {
+    const p = phase || {};
+    if (p.kind !== 'survey' || p.source_phase_id || p.estimate_due || p.billed_at || p.paid_at) return null;
+    const sub = listOf(p.reports).filter(r => r.status && r.status !== 'draft' && r.submitted_at).map(r => jstYmd(r.submitted_at)).sort()[0];
+    if (!sub || sub < SURVEY_ESTIMATE_FROM) return null;
+    if (liveEstimates(p.estimates).some(e => e.status && e.status !== 'draft')) return null;
+    const due = ymdAdd(sub, 1);
+    return { due, late: due < jstYmd(toDate(now) || new Date()), survey: true };
+  }
+  // Task 45: 見積書のタスクの名前（調査の見積書作成／再調査の見積書作成／原因元工事の見積書作成）
+  function estimateTaskName(phase, todo) {
+    const p = phase || {};
+    if (todo && todo.survey) return '調査の見積書作成';
+    return (p.kind === 'survey' ? '再調査' : kindLabel(p.kind) || '工事') + 'の見積書作成';
+  }
   // 'YYYY-MM-DD' の n 日後（日付だけで計算。タイムゾーンに依存しない）
   function ymdAdd(ymd, n) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd || ''));
@@ -1314,7 +1334,7 @@
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
-    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : TASK_TODO[x.type] || str(x.label);
+    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : (x.type === 'estimate' && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
     if (x.type === 'report' || x.type === 'estimate') {
       const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(x.due));
@@ -1323,6 +1343,16 @@
     } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
     else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
     return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && (x.type === 'report' || x.type === 'estimate'), sendback: !!x.sendback };
+  }
+  // Task 45: タスクの数（下のタブの丸い数字・タスク画面の上の帯）。items = staffInbox の結果
+  //   → { n, late: 期限超過の数, today: 本日期限の数（超過は除く）, tone: 'late'（赤）| 'today'（黄）| ''（紺）}
+  function taskBadge(items, now) {
+    const today = jstYmd(toDate(now) || new Date());
+    const list = listOf(items);
+    const dueOnes = list.filter(x => x.type === 'report' || x.type === 'estimate');
+    const late = dueOnes.filter(x => x.late).length;
+    const tod = dueOnes.filter(x => !x.late && str(x.due).slice(0, 10) === today).length;
+    return { n: list.length, late, today: tod, tone: late ? 'late' : tod ? 'today' : '' };
   }
   // Task 43: フェーズの有効なタスクの記録（phase.task_flags = phase_task_flags の行。PhasesApi.attachTaskFlags が付ける）。
   //   task: report / estimate / notice / tomorrow、action: dismiss（削除）/ sendback（差し戻し）→ 1件 or null（closed_at があるものは済み）
@@ -1577,11 +1607,13 @@
         count[p.kind] = (count[p.kind] || 0) + 1;
         if (!meId || p.worker_id !== meId) continue;
         const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
-        // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない → 「見積書を仕上げて提出（期限 M/D）」（下書きでは消えない）
-        const todo = estimateTodo(p, now);
+        // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない（下書きでは消えない）
+        // Task 45: 名前は「原因元工事の見積書作成（期限 M/D）」など。調査の報告書を出したら「調査の見積書作成」（期限 = 提出の翌日）
+        const todo = estimateTodo(p, now) || surveyEstimateTodo(p, now);
         if (todo) {
-          out.push({ type: 'estimate', caseRow: c, phase: p, title,
-            label: `見積書を仕上げて提出（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, dueAt: null, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
+          const name = estimateTaskName(p, todo);
+          out.push({ type: 'estimate', caseRow: c, phase: p, title, name,
+            label: `${name}（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, dueAt: null, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
         }
         // Task 23・29: 調査日・工事日を過ぎて報告書が未提出 → 「報告書を書いて提出（期限 …）」（stage の期限と同じ）
         const st = stage(p, null, now, { me: meId });
@@ -2474,7 +2506,7 @@
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
-    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
+    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,

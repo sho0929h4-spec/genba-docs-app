@@ -173,6 +173,8 @@ function openField(fm) {
   const seq = ++fdSeq;
   fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, estId: fm.estId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
   fdTabs();
+  fdAddedPaint();
+  if (fm.view !== 'cases' && fm.view !== 'tasks') fdBadgeRefresh(seq); // 案件・タスクは読み込んだ後に数える
   const host = $('field-root');
   host.replaceChildren();
   document.title = '現場ドキュメント';
@@ -214,10 +216,90 @@ function fdTabs() {
     });
     b.dataset.tab = t.view;
     if (t.view === active) b.setAttribute('aria-current', 'page');
-    b.appendChild(mk('b', 'fd-tab-ic')).appendChild(Icon.el(t.icon, { size: 22 }));
+    const ic = b.appendChild(mk('b', 'fd-tab-ic'));
+    ic.appendChild(Icon.el(t.icon, { size: 22 }));
+    if (t.view === 'tasks') { // Task 45: タスクの数のバッジ（fieldTaskBadge が入れる）
+      const bd = ic.appendChild(mk('span', 'fd-badge'));
+      bd.id = 'fd-task-badge';
+      bd.hidden = true;
+    }
     b.appendChild(mk('span', null, t.label));
     return b;
   }));
+}
+
+/* ---------- Task 45: タスクの数のバッジ（下のタブ） ---------- */
+// items = PhaseLogic.staffInbox の結果。期限超過があれば赤、本日期限があれば黄（文字は濃い色）、それ以外は紺。0件は出さない
+function fieldTaskBadge(items) {
+  const bd = $('fd-task-badge');
+  if (!bd) return;
+  const b = PhaseLogic.taskBadge(items, new Date());
+  bd.hidden = !b.n;
+  bd.textContent = b.n > 99 ? '99+' : String(b.n);
+  bd.className = 'fd-badge' + (b.tone ? ' ' + b.tone : '');
+  const tab = bd.closest('.fd-tab');
+  if (tab) tab.setAttribute('aria-label', 'タスク' + (b.n ? ' ' + b.n + '件' : '') + (b.late ? '（期限超過 ' + b.late + '件）' : b.today ? '（本日期限 ' + b.today + '件）' : ''));
+}
+async function fdBadgeRefresh(seq) {
+  try {
+    const rows = await fieldRows();
+    const msgs = await fdUnreadMessages();
+    if (!fd || fd.seq !== seq) return;
+    fieldTaskBadge(PhaseLogic.staffInbox(rows, fdMe(), new Date(), { messages: msgs }));
+  } catch (e) { console.warn('タスクの数を読み込めませんでした', e); }
+}
+
+/* ---------- Task 45: 追加されたタスクの知らせ（報告書の提出の後。「確認」か × を押すまで残る） ---------- */
+// 端末に人ごとに覚える（使えない端末ではこの画面の間だけ）。[{ key, name, due, place }]
+const fdAddedKey = () => 'genba-docs.added.' + (fdMe() || '');
+let fdAddedMem = null;
+function fdAddedGet() {
+  try { const v = JSON.parse(localStorage.getItem(fdAddedKey()) || 'null'); if (Array.isArray(v)) return v; } catch (e) { /* 端末に保存できない */ }
+  return fdAddedMem || [];
+}
+function fdAddedSet(list) {
+  fdAddedMem = list.length ? list : null;
+  try { if (list.length) localStorage.setItem(fdAddedKey(), JSON.stringify(list)); else localStorage.removeItem(fdAddedKey()); } catch (e) { /* この画面の間だけ */ }
+}
+// 提出の前のタスクの印（報告書の画面が呼ぶ。現場用でなければ null）
+function fieldTaskKeys(caseRow) {
+  if (!fieldHidesAdmin() || !caseRow) return null;
+  return new Set(PhaseLogic.staffInbox([caseRow], fdMe(), new Date()).filter(x => x.type === 'estimate').map(x => x.phase.id + '|' + x.due));
+}
+// 提出の後: 案件を読み直して、新しく入った見積書のタスクを知らせに足す（失敗しても提出は済んでいるので何もしない）
+async function fieldNoteAddedTasks(caseId, before) {
+  if (!before) return;
+  try {
+    const row = await CasesApi.getSummary(caseId);
+    const added = PhaseLogic.staffInbox(row ? [row] : [], fdMe(), new Date()).filter(x => x.type === 'estimate' && !before.has(x.phase.id + '|' + x.due))
+      .map(x => ({ key: x.phase.id + '|' + x.due, name: x.name, due: x.due, place: PhaseLogic.placeName(x.caseRow) }));
+    if (!added.length) return;
+    const keep = fdAddedGet().filter(a => !added.some(b => b.key === a.key));
+    fdAddedSet(keep.concat(added));
+    fieldRowsInvalidate();
+  } catch (e) { console.warn('追加したタスクの確認に失敗', e); }
+}
+function fdAddedPaint() {
+  const box = $('fd-added');
+  if (!box) return;
+  const list = fdAddedGet();
+  box.hidden = !list.length;
+  if (!list.length) { box.replaceChildren(); return; }
+  const close = () => { fdAddedSet([]); fdAddedPaint(); };
+  const x = dBtn('', 'fd-added-x', close);
+  x.id = 'fd-added-x';
+  x.setAttribute('aria-label', '閉じる');
+  x.appendChild(Icon.el('x', { size: 18 }));
+  const ul = mk('ul', 'fd-added-list');
+  list.forEach(a => {
+    const md = /^\d{4}-\d{2}-\d{2}$/.test(String(a.due || '')) ? PhaseLogic.fmtMDW(PhaseLogic.jstAt(+a.due.slice(0, 4), +a.due.slice(5, 7), +a.due.slice(8, 10), 12, 0)) : '';
+    const li = mk('li', null, '『' + a.name + '』をタスクに追加しました。' + (md ? '期限 ' + md : ''));
+    if (a.place) li.appendChild(mk('span', 'fd-added-place', a.place));
+    ul.appendChild(li);
+  });
+  const ok = dBtn('確認', 'btn sm inline fd-added-ok', close);
+  ok.id = 'fd-added-ok';
+  box.replaceChildren(Icon.prepend(mk('b', 'fd-added-h', 'タスクに追加しました'), 'tasks'), x, ul, ok);
 }
 
 /* ---------- #f 案件（本日行く現場・対応の一覧。Task 29） ---------- */
@@ -231,6 +313,7 @@ async function fdLoadCases(seq) {
   Object.assign(fd, { rows, msgs, loading: false, err });
   fdRenderCases();
   if (err) return;
+  fieldTaskBadge(PhaseLogic.staffInbox(rows, fdMe(), new Date(), { messages: msgs }));
   // 報告書の期限超過を管理者に知らせる（自分の担当の案件の分。1回だけ＝DB が判定。Task 29）
   try { if (await overdueSync(rows.filter(r => PhaseLogic.fieldMine(r, fdMe())))) fieldRowsInvalidate(); } catch (e) { console.warn('期限超過の確認に失敗', e); }
   // 時刻を過ぎたリマインド（お客様向け・担当者向けの前日のお知らせ）の下書きを作る（管理画面の案件一覧と同じ。サーバーの定期実行は使わない）

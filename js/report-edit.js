@@ -460,12 +460,15 @@ async function edSubmit(s) {
     edShowVal(s, errors, warnings);
     if (errors.length) return;
     if (warnings.length && !confirm('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'))) return;
+    // Task 45: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を「タスクに追加しました」で知らせる
+    const before = typeof fieldTaskKeys === 'function' ? fieldTaskKeys(s.info && s.info.phases ? s.info : null) : null;
     try {
       await ReportsApi.submit(s.report);
     } catch (e) {
       edShowVal(s, ['提出できませんでした: ' + errText(e)], []);
       return;
     }
+    if (before) await fieldNoteAddedTasks(s.report.case_id, before);
     s.submitted = true;
     s.ro = true;
     clearTimeout(s.timer);

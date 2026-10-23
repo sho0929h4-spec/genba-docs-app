@@ -487,6 +487,7 @@ function edCausePicker(s, parent) {
       }
       d.causes = now ? cur : cur.filter(x => x.key !== c.key);
       edRenderCauseInputs(s);
+      if (c.key === L.CAUSE_UNKNOWN) edApplyUnknown(s, now);
       rfDirty(s);
       if (now && c.input) { const inp = els.causeInputs.querySelector('[data-cause="' + c.key + '"]'); if (inp) inp.focus(); }
     });
@@ -538,11 +539,14 @@ function edNextPicker(s, parent) {
   const btns = {};
   L.NEXT_ACTIONS.forEach(a => {
     const b = edCheck(a.label, n.type === a.key, s.ro, now => {
+      // Task 45: 原因が「不明」の間は「再調査」のまま（もう一度押しても外れない）
+      if (s.nextLocked && !now) { edSetOn(b, true); return; }
       n.type = now ? a.key : '';
       Object.keys(btns).forEach(k => edSetOn(btns[k], n.type === k));
       edApplyNext(s);
       rfDirty(s);
-      const first = now && (a.key === 'cause' || a.key === 'resurvey' ? els.nextDue : els.nextFields[a.key] && els.nextFields[a.key].querySelector('input,textarea'));
+      // Task 45: 原因元工事・再調査では日付の欄にフォーカスしない（スマホでカレンダーが勝手に開くため）
+      const first = now && a.key === 'other' && els.nextFields.other.querySelector('textarea');
       if (first) first.focus();
     }, true);
     b.dataset.next = a.key;
@@ -550,7 +554,12 @@ function edNextPicker(s, parent) {
     btns[a.key] = b;
     grid.appendChild(b);
   });
+  els.nextBtns = btns;
   els.nextWrap.appendChild(grid);
+  els.nextLockNote = rfMk('div', 'rep-hint rep-next-lock', T.unknownNextHint);
+  els.nextLockNote.id = 'rp-next-lock';
+  els.nextLockNote.hidden = true;
+  els.nextWrap.appendChild(els.nextLockNote);
   // 選んだときだけ出る欄
   const sub = (key, ...fields) => { const w = rfMk('div', 'rep-sub-fields'); w.dataset.next = key; w.append(...fields); els.nextWrap.appendChild(w); return w; };
   const ta = (id, key, ph) => {
@@ -561,6 +570,7 @@ function edNextPicker(s, parent) {
   els.nextFields = {};
   // 見積書提案期日（原因元工事・再調査のどちらも必須。Task 21）。欄は1つで、選んだ方針で説明だけ変える
   els.nextDue = edInput('rp-next-due', 'date', n.estimateDue, v => { n.estimateDue = v; rfDirty(s); edApplyNext(s); });
+  els.nextDue.required = true;
   const dueField = edField(T.estimateDueLabel + ' *', els.nextDue, T.estimateDueHint, 'rep-ff-sub');
   els.nextDueHint = dueField.querySelector('.rep-hint');
   els.nextDueWrap = rfMk('div', 'rep-sub-fields');
@@ -585,6 +595,21 @@ function edNextPicker(s, parent) {
   els.nextOther = ta('rp-next-other', 'other', T.freePlaceholder);
   els.nextFields.other = sub('other', edField(T.nextOtherLabel, els.nextOther, null, 'rep-ff-sub'));
   parent.appendChild(els.nextWrap);
+  edApplyNext(s);
+  if (L.hasCause(d, L.CAUSE_UNKNOWN)) edApplyUnknown(s, true);
+}
+// Task 45: 原因の「不明」→ 次の対応方針は「再調査」だけ（ほかは押せない）。外すと、不明にする前の方針に戻して選べるようにする
+function edApplyUnknown(s, on) {
+  const e = s.els, n = s.f.data.nextAction;
+  if (!e.nextBtns) return;
+  if (on && !s.nextLocked) { s.nextKeep = n.type === 'resurvey' ? null : n.type; n.type = 'resurvey'; }
+  if (!on && s.nextLocked && s.nextKeep != null) { n.type = s.nextKeep; s.nextKeep = null; }
+  s.nextLocked = !!on;
+  Object.keys(e.nextBtns).forEach(k => {
+    edSetOn(e.nextBtns[k], n.type === k);
+    e.nextBtns[k].disabled = s.ro || (on && k !== 'resurvey');
+  });
+  e.nextLockNote.hidden = !on;
   edApplyNext(s);
 }
 function edApplyNext(s) {
