@@ -256,10 +256,13 @@ function eueNormData(raw) {
   d.notes = {
     koki: Object.assign({}, base.koki, euObj(n.koki)),
     jikan: Object.assign({}, base.jikan, euObj(n.jikan)),
-    nimotsu: Object.assign({}, base.nimotsu, euObj(n.nimotsu)),
+    // Task 48 E: ホテル移動・荷物の片付け（必要／不要）。前からある「荷物の移動依頼」のチェックは 片付け 必要（場所なし）に置き換える
+    hotel: n.hotel === 'need' || n.hotel === 'none' ? n.hotel : '',
+    katazuke: (k => ({ sel: k.sel === 'need' || k.sel === 'none' ? k.sel : euObj(n.nimotsu).on ? 'need' : '',
+      places: (Array.isArray(k.places) ? k.places : []).filter(p => EstimateLogic.KATAZUKE_PLACES.includes(p)), free: euStr(k.free) }))(euObj(n.katazuke)),
     extra: euStr(n.extra)
   };
-  ['koki', 'jikan', 'nimotsu'].forEach(k => { d.notes[k].on = !!d.notes[k].on; d.notes[k].val = euStr(d.notes[k].val); });
+  ['koki', 'jikan'].forEach(k => { d.notes[k].on = !!d.notes[k].on; d.notes[k].val = euStr(d.notes[k].val); });
   return d;
 }
 function eueNormLines(raw) {
@@ -539,7 +542,7 @@ function eueBuild(s) {
   els.qMsg.id = 'eu-q-msg';
   c2.appendChild(els.qMsg);
 
-  /* ----- 備考（固定の1行目「必須」→ 工期・工事時間・荷物の移動 → 自由記入） ----- */
+  /* ----- 備考（固定の1行目「必須」→ 工期・工事時間・ホテル移動・荷物の片付け → 自由記入） ----- */
   const c3 = mk('div', 'rep-card');
   c3.appendChild(mk('h3', null, '備考'));
   const first = mk('div', 'eu-notes-first');
@@ -561,10 +564,51 @@ function eueBuild(s) {
   els.jikan = eueInput('eu-note-jikan-val', 'text', d.notes.jikan.val, v => { set(x => { x.notes.jikan.val = v; }); eueNotesPv(s); }, { placeholder: '例：9:00〜17:00' });
   els.jikan.setAttribute('aria-label', '工事時間');
   opts.appendChild(nrow('jikan', '工事時間', els.jikan));
-  els.nimotsu = eueInput('eu-note-nimotsu-val', 'text', d.notes.nimotsu.val, v => { set(x => { x.notes.nimotsu.val = v; }); eueNotesPv(s); }, { placeholder: '例：工事箇所周辺の家具の移動をお願いします' });
-  els.nimotsu.setAttribute('aria-label', '荷物の移動依頼');
-  opts.appendChild(nrow('nimotsu', '荷物の移動依頼', els.nimotsu));
-  if (ro && !['koki', 'jikan', 'nimotsu'].some(k => d.notes[k].on)) opts.hidden = true;
+  // Task 48 E: ホテル移動・荷物の片付け（必要／不要。もう一度押すと未選択）。片付けの「必要」は場所（複数・自由記載）を選ぶ
+  const choiceRow = (key, label, cur, onPick) => {
+    const r = mk('div', 'eu-note-row');
+    r.dataset.note = key;
+    if (ro && !cur) r.hidden = true;
+    const g = mk('div', 'eu-choice');
+    g.setAttribute('role', 'group');
+    g.setAttribute('aria-label', label);
+    const btns = [['need', '必要'], ['none', '不要']].map(([v, t]) => {
+      const b = dBtn(t, 'eu-choice-b', () => { const nv = b.getAttribute('aria-pressed') === 'true' ? '' : v; paint(nv); onPick(nv); eueNotesPv(s); });
+      b.id = 'eu-note-' + key + '-' + v;
+      b.dataset.v = v;
+      return b;
+    });
+    const paint = v => btns.forEach(b => { b.setAttribute('aria-pressed', b.dataset.v === v ? 'true' : 'false'); b.classList.toggle('on', b.dataset.v === v); });
+    paint(cur);
+    g.append(...btns);
+    r.append(mk('span', 'eu-note-lb', label), g);
+    return r;
+  };
+  opts.appendChild(choiceRow('hotel', 'ホテル移動', d.notes.hotel, v => set(x => { x.notes.hotel = v; })));
+  const places = mk('div', 'eu-places');
+  places.id = 'eu-note-places';
+  places.hidden = d.notes.katazuke.sel !== 'need';
+  places.appendChild(mk('span', 'eu-places-lb', '片付けをお願いする場所（複数可）'));
+  EstimateLogic.KATAZUKE_PLACES.forEach(p => {
+    const on = d.notes.katazuke.places.includes(p);
+    const b = dBtn(p, 'eu-choice-b sm' + (on ? ' on' : ''), () => {
+      const now = b.getAttribute('aria-pressed') !== 'true';
+      b.setAttribute('aria-pressed', now ? 'true' : 'false');
+      b.classList.toggle('on', now);
+      set(x => { const k = x.notes.katazuke; k.places = EstimateLogic.KATAZUKE_PLACES.filter(q => (q === p ? now : k.places.includes(q))); });
+      eueNotesPv(s);
+    });
+    b.dataset.place = p;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    places.appendChild(b);
+  });
+  els.kzFree = eueInput('eu-note-katazuke-free', 'text', d.notes.katazuke.free, v => { set(x => { x.notes.katazuke.free = v; }); eueNotesPv(s); }, { placeholder: '自由記載（例：浴室）' });
+  els.kzFree.setAttribute('aria-label', '片付けをお願いする場所（自由記載）');
+  places.appendChild(els.kzFree);
+  const kzRow = choiceRow('katazuke', '荷物の片付け', d.notes.katazuke.sel, v => { set(x => { x.notes.katazuke.sel = v; }); places.hidden = v !== 'need'; });
+  kzRow.appendChild(places);
+  opts.appendChild(kzRow);
+  if (ro && !['koki', 'jikan'].some(k => d.notes[k].on) && !d.notes.hotel && !d.notes.katazuke.sel) opts.hidden = true;
   c3.appendChild(opts);
   els.extra = document.createElement('textarea');
   els.extra.id = 'eu-note-extra';

@@ -6,7 +6,8 @@
 //   ② 報告書の作成・提出（期限超過が先・赤「期限超過」）→ ③ 見積書の作成（期限順）→ ④ 確認依頼 → ⑤ 明日の予定。
 //   Task 33 追加: 各行は4項目だけ（物件名 号室／フェーズ／やること／期限。PhaseLogic.fieldTaskRow）の行全体ボタン（右端「›」）。押すと続き
 //   （見積を作る・報告書を書く・ツールページ・連絡は既読にしてやり取り）。0件は「今やることはありません」。
-//   上に1行の小さなボタン「📨 管理者に連絡」（シート）と「やり取りを見る」（#f/contact）。説明の段落は無い。管理画面の #inbox-staff は今まで通り
+//   Task 48: 上の「管理者に連絡」「やり取りを見る」は削除（メッセージのタブでやる）。期限ごとの見出し（期限超過 → 本日期限 → 10/24期限 … → 期限なし）でまとめ、
+//   報告書・見積書の行には期限を出さない（見出しにある）。説明の段落は無い。管理画面の #inbox-staff は今まで通り
 //   Task 43: 対応のある行の右に小さな「…」→ 行の下にメニュー。自分が現場用で登録した案件（created_by = 自分）は「このタスクを削除」
 //   （パスワード。CaseTrash.openSheet と同じシート・rpc field_task_dismiss）、それ以外は「差し戻す」（内容は必須・rpc field_task_sendback）。
 //   差し戻し中の行には「差し戻し中」の印（管理者が返事・済みにすると消える）
@@ -143,12 +144,12 @@ function siFieldItemEl(it) {
   const sub = mk('span', 'si-fsub');
   if (r.kind) sub.appendChild(mk('span', 'ph-kind k-' + r.kind, r.kindText));
   sub.appendChild(mk('span', 'si-todo', r.todo));
-  if (r.due) sub.appendChild(mk('span', 'si-due' + (r.late ? ' late' : ''), r.due));
+  if (r.due && !dueItem) sub.appendChild(mk('span', 'si-due', r.due)); // Task 48: 報告書・見積書の期限は見出しにあるので行には出さない
   if (r.sendback) sub.appendChild(mk('span', 'si-sendback', '差し戻し中'));
   main.appendChild(sub);
   row.appendChild(main);
   row.appendChild(mk('span', 'si-chev', '›'));
-  row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due, r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
+  row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due && (dueItem ? '期限 ' + r.due : r.due), r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
   if (it.type === 'message' || it.type === 'conditions' || !p) return row; // Task 47: 工事の条件を確認は削除・差し戻しの対象外
   // Task 43: 小さな「…」→ 行の下にメニュー（もう一度押すと閉じる）
   //   「…」は行の右端（「›」の場所）に重ねる（行の幅を減らさない＝4項目が1行に収まる）
@@ -360,19 +361,6 @@ function siRender() {
   if (!si.field) nodes.push(mk('h2', 'ob-h', '確認してください'));
   // Task 33 追加: 現場用は説明の段落を出さない（並び: ① 管理者からの連絡 → ② 報告書 → ③ 見積書 → ④ 確認依頼 → ⑤ 翌日の予定。超過は赤）
   if (!si.field) nodes.push(mk('div', 'rep-sub ob-lead', 'あなたが作業担当者の予定です。内容を確かめたら「確認した」を押してください（頼んだ人の画面に「確認済み」と出ます）。翌日の予定と、期限のある見積書・報告書（提出するまで）、管理者からの返事もここに出ます'));
-  if (si.field) {
-    // 管理者に連絡（Task 29: タブから外したので、ここから）。Task 33 追加: 1行の小さなボタン2つ
-    const bar = mk('div', 'si-contact');
-    const nb = Icon.prepend(dBtn('管理者に連絡', 'btn sm inline si-contact-new', () => smOpenSheet({ rows: si.rows, onSent: () => {
-      if (si && si.field) { si.msg = '管理者に連絡しました（やり取りは「メッセージ」に残ります）'; siRender(); }
-    } })), 'message');
-    nb.id = 'si-contact-new';
-    nb.disabled = si.loading || !!si.err;
-    const hb = dBtn('やり取りを見る ›', 'btn sm ghost inline si-contact-list', () => { location.hash = '#f/msg'; }); // Task 46: メッセージのタブ
-    hb.id = 'si-contact-list';
-    bar.append(nb, hb);
-    nodes.push(bar);
-  }
   const msg = mk('div', 'ob-msg', si.msg || '');
   msg.id = 'staff-inbox-msg';
   msg.setAttribute('role', 'status');
@@ -383,18 +371,7 @@ function siRender() {
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox(si.opts)));
   } else {
     const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs });
-    if (si.field) {
-      // Task 45: 下のタブの数のバッジと、上の注意の帯「期限超過 N件／本日期限 N件」（あるときだけ）
-      if (typeof fieldTaskBadge === 'function') fieldTaskBadge(items);
-      const b = PhaseLogic.taskBadge(items, new Date());
-      if (b.late || b.today) {
-        const al = Icon.prepend(mk('div', 'si-alert' + (b.late ? ' late' : ''),
-          [b.late ? '期限超過 ' + b.late + '件' : '', b.today ? '本日期限 ' + b.today + '件' : ''].filter(Boolean).join('／')), 'alert', 18);
-        al.id = 'si-alert';
-        al.setAttribute('role', 'status');
-        nodes.push(al);
-      }
-    }
+    if (si.field && typeof fieldTaskBadge === 'function') fieldTaskBadge(items); // Task 45: 下のタブの数のバッジ
     if (!items.length) {
       const e = mk('div', 'empty', si.field ? '今やることはありません' : '確認することはありません');
       e.id = 'staff-inbox-empty';
@@ -402,7 +379,15 @@ function siRender() {
     } else {
       const card = mk('div', si.field ? 'si-flist' : 'rep-card');
       card.id = 'staff-inbox-list';
-      items.forEach(it => card.appendChild(siItemEl(it)));
+      // Task 48: 現場用は期限ごとの見出し（管理者から → 期限超過（赤）→ 本日期限 → 10/24期限 … → 期限なし）。Task 45 の注意の帯の代わり
+      if (si.field) {
+        PhaseLogic.taskDueGroups(items, new Date()).forEach(g => {
+          const hd = mk('h3', 'si-dueh' + (g.key === 'late' ? ' late' : g.key === 'today' ? ' today' : ''), g.label + '（' + g.items.length + '件）');
+          hd.dataset.group = g.key;
+          card.appendChild(hd);
+          g.items.forEach(it => card.appendChild(siItemEl(it)));
+        });
+      } else items.forEach(it => card.appendChild(siItemEl(it)));
       nodes.push(card);
     }
   }

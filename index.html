@@ -1184,6 +1184,17 @@
   .eu-note-row input[type=text],.eu-note-row input[type=number]{width:100%;min-width:0;padding:6px 10px;min-height:40px;border:1.5px solid var(--border);border-radius:8px;font-size:16px;font-family:inherit;}
   .eu-note-koki{display:flex;align-items:center;gap:6px;}
   .eu-note-koki input{max-width:90px;}
+  /* Task 48 E: ホテル移動・荷物の片付け（必要／不要）と片付けの場所 */
+  .eu-note-lb{font-size:14px;font-weight:700;color:var(--text);}
+  .eu-choice{display:flex;flex-wrap:wrap;gap:6px;}
+  .eu-choice-b{min-height:40px;padding:4px 18px;border:1.5px solid var(--border);border-radius:999px;background:#fff;color:var(--text);font:inherit;font-size:14px;font-weight:700;cursor:pointer;}
+  .eu-choice-b.sm{min-height:38px;padding:4px 12px;font-size:13px;}
+  .eu-choice-b.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .eu-choice-b:disabled{opacity:.7;cursor:default;}
+  .eu-places{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:4px 0 2px;min-width:0;}
+  .eu-places[hidden]{display:none;}
+  .eu-places-lb{width:100%;font-size:12px;color:var(--muted);}
+  .eu-places input[type=text]{flex:1 1 160px;}
   .eu-notes-pv{white-space:pre-wrap;font-size:12px;color:var(--muted);border:1px dashed var(--border);border-radius:10px;padding:8px 10px;margin-top:8px;overflow-wrap:anywhere;}
   .eu-bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:8px 16px calc(10px + env(safe-area-inset-bottom,0px));z-index:50;box-shadow:0 -4px 14px rgba(0,0,0,.06);}
   .eu-tot{display:flex;justify-content:center;gap:4px 18px;flex-wrap:wrap;margin:0 auto 8px;max-width:1180px;font-variant-numeric:tabular-nums;}
@@ -1272,15 +1283,18 @@
     font-size:11px;font-weight:800;line-height:18px;text-align:center;box-shadow:0 0 0 2px #fff;}
   .fd-badge.late{background:#dc2626;color:#fff;}
   .fd-badge.today{background:#facc15;color:#422006;}
-  .fd-badge[hidden],.fd-added[hidden]{display:none;}
-  .fd-added{position:relative;max-width:616px;margin:12px calc(12px + env(safe-area-inset-right,0px)) 0 calc(12px + env(safe-area-inset-left,0px));padding:12px 44px 12px 14px;
-    background:#fff;border:1.5px solid var(--navy);border-radius:14px;display:grid;gap:8px;}
-  @media (min-width:664px){.fd-added{margin:12px auto 0;}}
-  .fd-added-h{font-size:15px;color:var(--navy);}
-  .fd-added-list{margin:0;padding:0 0 0 18px;display:grid;gap:6px;font-size:14px;line-height:1.5;}
-  .fd-added-place{display:block;font-size:12px;color:var(--muted);}
-  .fd-added-x{position:absolute;top:6px;right:6px;width:36px;height:36px;border:0;border-radius:10px;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;}
-  .fd-added-ok{justify-self:start;min-height:40px;padding:6px 22px;}
+  .fd-badge[hidden]{display:none;}
+  /* Task 48: タスクに追加されました（画面全体のポップアップ。「確認」だけで閉じる） */
+  .fd-pop-bg{position:fixed;inset:0;z-index:300;background:rgba(10,25,45,.6);display:flex;align-items:center;justify-content:center;
+    padding:calc(16px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px));overflow-y:auto;}
+  .fd-pop{width:100%;max-width:400px;background:#fff;border-radius:18px;padding:22px 20px 20px;display:grid;gap:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+  .fd-pop-h{display:flex;align-items:center;gap:8px;font-size:18px;color:var(--navy);}
+  .fd-pop-list{list-style:none;margin:0;padding:0;display:grid;gap:10px;}
+  .fd-pop-list li{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#f8fafc;overflow-wrap:anywhere;}
+  .fd-pop-name{font-size:15px;color:var(--text);}
+  .fd-pop-due{font-size:14px;font-weight:700;color:var(--navy);}
+  .fd-pop-place{font-size:12px;color:var(--muted);}
+  .fd-pop-ok{width:100%;min-height:48px;font-size:16px;}
 
   /* ===== Task 46: LINE 風のメッセージ（js/talk-ui.js）。色はアプリの紺と白（LINE の緑は使わない） ===== */
   .talk-list{display:grid;background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;}
@@ -1303,6 +1317,9 @@
   .talk-in{display:flex;flex-direction:column;min-height:calc(100vh - 58px);min-height:calc(100dvh - 58px);padding-bottom:0;gap:0;}
   #screen-field .talk-in{min-height:calc(100vh - 52px - env(safe-area-inset-top,0px));min-height:calc(100dvh - 52px - env(safe-area-inset-top,0px));padding:0;}
   body.talk-open #screen-field{padding-bottom:0;}
+  /* Task 48: トークの入力欄の下の空きを無くす。.screen の min-height:100vh は iOS Safari ではアドレスバーを隠したときの高さ（大きい方）なので、
+     文書が見えている高さより長くなり、一番下までスクロールすると sticky の入力欄の下に空きが出ていた。トークでは高さを talk-in（100dvh）に任せる */
+  body.talk-open #screen-field,#screen-talk{min-height:0;}
   body.talk-open #fd-tabs{display:none;}
   .talk-head{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;background:#fff;border-bottom:1px solid var(--border);padding:8px 12px;min-height:58px;}
   #screen-field .talk-head{top:calc(52px + env(safe-area-inset-top,0px));padding-left:calc(12px + env(safe-area-inset-left,0px));padding-right:calc(12px + env(safe-area-inset-right,0px));}
@@ -1312,33 +1329,30 @@
   .talk-head-name{font-size:15px;color:var(--navy);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .talk-head-sub{font-size:12px;color:var(--muted);}
   .talk-open-case{padding:2px 0;min-height:30px;}
-  .talk-head-slot{flex:none;display:flex;align-items:center;gap:6px;min-width:0;} /* Task 47: フェーズ管理を置く場所 */
-  /* Task 47: 右上のフェーズ管理（小さなボタン → シート）と工事の条件のカード */
+  .talk-head-slot{flex:none;display:flex;align-items:center;gap:6px;min-width:0;} /* Task 47・48: 「フェーズ」を置く場所 */
+  /* Task 47・48: 右上の「フェーズ」（小さなボタン → シート）と工事の条件のカード */
   .talk-phase-btn{flex:none;min-height:36px;padding:4px 10px;border:1.5px solid var(--navy);border-radius:9px;background:#fff;color:var(--navy);font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
   .talk-phase-btn:focus-visible{outline:2px solid var(--navy2);outline-offset:2px;}
   .talk-stage .ts-msg{font-size:13px;font-weight:700;color:var(--navy);overflow-wrap:anywhere;}
   .talk-stage .ts-msg:empty{display:none;}
   .ts-row{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:#fff;}
   .ts-row.lost{background:#f8fafc;}
-  .ts-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;}
-  .ts-name{font-size:15px;color:var(--navy);}
-  .ts-now{font-size:13px;font-weight:700;color:var(--text);}
-  .ts-row.lost .ts-now{color:var(--red);}
-  .ts-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
-  .ts-step{position:relative;display:grid;justify-items:center;gap:4px;font-size:12px;color:var(--muted);text-align:center;}
-  .ts-step::before{content:'';position:absolute;top:7px;left:-50%;width:100%;height:2px;background:var(--border);}
-  .ts-step:first-child::before{display:none;}
-  .ts-step.done::before,.ts-step.now::before,.ts-step.lost::before{background:var(--navy);}
-  .ts-dot{position:relative;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--border);}
-  .ts-step.done .ts-dot{background:var(--navy);border-color:var(--navy);}
-  .ts-step.now .ts-dot{border-color:var(--navy);box-shadow:0 0 0 3px rgba(26,58,92,.18);}
-  .ts-step.now .ts-lb,.ts-step.done .ts-lb{color:var(--navy);font-weight:700;}
-  .ts-step.lost .ts-dot{border-color:var(--red);background:#fff;}
-  .ts-step.lost .ts-lb{color:var(--red);font-weight:700;}
+  /* Task 48: 「フェーズ」の1行 =（種類）→ 対応 → 精算 */
+  .ts-flow{display:grid;grid-template-columns:minmax(0,1fr) auto 104px auto 104px;align-items:center;gap:3px;}
+  .ts-cell{display:grid;gap:1px;min-width:0;padding:5px 6px;border:1px solid var(--border);border-radius:10px;background:#f8fafc;}
+  .ts-cell.ts-kind{background:transparent;border-color:transparent;padding-left:0;}
+  .ts-cap{font-size:11px;white-space:nowrap;color:var(--muted);}
+  .ts-val{font-size:12px;color:var(--navy);white-space:nowrap;line-height:1.3;}
+  .ts-kind .ts-val{font-size:14px;white-space:normal;overflow-wrap:anywhere;}
+  .ts-cell[data-state="done"],.ts-cell[data-state="paid"]{background:#eef4fb;border-color:#c7d7ea;}
+  .ts-cell[data-state="none"] .ts-val{color:var(--muted);}
+  .ts-cell[data-state="lost"] .ts-val{color:var(--red);}
+  .ts-arrow{display:flex;color:var(--muted);}
+  .ts-lost{font-size:12px;color:var(--muted);min-height:36px;padding:4px 6px;margin-left:auto;}
+  .ts-due{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%;}
+  .ts-due-in{font-size:16px;min-height:40px;padding:4px 8px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit;max-width:100%;}
   .ts-acts{display:flex;flex-wrap:wrap;gap:6px;}
   .ts-btn{min-height:36px;padding:4px 10px;border:1.5px solid var(--border);border-radius:9px;background:#fff;color:var(--text);font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
-  .ts-btn.on{background:var(--navy);border-color:var(--navy);color:#fff;cursor:default;opacity:1;}
-  .ts-btn.lost{color:var(--red);border-color:#f3c3c3;}
   .ts-btn:disabled:not(.on){opacity:.6;cursor:default;}
   .talk-cond{align-self:center;width:min(320px,100%);display:grid;gap:6px;padding:10px 12px;background:#fff;border:1px solid var(--border);border-radius:14px;}
   .talk-cond-h{font-size:14px;color:var(--navy);display:flex;align-items:center;gap:6px;}
@@ -1390,8 +1404,10 @@
   .talk-err:empty{display:none;}
   #talk-root.talk-in{max-width:760px;}
   .fd-set-daily{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:52px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:14px;font:inherit;font-size:15px;font-weight:700;color:var(--navy);cursor:pointer;}
-  .si-alert{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;font-size:14px;font-weight:700;border:1.5px solid #f59e0b;background:#fffbeb;color:#713f12;}
-  .si-alert.late{border-color:#dc2626;background:#fef2f2;color:#991b1b;}
+  /* Task 48: タスク画面の期限ごとの見出し（期限超過は赤） */
+  .si-dueh{margin:6px 0 -2px;font-size:15px;font-weight:800;color:var(--navy);}
+  .si-dueh:first-child{margin-top:0;}
+  .si-dueh.late{color:#b91c1c;}
   .fd-h{font-size:13px;font-weight:700;color:var(--muted);}
   .fd-bell{display:flex;align-items:center;gap:8px;width:100%;min-height:52px;border:0;border-radius:14px;background:#fdf3e4;color:#7a4a06;font-family:inherit;font-size:15px;padding:10px 14px;text-align:left;cursor:pointer;}
   .fd-bell b{flex:1;}
@@ -1455,8 +1471,6 @@
   .dl-pv-body{flex:1;overflow:auto;padding:12px;display:grid;gap:12px;justify-items:center;align-content:start;}
   .dl-pv-img{width:100%;max-width:720px;height:auto;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.3);}
   .fd-daily-reply{background:#f4f7fb;border-radius:10px;padding:8px 10px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;}
-  .si-contact{display:flex;gap:8px;flex-wrap:nowrap;min-width:0;}
-  .si-contact .btn{min-height:40px;font-size:13px;padding:6px 12px;flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   /* Task 33 追加: 現場用タスクの1行（4項目・行全体がボタン・右端「›」。390x844 で5件以上見える高さ） */
   .si-flist{display:grid;gap:8px;min-width:0;}
   #field-root .si-item.si-frow{display:flex;align-items:center;gap:10px;width:100%;min-height:72px;margin:0;padding:10px 12px;border:1.5px solid var(--border);border-radius:14px;
@@ -1977,7 +1991,6 @@
     <b id="fd-title">現場ドキュメント</b>
     <span class="fd-who js-user-name"></span>
   </div>
-  <div class="fd-added" id="fd-added" role="status" hidden></div>
   <div class="fd-wrap" id="field-root"></div>
   <nav class="fd-tabs" id="fd-tabs" aria-label="現場用のメニュー"></nav>
 </section>
@@ -2414,74 +2427,74 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/icons.js?v=e330bd3"></script>
-<script src="js/crypto-util.js?v=e330bd3"></script>
-<script src="js/supabase-config.js?v=e330bd3"></script>
-<script src="js/supabase.js?v=e330bd3"></script>
-<script src="js/auth.js?v=e330bd3"></script>
-<script src="js/storage.js?v=e330bd3"></script>
-<script src="js/quota.js?v=e330bd3"></script>
-<script src="js/messages-api.js?v=e330bd3"></script>
-<script src="js/case-logic.js?v=e330bd3"></script>
-<script src="js/mail-templates.js?v=e330bd3"></script>
-<script src="js/phase-logic.js?v=e330bd3"></script>
-<script src="js/request-view.js?v=e330bd3"></script>
-<script src="js/survey-view.js?v=e330bd3"></script>
-<script src="js/case-band.js?v=e330bd3"></script>
-<script src="js/image.js?v=e330bd3"></script>
-<script src="js/cases-api.js?v=e330bd3"></script>
-<script src="js/clients-api.js?v=e330bd3"></script>
-<script src="js/phases-api.js?v=e330bd3"></script>
+<script src="js/icons.js?v=aef1cf6"></script>
+<script src="js/crypto-util.js?v=aef1cf6"></script>
+<script src="js/supabase-config.js?v=aef1cf6"></script>
+<script src="js/supabase.js?v=aef1cf6"></script>
+<script src="js/auth.js?v=aef1cf6"></script>
+<script src="js/storage.js?v=aef1cf6"></script>
+<script src="js/quota.js?v=aef1cf6"></script>
+<script src="js/messages-api.js?v=aef1cf6"></script>
+<script src="js/case-logic.js?v=aef1cf6"></script>
+<script src="js/mail-templates.js?v=aef1cf6"></script>
+<script src="js/phase-logic.js?v=aef1cf6"></script>
+<script src="js/request-view.js?v=aef1cf6"></script>
+<script src="js/survey-view.js?v=aef1cf6"></script>
+<script src="js/case-band.js?v=aef1cf6"></script>
+<script src="js/image.js?v=aef1cf6"></script>
+<script src="js/cases-api.js?v=aef1cf6"></script>
+<script src="js/clients-api.js?v=aef1cf6"></script>
+<script src="js/phases-api.js?v=aef1cf6"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=e330bd3"></script>
-<script src="js/reports-api.js?v=e330bd3"></script>
-<script src="js/photo-marks.js?v=e330bd3"></script>
-<script src="js/report-pdf.js?v=e330bd3"></script>
-<script src="js/daily-logic.js?v=e330bd3"></script>
-<script src="js/daily-pdf.js?v=e330bd3"></script>
-<script src="js/notice-logic.js?v=e330bd3"></script>
-<script src="js/notices-api.js?v=e330bd3"></script>
-<script src="js/notice-pdf.js?v=e330bd3"></script>
-<script src="js/estimate-logic.js?v=e330bd3"></script>
-<script src="js/estimates-api.js?v=e330bd3"></script>
-<script src="js/estimate-pdf.js?v=e330bd3"></script>
-<script src="js/estimate-presets-api.js?v=e330bd3"></script>
-<script src="js/estimate-presets.js?v=e330bd3"></script>
-<script src="js/estimate-layout.js?v=e330bd3"></script>
-<script src="js/estimate-import.js?v=e330bd3"></script>
-<script src="js/case-list.js?v=e330bd3"></script>
-<script src="js/clients-ui.js?v=e330bd3"></script>
-<script src="js/case-detail.js?v=e330bd3"></script>
-<script src="js/case-rooms-api.js?v=e330bd3"></script>
-<script src="js/case-rooms.js?v=e330bd3"></script>
-<script src="js/case-request.js?v=e330bd3"></script>
-<script src="js/edit-logic.js?v=e330bd3"></script>
-<script src="js/case-trash.js?v=e330bd3"></script>
-<script src="js/case-undo.js?v=e330bd3"></script>
-<script src="js/phase-ui.js?v=e330bd3"></script>
-<script src="js/phase-detail.js?v=e330bd3"></script>
-<script src="js/billing-ui.js?v=e330bd3"></script>
-<script src="js/team.js?v=e330bd3"></script>
-<script src="js/tasks.js?v=e330bd3"></script>
-<script src="js/calendar-logic.js?v=e330bd3"></script>
-<script src="js/calendar-ui.js?v=e330bd3"></script>
-<script src="js/timeline.js?v=e330bd3"></script>
-<script src="js/photo-mark-editor.js?v=e330bd3"></script>
-<script src="js/report-form.js?v=e330bd3"></script>
-<script src="js/report-ui.js?v=e330bd3"></script>
-<script src="js/report-share.js?v=e330bd3"></script>
-<script src="js/report-edit.js?v=e330bd3"></script>
-<script src="js/mail-ui.js?v=e330bd3"></script>
-<script src="js/outbox-ui.js?v=e330bd3"></script>
-<script src="js/staff-inbox.js?v=e330bd3"></script>
-<script src="js/staff-messages.js?v=e330bd3"></script>
-<script src="js/talk-logic.js?v=e330bd3"></script>
-<script src="js/talk-ui.js?v=e330bd3"></script>
-<script src="js/notice-ui.js?v=e330bd3"></script>
-<script src="js/notice-edit.js?v=e330bd3"></script>
-<script src="js/estimate-ui.js?v=e330bd3"></script>
-<script src="js/field-ui.js?v=e330bd3"></script>
-<script src="js/app.js?v=e330bd3"></script>
+<script src="js/report-logic.js?v=aef1cf6"></script>
+<script src="js/reports-api.js?v=aef1cf6"></script>
+<script src="js/photo-marks.js?v=aef1cf6"></script>
+<script src="js/report-pdf.js?v=aef1cf6"></script>
+<script src="js/daily-logic.js?v=aef1cf6"></script>
+<script src="js/daily-pdf.js?v=aef1cf6"></script>
+<script src="js/notice-logic.js?v=aef1cf6"></script>
+<script src="js/notices-api.js?v=aef1cf6"></script>
+<script src="js/notice-pdf.js?v=aef1cf6"></script>
+<script src="js/estimate-logic.js?v=aef1cf6"></script>
+<script src="js/estimates-api.js?v=aef1cf6"></script>
+<script src="js/estimate-pdf.js?v=aef1cf6"></script>
+<script src="js/estimate-presets-api.js?v=aef1cf6"></script>
+<script src="js/estimate-presets.js?v=aef1cf6"></script>
+<script src="js/estimate-layout.js?v=aef1cf6"></script>
+<script src="js/estimate-import.js?v=aef1cf6"></script>
+<script src="js/case-list.js?v=aef1cf6"></script>
+<script src="js/clients-ui.js?v=aef1cf6"></script>
+<script src="js/case-detail.js?v=aef1cf6"></script>
+<script src="js/case-rooms-api.js?v=aef1cf6"></script>
+<script src="js/case-rooms.js?v=aef1cf6"></script>
+<script src="js/case-request.js?v=aef1cf6"></script>
+<script src="js/edit-logic.js?v=aef1cf6"></script>
+<script src="js/case-trash.js?v=aef1cf6"></script>
+<script src="js/case-undo.js?v=aef1cf6"></script>
+<script src="js/phase-ui.js?v=aef1cf6"></script>
+<script src="js/phase-detail.js?v=aef1cf6"></script>
+<script src="js/billing-ui.js?v=aef1cf6"></script>
+<script src="js/team.js?v=aef1cf6"></script>
+<script src="js/tasks.js?v=aef1cf6"></script>
+<script src="js/calendar-logic.js?v=aef1cf6"></script>
+<script src="js/calendar-ui.js?v=aef1cf6"></script>
+<script src="js/timeline.js?v=aef1cf6"></script>
+<script src="js/photo-mark-editor.js?v=aef1cf6"></script>
+<script src="js/report-form.js?v=aef1cf6"></script>
+<script src="js/report-ui.js?v=aef1cf6"></script>
+<script src="js/report-share.js?v=aef1cf6"></script>
+<script src="js/report-edit.js?v=aef1cf6"></script>
+<script src="js/mail-ui.js?v=aef1cf6"></script>
+<script src="js/outbox-ui.js?v=aef1cf6"></script>
+<script src="js/staff-inbox.js?v=aef1cf6"></script>
+<script src="js/staff-messages.js?v=aef1cf6"></script>
+<script src="js/talk-logic.js?v=aef1cf6"></script>
+<script src="js/talk-ui.js?v=aef1cf6"></script>
+<script src="js/notice-ui.js?v=aef1cf6"></script>
+<script src="js/notice-edit.js?v=aef1cf6"></script>
+<script src="js/estimate-ui.js?v=aef1cf6"></script>
+<script src="js/field-ui.js?v=aef1cf6"></script>
+<script src="js/app.js?v=aef1cf6"></script>
 </body>
 </html>

@@ -460,7 +460,7 @@ async function edSubmit(s) {
     edShowVal(s, errors, warnings);
     if (errors.length) return;
     if (warnings.length && !confirm('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'))) return;
-    // Task 45: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を「タスクに追加しました」で知らせる
+    // Task 45・48: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を移る前に「タスクに追加されました」（画面全体）で知らせる
     const before = typeof fieldTaskKeys === 'function' ? fieldTaskKeys(s.info && s.info.phases ? s.info : null) : null;
     try {
       await ReportsApi.submit(s.report);
@@ -468,13 +468,16 @@ async function edSubmit(s) {
       edShowVal(s, ['提出できませんでした: ' + errText(e)], []);
       return;
     }
-    if (before) await fieldNoteAddedTasks(s.report.case_id, before);
+    const added = before ? await fieldNoteAddedTasks(s.report.case_id, before) : [];
     s.submitted = true;
     s.ro = true;
     clearTimeout(s.timer);
     edLsDel(s.id);
     const fb = (typeof fieldBack === 'function' ? fieldBack(s.report.case_id) : null);
-    location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
+    // Task 48: タスクが増えたら、移る前に画面全体のポップアップ（「確認」を押すまで閉じない）→ 押したら移る（その間に別の画面へ移っていたらそのまま）
+    const here = location.hash;
+    if (added.length) await fieldAddedPopup(added);
+    if (location.hash === here) location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
   } finally {
     s.submitting = false;
     edSetBarBusy(s, false);

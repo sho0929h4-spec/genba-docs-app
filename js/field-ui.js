@@ -181,7 +181,6 @@ function openField(fm) {
   fd = { seq, view: fm.view, caseId: fm.caseId || null, phaseId: fm.phaseId || null, estId: fm.estId || null, rows: [], loading: true, err: '', data: null, busy: '', msg: '', toolErr: '' };
   document.body.classList.remove('talk-open'); // Task 46: トークの中だけ下のタブを隠す（talk-ui が付ける）
   fdTabs();
-  fdAddedPaint();
   if (fm.view !== 'cases' && fm.view !== 'tasks') fdBadgeRefresh(seq); // 案件・タスクは読み込んだ後に数える
   if (fm.view !== 'msg' && typeof talkBadgeRefresh === 'function') talkBadgeRefresh(true); // Task 46: メッセージの未読（メッセージのタブは読み込みで数える）
   const host = $('field-root');
@@ -265,57 +264,49 @@ async function fdBadgeRefresh(seq) {
   } catch (e) { console.warn('タスクの数を読み込めませんでした', e); }
 }
 
-/* ---------- Task 45: 追加されたタスクの知らせ（報告書の提出の後。「確認」か × を押すまで残る） ---------- */
-// 端末に人ごとに覚える（使えない端末ではこの画面の間だけ）。[{ key, name, due, place }]
-const fdAddedKey = () => 'genba-docs.added.' + (fdMe() || '');
-let fdAddedMem = null;
-function fdAddedGet() {
-  try { const v = JSON.parse(localStorage.getItem(fdAddedKey()) || 'null'); if (Array.isArray(v)) return v; } catch (e) { /* 端末に保存できない */ }
-  return fdAddedMem || [];
-}
-function fdAddedSet(list) {
-  fdAddedMem = list.length ? list : null;
-  try { if (list.length) localStorage.setItem(fdAddedKey(), JSON.stringify(list)); else localStorage.removeItem(fdAddedKey()); } catch (e) { /* この画面の間だけ */ }
-}
+/* ---------- Task 45・48: 追加されたタスクの知らせ（報告書の提出の後、移る前に画面全体のポップアップ。「確認」を押すまで閉じない） ---------- */
 // 提出の前のタスクの印（報告書の画面が呼ぶ。現場用でなければ null）
 function fieldTaskKeys(caseRow) {
   if (!fieldHidesAdmin() || !caseRow) return null;
   return new Set(PhaseLogic.staffInbox([caseRow], fdMe(), new Date()).filter(x => x.type === 'estimate').map(x => x.phase.id + '|' + x.due));
 }
-// 提出の後: 案件を読み直して、新しく入った見積書のタスクを知らせに足す（失敗しても提出は済んでいるので何もしない）
+// 提出の後: 案件を読み直して、新しく入った見積書のタスク → [{ key, name, due, place }]（失敗しても提出は済んでいるので空）
 async function fieldNoteAddedTasks(caseId, before) {
-  if (!before) return;
+  if (!before) return [];
   try {
     const row = await CasesApi.getSummary(caseId);
-    const added = PhaseLogic.staffInbox(row ? [row] : [], fdMe(), new Date()).filter(x => x.type === 'estimate' && !before.has(x.phase.id + '|' + x.due))
-      .map(x => ({ key: x.phase.id + '|' + x.due, name: x.name, due: x.due, place: PhaseLogic.placeName(x.caseRow) }));
-    if (!added.length) return;
-    const keep = fdAddedGet().filter(a => !added.some(b => b.key === a.key));
-    fdAddedSet(keep.concat(added));
     fieldRowsInvalidate();
-  } catch (e) { console.warn('追加したタスクの確認に失敗', e); }
+    return PhaseLogic.staffInbox(row ? [row] : [], fdMe(), new Date()).filter(x => x.type === 'estimate' && !before.has(x.phase.id + '|' + x.due))
+      .map(x => ({ key: x.phase.id + '|' + x.due, name: x.name, due: x.due, place: PhaseLogic.placeName(x.caseRow) }));
+  } catch (e) { console.warn('追加したタスクの確認に失敗', e); return []; }
 }
-function fdAddedPaint() {
-  const box = $('fd-added');
-  if (!box) return;
-  const list = fdAddedGet();
-  box.hidden = !list.length;
-  if (!list.length) { box.replaceChildren(); return; }
-  const close = () => { fdAddedSet([]); fdAddedPaint(); };
-  const x = dBtn('', 'fd-added-x', close);
-  x.id = 'fd-added-x';
-  x.setAttribute('aria-label', '閉じる');
-  x.appendChild(Icon.el('x', { size: 18 }));
-  const ul = mk('ul', 'fd-added-list');
-  list.forEach(a => {
-    const md = /^\d{4}-\d{2}-\d{2}$/.test(String(a.due || '')) ? PhaseLogic.fmtMDW(PhaseLogic.jstAt(+a.due.slice(0, 4), +a.due.slice(5, 7), +a.due.slice(8, 10), 12, 0)) : '';
-    const li = mk('li', null, '『' + a.name + '』をタスクに追加しました。' + (md ? '期限 ' + md : ''));
-    if (a.place) li.appendChild(mk('span', 'fd-added-place', a.place));
-    ul.appendChild(li);
+// 画面全体のポップアップ（暗い背景＋中央のカード）。「確認」で閉じて resolve（外側・Esc では閉じない。× も無い）
+function fieldAddedPopup(list) {
+  return new Promise(resolve => {
+    const bg = mk('div', 'fd-pop-bg');
+    bg.id = 'fd-added-pop';
+    const card = mk('div', 'fd-pop');
+    card.setAttribute('role', 'alertdialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'fd-added-h');
+    const h = Icon.prepend(mk('h3', 'fd-pop-h', 'タスクに追加されました'), 'tasks', 22);
+    h.id = 'fd-added-h';
+    const ul = mk('ul', 'fd-pop-list');
+    list.forEach(a => {
+      const md = /^\d{4}-\d{2}-\d{2}$/.test(String(a.due || '')) ? PhaseLogic.fmtMDW(PhaseLogic.jstAt(+a.due.slice(0, 4), +a.due.slice(5, 7), +a.due.slice(8, 10), 12, 0)) : '';
+      const li = mk('li', null);
+      li.appendChild(mk('b', 'fd-pop-name', '『' + a.name + '』'));
+      if (md) li.appendChild(mk('span', 'fd-pop-due', '期限 ' + md));
+      if (a.place) li.appendChild(mk('span', 'fd-pop-place', a.place));
+      ul.appendChild(li);
+    });
+    const ok = dBtn('確認', 'btn fd-pop-ok', () => { bg.remove(); resolve(); });
+    ok.id = 'fd-added-ok';
+    card.append(h, ul, ok);
+    bg.appendChild(card);
+    document.body.appendChild(bg);
+    ok.focus();
   });
-  const ok = dBtn('確認', 'btn sm inline fd-added-ok', close);
-  ok.id = 'fd-added-ok';
-  box.replaceChildren(Icon.prepend(mk('b', 'fd-added-h', 'タスクに追加しました'), 'tasks'), x, ul, ok);
 }
 
 /* ---------- #f 案件（本日行く現場・対応の一覧。Task 29） ---------- */

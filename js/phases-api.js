@@ -329,6 +329,10 @@ const PhasesApi = (() => {
     async setStage(phaseId, stage) {
       return must(await sb.rpc('phase_set_stage', { p_phase: phaseId, p_stage: stage }));
     },
+    // Task 48: 入金予定日を入れる（まだなら請求済みにする）。直せる人は setStage と同じ（DB の phase_set_payment_due が確かめる）
+    async setDueStage(phaseId, ymd) {
+      return must(await sb.rpc('phase_set_payment_due', { p_phase: phaseId, p_due: ymd }));
+    },
     async nudge(phaseId, text, note) {
       return must(await sb.rpc('phase_nudge', { p_phase: phaseId, p_text: text, p_note: note || '' }));
     },

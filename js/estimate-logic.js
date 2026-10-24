@@ -136,36 +136,57 @@
   }
 
   // ── 備考 ───────────────────────────────────────────────────────────────────
-  // notes = { koki:{on,val}, jikan:{on,val}, nimotsu:{on,val}, extra }（est.data.notes。data ごとでも可）
+  // notes = { koki:{on,val}, jikan:{on,val}, hotel: 'need'|'none'|'', katazuke: { sel: 'need'|'none'|'', places: [], free }, extra }（est.data.notes。data ごとでも可）
+  //   Task 48 E: 「荷物の移動依頼」（nimotsu:{on,val}）は「ホテル移動」「荷物の片付け」（必要／不要）に置き換えた。前からある nimotsu.on は 片付け 必要（場所なし）として読む
+  const KATAZUKE_PLACES = ['トイレ', '洗面所', 'キッチン', '洗濯機'];
+  const HOTEL_TEXT = '工事期間中はホテル等への一時移動が必要です。';
+  const katazukeText = places => `工事箇所${places.length ? `（${places.join('・')}）` : ''}周辺のお荷物の片付けをお願いいたします。`;
   function defaultNotes() {
-    return { koki: { on: false, val: '3' }, jikan: { on: false, val: '' }, nimotsu: { on: false, val: '' }, extra: '' };
+    return { koki: { on: false, val: '3' }, jikan: { on: false, val: '' }, hotel: '', katazuke: { sel: '', places: [], free: '' }, extra: '' };
   }
+  // 備考の欄 → { hotel, katazuke: 'need'|'none'|''（未選択）, places: 選んだ場所＋自由記載 }
+  function noteChoices(notes) {
+    let n = notes || {};
+    if (n.notes && typeof n.notes === 'object') n = n.notes;
+    const sel = v => (v === 'need' || v === 'none' ? v : '');
+    const k = n.katazuke && typeof n.katazuke === 'object' ? n.katazuke : {};
+    const katazuke = sel(k.sel) || (n.nimotsu && n.nimotsu.on ? 'need' : '');
+    const free = k.free == null ? '' : String(k.free).trim();
+    const places = katazuke === 'need' ? KATAZUKE_PLACES.filter(p => Array.isArray(k.places) && k.places.includes(p)).concat(free ? [free] : []) : [];
+    return { hotel: sel(n.hotel), katazuke, places };
+  }
+  // 紙面の備考: 1行目（必須）→ 工期 → 工事時間 → ホテル移動・荷物の片付け（必要のときだけ。不要は書かない）→ 自由記入
   function buildNotes(notes) {
     let n = notes || {};
     if (n.notes && typeof n.notes === 'object') n = n.notes;
     const out = [NOTE_FIRST];
-    const opts = [['koki', '工期'], ['jikan', '工事時間'], ['nimotsu', '荷物の移動依頼']];
-    opts.forEach(([key, label]) => {
+    [['koki', '工期'], ['jikan', '工事時間']].forEach(([key, label]) => {
       const o = n[key];
       if (!o || !o.on) return;
       let text = o.val == null ? '' : String(o.val).trim();
       if (key === 'koki' && text) text = `${parseInt(text, 10) || 0}日間`;
       out.push(text ? `${label}：${text}` : `${label}：`);
     });
+    const ch = noteChoices(n);
+    if (ch.hotel === 'need') out.push(HOTEL_TEXT);
+    if (ch.katazuke === 'need') out.push(katazukeText(ch.places));
     const extra = n.extra == null ? '' : String(n.extra);
     if (extra.trim()) out.push(extra.trim());
     return out.join('\n');
   }
 
-  // ── 工事の日程の条件（Task 47）────────────────────────────────────────────────
-  // 見積書の備考（工期○日間・工事時間・荷物の移動依頼）と明細の品名・内容（断水・排水制限）から日程を決めるための条件を取り出す。
+  // ── 工事の日程の条件（Task 47・48）────────────────────────────────────────────
+  // 見積書の備考（工期○日間・工事時間・ホテル移動・荷物の片付け）と明細の品名・内容（断水・排水制限）から日程を決めるための条件を取り出す。
   //   est: 見積書の行 { data: { notes }, lines } か case_summaries の見積の要素 { notes, line_texts }。notes は備考の欄（buildNotes の形）か文字
-  //   → { days: '2日間'|'', time: '9:00〜17:00'|'', move: '必要（…）'|'', water: bool, drain: bool, missing: ['工期','工事時間','荷物の移動依頼'] の無いもの }
-  const COND_ITEMS = ['工期', '工事時間', '荷物の移動依頼'];
+  //   → { days: '2日間'|'', time: '9:00〜17:00'|'', hotel: '必要'|'不要'|'', katazuke: '必要（トイレ・キッチン）'|'必要'|'不要'|'', water, drain,
+  //       missing: ['工期','工事時間','ホテル移動','荷物の片付け'] の無いもの（未選択）}
+  //   文字の備考（読み込んだ見積）は「不要」を書かないので、書いてあれば必要・無ければ未記入
+  const COND_ITEMS = ['工期', '工事時間', 'ホテル移動', '荷物の片付け'];
   function conditions(est) {
     const e = est || {};
     const raw = e.data && e.data.notes !== undefined ? e.data.notes : e.notes;
-    const notes = typeof raw === 'string' ? raw : raw && typeof raw === 'object' ? buildNotes(raw) : '';
+    const isObj = raw && typeof raw === 'object';
+    const notes = typeof raw === 'string' ? raw : isObj ? buildNotes(raw) : '';
     const lineText = (Array.isArray(e.line_texts) ? e.line_texts
       : (Array.isArray(e.lines) ? e.lines : []).map(l => [l && l.description, l && l.detail].filter(Boolean).join(' '))).map(String).join('\n');
     const all = notes + '\n' + lineText;
@@ -173,13 +194,19 @@
     const days = kokiM && Number(kokiM[1]) > 0 ? `${Number(kokiM[1])}日間` : '';
     const jikanM = /工事時間[：:][ \t\u3000]*([^\n]*)/.exec(notes);
     const time = jikanM ? jikanM[1].trim() : '';
-    const nimotsuM = /荷物の移動依頼[：:][ \t\u3000]*([^\n]*)/.exec(notes);
-    const move = nimotsuM ? (nimotsuM[1].trim() ? `必要（${nimotsuM[1].trim()}）` : '必要')
-      : /荷物の移動をお願い/.test(notes) ? '必要' : '';
+    let ch;
+    if (isObj) ch = noteChoices(raw);
+    else {
+      const placeM = /工事箇所（([^）]*)）周辺のお荷物の片付け/.exec(notes);
+      ch = { hotel: /ホテル等への一時移動が必要/.test(notes) ? 'need' : '',
+        katazuke: placeM || /お荷物の片付け|荷物の移動依頼|荷物の移動をお願い/.test(notes) ? 'need' : '', places: placeM ? placeM[1].split('・').filter(Boolean) : [] };
+    }
+    const hotel = ch.hotel === 'need' ? '必要' : ch.hotel === 'none' ? '不要' : '';
+    const katazuke = ch.katazuke === 'need' ? (ch.places.length ? `必要（${ch.places.join('・')}）` : '必要') : ch.katazuke === 'none' ? '不要' : '';
     const water = /断水/.test(all);
     const drain = /排水(制限|停止|不可|禁止)|排水を伴うご使用をお控え/.test(all);
-    const missing = COND_ITEMS.filter((_, i) => ![days, time, move][i]);
-    return { days, time, move, water, drain, missing };
+    const missing = COND_ITEMS.filter((_, i) => ![days, time, hotel, katazuke][i]);
+    return { days, time, hotel, katazuke, water, drain, missing };
   }
   // 工事時間の文字 '9:00〜17:00' → { start: '09:00', end: '17:00' } か null（工事掲示の時刻に使う）
   function timeRange(text) {
@@ -707,7 +734,7 @@
     newLine, isRealLine, totals, withTotals,
     recalcShokehi, addShokehi, addQuick, adjustToHundred, adjustLine, isAdjustLine,
     unitPrice, commitAmount, normAmount,
-    defaultNotes, buildNotes, COND_ITEMS, conditions, timeRange,
+    defaultNotes, buildNotes, KATAZUKE_PLACES, noteChoices, COND_ITEMS, conditions, timeRange,
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
     hankoParts, hankoCols, validate,

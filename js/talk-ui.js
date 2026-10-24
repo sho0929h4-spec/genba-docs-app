@@ -2,7 +2,7 @@
 //   現場用: 下のタブ「メッセージ」#f/msg（トークの一覧）→ #f/msg/{案件ID}・#f/msg/all（全体）。トークの中は下のタブを隠す（LINE と同じ）
 //   管理者: #talk（全案件のトーク一覧。案件一覧のヘッダーのアイコン）→ #talk/{案件ID}・#talk/all。案件ページの「メッセージ」からも開ける。
 //           案件のトークでは「元請から」として書ける（as_client）
-//   一覧: 丸に頭文字・物件名 号室・最後の1行・時刻・未読の数（新しい順）。トーク: 上の帯（物件名 号室・右上は Task 47 のフェーズ管理の場所）・
+//   一覧: 丸に頭文字・物件名 号室・最後の1行・時刻・未読の数（新しい順）。トーク: 上の帯（物件名 号室・右上は「フェーズ」）・
 //   日付の区切り・自分は右の紺の吹き出し・相手は左の白（名前）・時刻・中央の灰色のログ・報告書／見積書のカード（押すと開く）・
 //   下に入力欄（sticky・safe-area）と写真・送信
 //   見える範囲は DB（staff_messages の select = talk_visible）。開いたら talk_mark_read（既読の印・自分あての未読も既読）
@@ -149,7 +149,7 @@ function talkRenderThread(s) {
   const all = s.key === TalkLogic.ALL;
   const c = all ? null : talkCase(s);
   const nodes = [];
-  // 上の帯（物件名 号室）。右上は Task 47 のフェーズ管理の場所（今は空）
+  // 上の帯（物件名 号室）。右上は「フェーズ」（Task 48）
   const head = mk('div', 'talk-head');
   head.id = 'talk-head';
   if (!s.field) head.appendChild(dBtn('‹ 一覧', 'talk-back', () => { location.hash = '#talk'; }));
@@ -165,10 +165,10 @@ function talkRenderThread(s) {
     ht.appendChild(go);
   } else if (all) ht.appendChild(mk('span', 'talk-head-sub', s.field ? '管理者からのお知らせと、案件の無い連絡（日報など）' : '会社の全員へのお知らせと、案件の無い連絡（日報など）'));
   head.appendChild(ht);
-  const slot = mk('div', 'talk-head-slot'); // Task 47: フェーズ管理
+  const slot = mk('div', 'talk-head-slot'); // Task 47・48: フェーズ
   slot.id = 'talk-head-slot';
   if (c) {
-    const pm = dBtn('フェーズ管理', 'talk-phase-btn', () => talkStageSheet(s, c, ''));
+    const pm = dBtn('フェーズ', 'talk-phase-btn', () => talkStageSheet(s, c, ''));
     pm.id = 'talk-phase-open';
     pm.setAttribute('aria-haspopup', 'dialog');
     slot.appendChild(pm);
@@ -267,7 +267,7 @@ function talkBar(s, c) {
   ta.rows = 1;
   ta.maxLength = StaffMessagesApi.BODY_MAX;
   // Task 47: 日程調整中の対応があれば、候補日の書き方の例（具体の日付）
-  const adjusting = c && (c.phases || []).some(p => PhaseLogic.manageStage(p, new Date()).label === '日程調整中');
+  const adjusting = c && (c.phases || []).some(p => PhaseLogic.stage(p, null, new Date()).key === 'schedule');
   ta.placeholder = adjusting ? TalkLogic.scheduleHint(new Date()) : 'メッセージを入力';
   ta.setAttribute('aria-label', 'メッセージ');
   ta.value = s.draft || '';
@@ -344,7 +344,8 @@ function talkCondEl(x) {
   if (x.phaseId) box.dataset.phaseId = x.phaseId;
   box.appendChild(Icon.prepend(mk('b', 'talk-cond-h', x.text), 'calendar', 16));
   const dl = mk('dl', 'talk-cond-dl');
-  [['日数', c.days || ''], ['時間帯', c.time || ''], ['断水', c.water ? 'あり' : 'なし'], ['排水制限', c.drain ? 'あり' : 'なし'], ['荷物の移動', c.move || '']]
+  [['日数', c.days || ''], ['時間帯', c.time || ''], ['断水', c.water ? 'あり' : 'なし'], ['排水制限', c.drain ? 'あり' : 'なし'],
+    ['ホテル移動', c.hotel || ''], ['荷物の片付け', c.katazuke || '']] // Task 48 E: 必要／不要（どちらも選んでいなければ「未記入」）
     .forEach(([k, v]) => { dl.append(mk('dt', null, k), mk('dd', v ? null : 'miss', v || '未記入')); });
   box.appendChild(dl);
   box.appendChild(mk('span', 'talk-cond-note', (c.missing || []).length
@@ -353,9 +354,9 @@ function talkCondEl(x) {
   return box;
 }
 
-/* ---------- Task 47: フェーズ管理（トーク画面の右上 → シート）。対応ごとに 調査／見積書／対応／請求 の段と今の段階 ---------- */
+/* ---------- Task 48: 「フェーズ」（トーク画面の右上 → シート。Task 47 のフェーズ管理を作り直し）。対応ごとに（種類）→ 対応 → 精算 ---------- */
 //   段階は報告書・見積書・請求の記録で自動で進む（PhaseLogic.manageStage）。直せるのは管理者と、現場用でこの案件を登録した人（TalkLogic.canManage・DB も同じ）
-//   直すと DB がトークのログ（source stage）とタイムラインを書く。シートは × だけで閉じる
+//   直すと DB がトークのログ（source stage）とタイムラインを書く。シートは × だけで閉じる（入金予定日の入力があるので外側・Esc では閉じない）
 function talkStageSheet(s, c, doneMsg) {
   const prev = document.getElementById('talk-stage-sheet');
   if (prev) prev.remove();
@@ -371,15 +372,15 @@ function talkStageSheet(s, c, doneMsg) {
   dlg.setAttribute('aria-labelledby', 'talk-stage-title');
   const close = () => { if (busy) return; bg.remove(); window.removeEventListener('hashchange', close); };
   const hd = mk('div', 'lt-hd');
-  const h = mk('h3', null, 'フェーズ管理');
+  const h = mk('h3', null, 'フェーズ');
   h.id = 'talk-stage-title';
   const x = dBtn('×', 'lt-x', close);
   x.id = 'talk-stage-x';
   x.setAttribute('aria-label', '閉じる');
   hd.append(h, x);
   dlg.appendChild(hd);
-  dlg.appendChild(mk('div', 'lt-sub', (PhaseLogic.placeName(c) || '（物件名なし）') + '。段階は報告書・見積書・請求の記録で自動で進みます。'
-    + (can ? '違うときや失注のときは、下のボタンで直せます' : '直せるのは管理者です（自分で登録した案件は自分で直せます）')));
+  dlg.appendChild(mk('div', 'lt-sub', (PhaseLogic.placeName(c) || '（物件名なし）') + '。対応と精算は報告書・請求の記録で自動で進みます。'
+    + (can ? '違うときは下のボタンで直せます' : '直せるのは管理者です（自分で登録した案件は自分で直せます）')));
   const msg = mk('div', 'ts-msg', doneMsg || '');
   msg.id = 'talk-stage-msg';
   msg.setAttribute('role', 'status');
@@ -391,54 +392,78 @@ function talkStageSheet(s, c, doneMsg) {
   const phases = Array.isArray(c.phases) ? c.phases : [];
   if (!phases.length) dlg.appendChild(mk('div', 'empty', 'まだ対応がありません（案件ページで追加します）'));
   const now = new Date();
+  const cell = (cls, cap, val, key) => {
+    const d = mk('div', 'ts-cell ' + cls);
+    if (key) d.dataset.state = key;
+    if (cap) d.appendChild(mk('span', 'ts-cap', cap));
+    d.appendChild(mk('b', 'ts-val', val));
+    return d;
+  };
+  const arrow = () => { const a = mk('span', 'ts-arrow'); a.setAttribute('aria-hidden', 'true'); a.appendChild(Icon.el('arrow', { size: 14 })); return a; };
   phases.forEach(p => {
     const m = PhaseLogic.manageStage(p, now);
     const row = mk('div', 'ts-row' + (m.lost ? ' lost' : ''));
     row.dataset.phaseId = p.id;
-    const top = mk('div', 'ts-top');
     const name = TalkLogic.kindName(p, p.seq || 1);
-    top.append(mk('b', 'ts-name', name), mk('span', 'ts-now', '今: ' + (m.label || '—')));
-    row.appendChild(top);
-    const ol = mk('ol', 'ts-steps');
-    ol.setAttribute('aria-label', name + 'の段');
-    m.steps.forEach(st => {
-      const li = mk('li', 'ts-step ' + st.state);
-      li.dataset.step = st.key;
-      li.appendChild(mk('span', 'ts-dot'));
-      li.appendChild(mk('span', 'ts-lb', st.label));
-      if (st.state === 'now' || st.state === 'lost') li.setAttribute('aria-current', 'step');
-      ol.appendChild(li);
-    });
-    row.appendChild(ol);
+    const flow = mk('div', 'ts-flow');
+    flow.setAttribute('aria-label', name + ' 対応 ' + m.work.label + ' 精算 ' + m.settle.label);
+    flow.append(cell('ts-kind', '', name), arrow(), cell('ts-work', '対応', m.work.label, m.work.key), arrow(), cell('ts-settle', '精算', m.settle.label, m.settle.key));
+    row.appendChild(flow);
     if (can) {
       const acts = mk('div', 'ts-acts');
-      m.manual.forEach(o => {
-        const b = dBtn(o.label, 'ts-btn' + (o.on ? ' on' : '') + (o.key === 'lost' ? ' lost' : ''), () => run(p, o, name));
+      m.manual.work.concat(m.manual.settle).forEach(o => {
+        const b = dBtn(o.label, 'ts-btn', () => (o.key === 'due' ? dueForm(p, name, acts) : run(p, o.key, name, o.key === 'complete' ? '完了' : o.label.replace(/にする$/, ''))));
         b.dataset.stage = o.key;
-        b.setAttribute('aria-pressed', o.on ? 'true' : 'false');
-        if (o.on) b.disabled = true;
         buttons.push(b);
         acts.appendChild(b);
       });
+      const lb = dBtn(m.manual.lost.label, 'linkbtn ts-lost', () => run(p, m.manual.lost.key, name, m.manual.lost.key === 'active' ? '失注を取り消し' : '失注'));
+      lb.dataset.stage = m.manual.lost.key;
+      buttons.push(lb);
+      acts.appendChild(lb);
       row.appendChild(acts);
     }
     dlg.appendChild(row);
   });
   dlg.appendChild(err);
-  async function run(p, o, name) {
+  // 入金予定日の欄（ボタンの下に開く。保存かやめるで閉じる）
+  function dueForm(p, name, acts) {
+    if (busy) return;
+    const old = acts.querySelector('.ts-due');
+    if (old) { old.remove(); return; }
+    const f = mk('div', 'ts-due');
+    const id = 'ts-due-' + p.id;
+    const lb = mk('label', 'ts-cap', '入金予定日');
+    lb.htmlFor = id;
+    const inp = document.createElement('input');
+    inp.type = 'date';
+    inp.id = id;
+    inp.className = 'ts-due-in';
+    inp.value = p.payment_due ? String(p.payment_due).slice(0, 10) : PhaseLogic.paymentDueDefault(p, p.billed_at || new Date());
+    const ok = dBtn('保存', 'btn sm inline ts-due-save', () => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(inp.value)) { err.textContent = '入金予定日を入れてください'; return; }
+      run(p, 'due', name, PhaseLogic.fmtYmdMD(inp.value) + '入金予定', inp.value);
+    });
+    const no = dBtn('やめる', 'btn sm ghost inline', () => f.remove());
+    buttons.push(ok, no);
+    f.append(lb, inp, ok, no);
+    acts.appendChild(f);
+    inp.focus();
+  }
+  async function run(p, key, name, label, ymd) {
     if (busy) return;
     busy = true;
     err.textContent = '';
     buttons.concat([x]).forEach(b => { b.disabled = true; });
     let e2 = '';
-    try { await PhasesApi.setStage(p.id, o.key); }
+    try { await (key === 'due' ? PhasesApi.setDueStage(p.id, ymd) : PhasesApi.setStage(p.id, key)); }
     catch (e) { e2 = '直せませんでした: ' + errText(e); }
     busy = false;
-    if (e2) { buttons.concat([x]).forEach(b => { b.disabled = b.getAttribute('aria-pressed') === 'true'; }); err.textContent = e2; return; }
+    if (e2) { buttons.concat([x]).forEach(b => { b.disabled = false; }); err.textContent = e2; return; }
     if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
     await talkLoad(s);
     if (!talkAlive(s)) { close(); return; }
-    talkStageSheet(s, talkCase(s), name + 'を「' + (o.key === 'active' ? '失注を取り消し' : o.label) + '」にしました（トークにも記録しました）');
+    talkStageSheet(s, talkCase(s), name + 'を「' + label + '」にしました（トークにも記録しました）');
   }
   bg.appendChild(dlg);
   document.body.appendChild(bg);
