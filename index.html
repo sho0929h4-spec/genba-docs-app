@@ -616,6 +616,7 @@
     #case-parties .pty-room{grid-column:3;grid-row:1;border-top:0;align-items:center;grid-template-columns:44px minmax(0,1fr);}
     #case-parties .pty-row:not(.pty-room){grid-template-columns:minmax(0,1fr);gap:0;padding:4px 0 0;}
     .ctools-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+    .ctools-grid:has(> .ctool:nth-child(4)){grid-template-columns:repeat(2,minmax(0,1fr));} /* Task 59: 工事は4枚 = 2列×2段（1行4枚では名前が折れる） */
   }
   /* 関係する部屋（Task 12）: 役割は小さなラベル（.tag の形）。カードの片側だけの太い線は使わない */
   .rm-box{grid-column:1 / -1;border-top:1px solid var(--border);margin-top:4px;padding-top:2px;min-width:0;}
@@ -1622,6 +1623,7 @@
   .fd-tool[data-state=draft] .fd-tool-st{color:var(--amber);font-weight:700;}
   .fd-tool[data-state=waiting] .fd-tool-st,.ctool[data-state=waiting] .ctool-st{color:#1d4ed8;font-weight:700;}
   .fd-tool-go{font-size:24px;color:var(--muted);flex:none;}
+  .fd-tool.view{cursor:default;} /* Task 59: 日程調整（管理者が作った案件は見るだけ） */
   .fd-note{font-size:12px;color:var(--muted);border-top:1px dashed var(--border);padding-top:8px;}
   .fd-set{padding:12px 14px;gap:6px;}
   /* Task 32: 現場用の設定「担当者の情報」 */
@@ -2399,8 +2401,10 @@
         <div class="oc-hint">会社の全員のタスクに「募集: … — 行けますか？」が出て、一番早く「行けます」を押した人が作業担当者になります（案件の担当者は空のまま）</div>
         <label for="cm-call-kind">募集する対応</label>
         <select id="cm-call-kind"><option value="survey">調査</option><option value="cause">原因元工事</option><option value="repair">復旧工事</option></select>
-        <label for="cm-call-at">日時 <span class="opt">任意・未定ならあとで案件ページの「日時」から（候補・入居者の都合も出せます）</span></label>
+        <label for="cm-call-at">日時 <span class="opt">任意・未定なら担当が決まった後に案件ページの「日時」から</span></label>
         <input type="datetime-local" id="cm-call-at">
+        <label for="cm-call-end">終わり <span class="opt">任意・空なら1時間</span></label>
+        <input type="datetime-local" id="cm-call-end">
       </div>
     </div>
     <div class="ff"><label for="cm-address">現場住所 <span class="opt">あとからでOK</span></label><input type="text" id="cm-address" placeholder="例: 東京都中野区中央2-1-5" autocomplete="off"></div>
@@ -2518,77 +2522,78 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/icons.js?v=4f4528a"></script>
-<script src="js/ask.js?v=4f4528a"></script>
-<script src="js/crypto-util.js?v=4f4528a"></script>
-<script src="js/supabase-config.js?v=4f4528a"></script>
-<script src="js/supabase.js?v=4f4528a"></script>
-<script src="js/auth.js?v=4f4528a"></script>
-<script src="js/storage.js?v=4f4528a"></script>
-<script src="js/quota.js?v=4f4528a"></script>
-<script src="js/messages-api.js?v=4f4528a"></script>
-<script src="js/case-logic.js?v=4f4528a"></script>
-<script src="js/mail-templates.js?v=4f4528a"></script>
-<script src="js/phase-logic.js?v=4f4528a"></script>
-<script src="js/request-view.js?v=4f4528a"></script>
-<script src="js/survey-view.js?v=4f4528a"></script>
-<script src="js/case-band.js?v=4f4528a"></script>
-<script src="js/image.js?v=4f4528a"></script>
-<script src="js/cases-api.js?v=4f4528a"></script>
-<script src="js/clients-api.js?v=4f4528a"></script>
-<script src="js/phases-api.js?v=4f4528a"></script>
+<script src="js/features.js?v=23674f0"></script>
+<script src="js/icons.js?v=23674f0"></script>
+<script src="js/ask.js?v=23674f0"></script>
+<script src="js/crypto-util.js?v=23674f0"></script>
+<script src="js/supabase-config.js?v=23674f0"></script>
+<script src="js/supabase.js?v=23674f0"></script>
+<script src="js/auth.js?v=23674f0"></script>
+<script src="js/storage.js?v=23674f0"></script>
+<script src="js/quota.js?v=23674f0"></script>
+<script src="js/messages-api.js?v=23674f0"></script>
+<script src="js/case-logic.js?v=23674f0"></script>
+<script src="js/mail-templates.js?v=23674f0"></script>
+<script src="js/phase-logic.js?v=23674f0"></script>
+<script src="js/request-view.js?v=23674f0"></script>
+<script src="js/survey-view.js?v=23674f0"></script>
+<script src="js/case-band.js?v=23674f0"></script>
+<script src="js/image.js?v=23674f0"></script>
+<script src="js/cases-api.js?v=23674f0"></script>
+<script src="js/clients-api.js?v=23674f0"></script>
+<script src="js/phases-api.js?v=23674f0"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=4f4528a"></script>
-<script src="js/reports-api.js?v=4f4528a"></script>
-<script src="js/photo-marks.js?v=4f4528a"></script>
-<script src="js/report-pdf.js?v=4f4528a"></script>
-<script src="js/daily-logic.js?v=4f4528a"></script>
-<script src="js/daily-pdf.js?v=4f4528a"></script>
-<script src="js/notice-logic.js?v=4f4528a"></script>
-<script src="js/notices-api.js?v=4f4528a"></script>
-<script src="js/notice-pdf.js?v=4f4528a"></script>
-<script src="js/estimate-logic.js?v=4f4528a"></script>
-<script src="js/estimates-api.js?v=4f4528a"></script>
-<script src="js/estimate-pdf.js?v=4f4528a"></script>
-<script src="js/estimate-presets-api.js?v=4f4528a"></script>
-<script src="js/estimate-presets.js?v=4f4528a"></script>
-<script src="js/estimate-layout.js?v=4f4528a"></script>
-<script src="js/estimate-import.js?v=4f4528a"></script>
-<script src="js/case-list.js?v=4f4528a"></script>
-<script src="js/clients-ui.js?v=4f4528a"></script>
-<script src="js/case-detail.js?v=4f4528a"></script>
-<script src="js/case-rooms-api.js?v=4f4528a"></script>
-<script src="js/case-rooms.js?v=4f4528a"></script>
-<script src="js/case-request.js?v=4f4528a"></script>
-<script src="js/edit-logic.js?v=4f4528a"></script>
-<script src="js/case-trash.js?v=4f4528a"></script>
-<script src="js/case-undo.js?v=4f4528a"></script>
-<script src="js/phase-ui.js?v=4f4528a"></script>
-<script src="js/phase-detail.js?v=4f4528a"></script>
-<script src="js/billing-ui.js?v=4f4528a"></script>
-<script src="js/team.js?v=4f4528a"></script>
-<script src="js/tasks.js?v=4f4528a"></script>
-<script src="js/calendar-logic.js?v=4f4528a"></script>
-<script src="js/calendar-ui.js?v=4f4528a"></script>
-<script src="js/timeline.js?v=4f4528a"></script>
-<script src="js/photo-mark-editor.js?v=4f4528a"></script>
-<script src="js/report-form.js?v=4f4528a"></script>
-<script src="js/report-ui.js?v=4f4528a"></script>
-<script src="js/report-share.js?v=4f4528a"></script>
-<script src="js/report-edit.js?v=4f4528a"></script>
-<script src="js/mail-ui.js?v=4f4528a"></script>
-<script src="js/outbox-ui.js?v=4f4528a"></script>
-<script src="js/staff-inbox.js?v=4f4528a"></script>
-<script src="js/staff-messages.js?v=4f4528a"></script>
-<script src="js/talk-logic.js?v=4f4528a"></script>
-<script src="js/schedule-ui.js?v=4f4528a"></script>
-<script src="js/open-call-ui.js?v=4f4528a"></script>
-<script src="js/talk-ui.js?v=4f4528a"></script>
-<script src="js/notice-ui.js?v=4f4528a"></script>
-<script src="js/notice-edit.js?v=4f4528a"></script>
-<script src="js/estimate-ui.js?v=4f4528a"></script>
-<script src="js/field-ui.js?v=4f4528a"></script>
-<script src="js/app.js?v=4f4528a"></script>
+<script src="js/report-logic.js?v=23674f0"></script>
+<script src="js/reports-api.js?v=23674f0"></script>
+<script src="js/photo-marks.js?v=23674f0"></script>
+<script src="js/report-pdf.js?v=23674f0"></script>
+<script src="js/daily-logic.js?v=23674f0"></script>
+<script src="js/daily-pdf.js?v=23674f0"></script>
+<script src="js/notice-logic.js?v=23674f0"></script>
+<script src="js/notices-api.js?v=23674f0"></script>
+<script src="js/notice-pdf.js?v=23674f0"></script>
+<script src="js/estimate-logic.js?v=23674f0"></script>
+<script src="js/estimates-api.js?v=23674f0"></script>
+<script src="js/estimate-pdf.js?v=23674f0"></script>
+<script src="js/estimate-presets-api.js?v=23674f0"></script>
+<script src="js/estimate-presets.js?v=23674f0"></script>
+<script src="js/estimate-layout.js?v=23674f0"></script>
+<script src="js/estimate-import.js?v=23674f0"></script>
+<script src="js/case-list.js?v=23674f0"></script>
+<script src="js/clients-ui.js?v=23674f0"></script>
+<script src="js/case-detail.js?v=23674f0"></script>
+<script src="js/case-rooms-api.js?v=23674f0"></script>
+<script src="js/case-rooms.js?v=23674f0"></script>
+<script src="js/case-request.js?v=23674f0"></script>
+<script src="js/edit-logic.js?v=23674f0"></script>
+<script src="js/case-trash.js?v=23674f0"></script>
+<script src="js/case-undo.js?v=23674f0"></script>
+<script src="js/phase-ui.js?v=23674f0"></script>
+<script src="js/phase-detail.js?v=23674f0"></script>
+<script src="js/billing-ui.js?v=23674f0"></script>
+<script src="js/team.js?v=23674f0"></script>
+<script src="js/tasks.js?v=23674f0"></script>
+<script src="js/calendar-logic.js?v=23674f0"></script>
+<script src="js/calendar-ui.js?v=23674f0"></script>
+<script src="js/timeline.js?v=23674f0"></script>
+<script src="js/photo-mark-editor.js?v=23674f0"></script>
+<script src="js/report-form.js?v=23674f0"></script>
+<script src="js/report-ui.js?v=23674f0"></script>
+<script src="js/report-share.js?v=23674f0"></script>
+<script src="js/report-edit.js?v=23674f0"></script>
+<script src="js/mail-ui.js?v=23674f0"></script>
+<script src="js/outbox-ui.js?v=23674f0"></script>
+<script src="js/staff-inbox.js?v=23674f0"></script>
+<script src="js/staff-messages.js?v=23674f0"></script>
+<script src="js/talk-logic.js?v=23674f0"></script>
+<script src="js/schedule-ui.js?v=23674f0"></script>
+<script src="js/open-call-ui.js?v=23674f0"></script>
+<script src="js/talk-ui.js?v=23674f0"></script>
+<script src="js/notice-ui.js?v=23674f0"></script>
+<script src="js/notice-edit.js?v=23674f0"></script>
+<script src="js/estimate-ui.js?v=23674f0"></script>
+<script src="js/field-ui.js?v=23674f0"></script>
+<script src="js/app.js?v=23674f0"></script>
 </body>
 </html>

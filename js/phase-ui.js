@@ -948,19 +948,21 @@ function phScheduleForm(p, errId) {
       wrap.appendChild(acts);
     }
   }
+  const on = PhaseLogic.schedOn(); // Task 58: false = 開始と終わりを手で入れて「この日時で確定」だけ
   const cancel = () => { s.editing.delete(p.id); if (s.condForm) s.condForm.delete(p.id); phMsg(errId, ''); phDraw(); };
-  if (s.condForm && s.condForm.has(p.id)) {
+  if (on && s.condForm && s.condForm.has(p.id)) {
     wrap.appendChild(schCondForm({ onCancel: () => { s.condForm.delete(p.id); phDraw(); },
       onSend: (cond, b) => phSchedRun(b, p, errId, '入居者の都合の送信', () => PhasesApi.schedConditions(p.id, cond)) }));
     return wrap;
   }
   const extra = [];
   if (p.scheduled_at) extra.push(dBtn('未定に戻す', 'btn sm ghost inline ph-sched-clear', b => phSaveSchedule(b, p, null, null, errId)));
-  extra.push(dBtn('入居者の都合を伝える', 'btn sm ghost inline sch-cond-open', () => { (s.condForm || (s.condForm = new Set())).add(p.id); phDraw(); }));
+  if (on) extra.push(dBtn('入居者の都合を伝える', 'btn sm ghost inline sch-cond-open', () => { (s.condForm || (s.condForm = new Set())).add(p.id); phDraw(); }));
   // Task 53: 所要時間の初期値は見積書の備考（case_summaries の phases[].estimates）・作業担当者の予定と重なる日時は注意
   const sp = Object.assign({}, ((currentCase && currentCase.phases) || []).find(x => x.id === p.id) || {}, p);
   wrap.appendChild(schOfferForm({ phase: sp, start: p.scheduled_at, end: p.scheduled_end, firstCls: ['ph-sched-start', 'ph-sched-end'], saveCls: 'ph-sched-save',
-    hint: '1つなら「この日時で確定」（依頼元への連絡メールの下書きができます）か「候補として送る」。候補は空いている時間（いつから〜いつまで）と所要時間で、作業担当者が始まりを選びます'
+    hint: !on ? '開始の日時を入れて「この日時で確定」（依頼元への連絡メールの下書きができます）。終わりは空でもかまいません（1時間として扱います）。作業担当者のほかの予定と重なると保存できません'
+      : '1つなら「この日時で確定」（依頼元への連絡メールの下書きができます）か「候補として送る」。候補は空いている時間（いつから〜いつまで）と所要時間で、作業担当者が始まりを選びます'
       + (p.scheduled_at ? '（候補を送ると今の日時は取り消され、候補からやり直します）' : ''),
     onCancel: cancel, extra,
     onConfirm: (st, en, b) => phSaveSchedule(b, p, st, en, errId),
@@ -2088,7 +2090,8 @@ function phWorkerPanel(p, errId) {
     return out;
   }
   out.push(mk('div', 'oc-hint', OC_HINT + (p.worker_id ? '。今の担当者は外れます' : '')
-    + (p.scheduled_at || PhaseLogic.schedOpen(p) ? '' : '。日時が未定なら、先に「日時」で候補か入居者の都合を入れると募集に添えられます')));
+    + (p.scheduled_at || PhaseLogic.schedOpen(p) ? '' : PhaseLogic.schedOn() ? '。日時が未定なら、先に「日時」で候補か入居者の都合を入れると募集に添えられます'
+      : '。日時が未定のまま出すと、担当が決まった後に「日時」で入れます（先に「日時」で入れると募集に添えられます）')));
   out.push(dBtn('一斉配信する', 'btn sm inline ph-call-open', btn => phRun(btn, errId, '一斉配信', async () => {
     await PhasesApi.openCall(p.id);
     phWkMode.delete(p.id);

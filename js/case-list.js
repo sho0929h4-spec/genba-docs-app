@@ -323,6 +323,7 @@ async function openCaseModal(row, onSaved, opts) {
   caseModalModeDraw();
   $('cm-call-kind').value = 'survey';
   $('cm-call-at').value = '';
+  $('cm-call-end').value = '';
   const sel = $('cm-assignee');
   const want = row ? row.assignee_id || '' : ctx.user.id;
   sel.replaceChildren(new Option('未設定', ''));
@@ -411,6 +412,9 @@ async function saveCaseModal() {
   const call = !caseModalRow && caseModalMode === 'call';
   const callAt = call && $('cm-call-at').value ? PhaseLogic.jstInput($('cm-call-at').value) : null;
   if (call && $('cm-call-at').value && !callAt) { setMsg('cm-msg', '募集の日時の形が正しくありません'); $('cm-call-at').focus(); return; }
+  // Task 58: 終わり（任意。空なら1時間扱い）
+  const callEnd = callAt && $('cm-call-end').value ? PhaseLogic.jstInput($('cm-call-end').value) : null;
+  if (callAt && $('cm-call-end').value && (!callEnd || callEnd <= callAt)) { setMsg('cm-msg', '終わりは開始より後にしてください'); $('cm-call-end').focus(); return; }
   const fields = {
     name,
     due_date: $('cm-due').value || null,
@@ -442,7 +446,7 @@ async function saveCaseModal() {
     try {
       const kind = $('cm-call-kind').value;
       const ph = await PhasesApi.create(created.id, kind, created, null);
-      if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString() });
+      if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString(), scheduled_end: callEnd ? callEnd.toISOString() : null });
       await PhasesApi.openCall(ph.id);
     } catch (e) { callErr = '案件は作りましたが、一斉配信にできませんでした（案件ページの対応の表「担当者」から出し直せます）: ' + (e && e.message ? e.message : e); }
   }

@@ -2539,6 +2539,10 @@
     } else if (Array.from(f.contact).length > NEW_CASE_MAX.tel) errors.contact = '連絡先（電話番号）は40文字までです';
     const at = jstInput(x.at);
     if (!at) errors.at = '訪問日時を入れてください';
+    // Task 58: 終わり（任意。空なら1時間扱い）。rpc は開始だけなので、登録の後に scheduled_end を入れる（→ end）
+    const end = str(x.end) ? jstInput(x.end) : null;
+    if (str(x.end) && !end) errors.end = '終わりの日時の形が正しくありません';
+    else if (end && at && end <= at) errors.end = '終わりは訪問日時より後にしてください';
     if (!KIND_KEYS.includes(f.kind)) errors.kind = 'フェーズを選んでください';
     if (f.kind === 'other') {
       if (!f.label) errors.label = '「その他」の名前を入れてください（例: 点検・清掃）';
@@ -2546,7 +2550,7 @@
     }
     if (Array.from(f.request).length > NEW_CASE_MAX.request) errors.request = '依頼内容詳細は2000文字までです';
     const ok = Object.keys(errors).length === 0;
-    return { ok, errors, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
+    return { ok, errors, end: ok && end ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
       p_scheduled_at: at.toISOString(), p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
   }
 
@@ -2687,8 +2691,12 @@
     { key: 'mon', label: '月' }, { key: 'tue', label: '火' }, { key: 'wed', label: '水' }, { key: 'thu', label: '木' }, { key: 'fri', label: '金' },
     { key: 'sat', label: '土' }, { key: 'sun', label: '日' }];
   const SCHED_DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
-  // 今の日程調整（候補あり・条件あり・希望あり）。日時が入っている・失注・確定・未定は null
+  // Task 58: 機能スイッチ（js/features.js の FEATURES.schedule）。false = 日程調整を出さない（日時は手で入れるだけ）。
+  //   読み込んでいない所（node の単体テスト）は今まで通り true 扱い
+  const schedOn = () => !(typeof FEATURES !== 'undefined' && FEATURES && FEATURES.schedule === false);
+  // 今の日程調整（候補あり・条件あり・希望あり）。日時が入っている・失注・確定・未定は null。スイッチ false も null（残っている候補・条件は出さない）
   function schedOpen(phase) {
+    if (!schedOn()) return null;
     const p = phase || {};
     const s = p.schedule;
     return s && SCHED_OPEN.includes(s.state) && !p.scheduled_at && !p.lost_at ? s : null;
@@ -2736,6 +2744,11 @@
     const e = jst(s.end);
     return fmtMDWHM(s.start) + (e && ms(s.end) > ms(s.start) ? (jstYmd(s.end) === jstYmd(s.start) ? `〜${fmtHM(e)}` : `〜${fmtMDHM(s.end)}`) : '');
   }
+  // Task 59: ツールの並びと名前（管理者の案件ページ・現場用のツールページ）。調査（再調査も）は工事掲示を出さない
+  const TOOL_NAMES = { schedule: '日程調整', report: '報告書作成', estimate: '見積書作成', notice: '工事掲示' };
+  const toolOrder = kind => (kind === 'survey' ? ['schedule', 'report', 'estimate'] : ['schedule', 'estimate', 'notice', 'report']);
+  // 日程調整のカードの今の日時: 「10/30（金）10:00〜12:00」／「未定」
+  const schedText = p => slotText({ start: (p || {}).scheduled_at, end: (p || {}).scheduled_end }) || '未定';
   // 対応の段階（stage）の日程の段: 日程調整中なら 誰の番か・期限。base = 日程調整が無いときの文（調査日を決める・受注後日程調整必要）
   function schedStage(p, base, nowAt, o) {
     const s = schedOpen(p);
@@ -2922,8 +2935,8 @@
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
-    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText,
-    normDur, durText, durEnd, slotStarts, busyOf, clashOf, clashText, startOptions, slotFree, windowText, durDefault, schedDur };
+    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOn, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText,
+    normDur, durText, durEnd, slotStarts, busyOf, clashOf, clashText, startOptions, slotFree, windowText, durDefault, schedDur, TOOL_NAMES, toolOrder, schedText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

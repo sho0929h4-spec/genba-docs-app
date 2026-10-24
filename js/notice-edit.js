@@ -6,8 +6,9 @@
 //
 // 自動保存: 入力から1.5秒で NoticesApi.save（data と一覧用の列を一緒に保存）。
 //   同時に localStorage `notice-draft-{id}` へ退避（読み込み時のサーバー updated_at = base も）。
-//   開いたとき、サーバーの updated_at が base と同じ（その後サーバーが変わっていない）ときだけ復元して保存し直す。違えばサーバー優先で破棄。
-//   hashchange / beforeunload / 非表示化 / PDF作成 / 複製の前に、保留中の保存を flush する。
+//   開いたとき、サーバーの updated_at が base と同じ（または送信中だった中身 p がサーバーと同じ）なら復元して保存し直す。
+//   Task 61: それ以外でサーバーと中身が違えば、どちらを使うか聞く（askLocalDraft。勝手に捨てない・勝手に上書きしない）。
+//   hashchange / beforeunload / pagehide（iPhone は beforeunload が来ない）/ 非表示化 / PDF作成 / 複製の前に、保留中の保存を flush する。
 // プレビュー: 入力から300msで再描画。画面を離れるとき NoticePdf.dispose で ResizeObserver を解除する。
 // 世代番号 nteSeq: 古い読み込み応答は捨てる。保存は1掲示につき直列（s.chain）。
 
@@ -53,7 +54,7 @@ function nteLsGet(id) {
   } catch (e) { return null; }
 }
 function nteLsSet(s) {
-  try { localStorage.setItem(nteKey(s.id), JSON.stringify({ t: Date.now(), base: s.row.updated_at || null, d: s.data })); }
+  try { localStorage.setItem(nteKey(s.id), JSON.stringify({ t: Date.now(), base: s.row.updated_at || null, d: s.data, p: s.inflight || null })); }
   catch (e) { /* 容量不足など。サーバ保存が本線 */ }
 }
 function nteLsDel(id) { try { localStorage.removeItem(nteKey(id)); } catch (e) { /* 何もしない */ } }
@@ -99,7 +100,7 @@ function nteSetSave(s, state) {
   const p = n => String(n).padStart(2, '0');
   if (state === 'pending') el.textContent = '保存待ち…';
   else if (state === 'saving') el.textContent = '保存中…';
-  else if (state === 'saved') { const d = s.lastSaved || new Date(); el.textContent = '自動保存 ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+  else if (state === 'saved') { const d = s.lastSaved || new Date(); el.textContent = '保存しました ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
   else if (state === 'error') el.textContent = '保存できませんでした: ' + (s.saveErr || '');
   else if (state === 'invalid') { el.className = 'rep-save err'; el.textContent = '入力に誤りがあるため保存していません'; }
   else if (state === 'restored') { el.className = 'rep-save busy'; el.textContent = '前回の未保存の入力を復元しました'; }
@@ -136,14 +137,18 @@ async function nteDoSave(s) {
   if (nteDateError(s.data)) { nteSetSave(s, 'invalid'); return; } // 保存しない（直すと次の自動保存で保存される）
   const data = nteClone(s.data);
   s.dirty = false;
+  s.inflight = data;
+  nteLsSet(s); // Task 61: 送信中の中身も退避（届いた後にページが閉じても、開き直したとき「自分の保存」と分かる）
   nteSetSave(s, 'saving');
   try {
     const row = await NoticesApi.save(s.id, data);
+    s.inflight = null;
     if (row && row.updated_at) s.row.updated_at = row.updated_at;
     s.lastSaved = new Date();
     if (s.dirty) { nteLsSet(s); nteSetSave(s, 'pending'); } // 保存中にさらに入力があった（次のタイマーで保存）。退避の base を新しいサーバー値に合わせる
     else { nteLsDel(s.id); nteSetSave(s, 'saved'); }
   } catch (e) {
+    s.inflight = null;
     s.dirty = true;
     s.saveErr = errText(e);
     nteSetSave(s, 'error');
@@ -165,7 +170,7 @@ window.addEventListener('hashchange', () => {
   // 掲示の画面から出た: プレビューの監視を止める（同じ掲示のままなら何もしない）
   if (!NOTICE_HASH_RE.test(location.hash)) nteLeave(s);
 });
-window.addEventListener('beforeunload', () => { if (nte && nte.dirty) nteFlush(nte); });
+['beforeunload', 'pagehide'].forEach(t => window.addEventListener(t, () => { if (nte && nte.dirty) nteFlush(nte); }));
 document.addEventListener('visibilitychange', () => { if (document.hidden && nte && nte.dirty) nteFlush(nte); });
 
 function nteLeave(s) {
@@ -608,23 +613,29 @@ async function openNotice(id) {
   };
 
   // 端末に退避した入力の復元。端末の時計は使わず、退避した時点のサーバー updated_at（base）と
-  // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）ときだけ戻す。違えばサーバー優先で退避を捨てる
+  // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）か、送信中だった中身 p がサーバーと同じなら戻す。
+  // Task 61: それ以外でサーバーと中身が違えば、どちらを使うか聞く（勝手に捨てない）。中身が同じなら退避を消すだけ
   let restored = false;
   const ls = nteLsGet(s.id);
   if (ls) {
-    if (nteSameStamp(ls.base, row.updated_at)) {
+    const sameAs = d => euStable(nteNormalize(d, caseRow)) === euStable(s.data); // euStable は estimate-ui.js
+    const same = sameAs(ls.d);
+    let use = !same && (nteSameStamp(ls.base, row.updated_at) || (ls.p && typeof ls.p === 'object' && sameAs(ls.p)));
+    if (!same && !use) {
+      use = await askLocalDraft('工事掲示', ls.t);
+      if (seq !== nteSeq) return; // 聞いている間に別の画面へ（退避は残す）
+    }
+    if (use) {
       s.data = nteNormalize(ls.d, caseRow);
       s.dirty = true;
       restored = true;
-    } else {
-      nteLsDel(s.id);
-      s.notice = 'この端末に未保存の入力がありましたが、他で更新されたため破棄しました';
-    }
+    } else nteLsDel(s.id);
   }
 
   nte = s;
   nteBuild(s);
-  nteSetSave(s, restored ? 'restored' : '');
+  if (!restored && row.updated_at) s.lastSaved = new Date(row.updated_at); // Task 61: 開いたときも「保存しました HH:MM」
+  nteSetSave(s, restored ? 'restored' : s.lastSaved ? 'saved' : '');
   const bar = $('notice-bar');
   bar.hidden = false;
   $('nt-pdf').onclick = () => nteDownload(s);

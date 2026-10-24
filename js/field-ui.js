@@ -35,7 +35,8 @@
 // 「タスク」タブ: js/staff-inbox.js の openStaffInbox({ field: true })。「日報作成」タブ: この下の fdRenderDaily
 // アプリを開いたとき（案件・タスク・日報の読み込み）に、報告書の期限超過を管理者に知らせる（overdueSync。js/staff-messages.js）
 // ツールページ: 住所（Googleマップ）・入居者の電話・「📋 依頼内容」（Task 33: 号室ごとの1行＝指示 → 詳細 → 「確認した」（既存の ack。担当者本人・知らせてもらった後だけ））・
-//   3つの大きなツールボタン（①報告書 ②見積書 ③工事掲示。状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
+//   大きなツールボタン（Task 59: 調査は 日程調整・報告書作成・見積書作成、工事は 日程調整・見積書作成・工事掲示・報告書作成。PhaseLogic.toolOrder。
+//   書類の状態は PhaseLogic.fieldTools）。押すと phase_id 付きで作る／開く。
 // Task 28: ツールページに「依頼内容」（文章・症状・被害箇所・怪しい箇所・写真のサムネイル → 拡大）。Task 33 で関係する部屋・現場への指示の枠は依頼内容に集約。
 //   入居者の電話は既定で出さない。「🕒 到着が遅れそう」（一覧のカード・ツールページ）でシート → 報告（PhasesApi.reportLate = rpc phase_report_late）
 //   すると、そのフェーズでは入居者の電話（tel:）が出る（case_summaries.phases[].late_at）。管理者の画面では今までどおり常に出す
@@ -677,26 +678,20 @@ function fdRenderCase() {
     sl.id = 'fd-stage-line';
     nodes.push(sl);
   }
-  // Task 50: 日程調整中ならトークのカードへ。現場用で自分が登録した案件は、自分で日程を決める・変える（管理者を兼ねる）
+  // Task 50: 日程調整中ならトークのカードへ。自分で登録した案件の「日程を決める・変える」は Task 59 で日程調整のカードに移した
   const so = PhaseLogic.schedOpen(sel);
   const own = c.created_by === fdMe() && !sel.lost_at;
-  if (so || own) {
+  if (so) {
     const sc = mk('div', 'fd-sched');
     sc.id = 'fd-sched';
-    if (so) sc.appendChild(dBtn('メッセージで日程を見る ›', 'linkbtn fd-sched-talk', () => { location.hash = '#f/msg/' + c.id; }));
-    if (own) {
-      sc.appendChild(dBtn(sel.scheduled_at ? '日程を変える' : '日程を決める', 'linkbtn fd-sched-change', () => schSheet(sel, c, text => {
-        fieldRowsInvalidate();
-        if (fdAlive(s)) { s.msg = text; fdReloadCase(s); }
-      })));
-    }
+    sc.appendChild(dBtn('メッセージで日程を見る ›', 'linkbtn fd-sched-talk', () => { location.hash = '#f/msg/' + c.id; }));
     nodes.push(sc);
   }
   const msg = mk('div', 'ob-msg', s.msg || '');
   msg.id = 'fd-msg';
   msg.setAttribute('role', 'status');
   nodes.push(msg);
-  // 3つのツール
+  // ツール（Task 59: 並びは対応の種類ごと）
   const phases = Array.isArray(c.phases) ? c.phases : [];
   const docs = {
     reports: s.data.reports.filter(r => r.phase_id === sel.id),
@@ -706,9 +701,13 @@ function fdRenderCase() {
   const t = PhaseLogic.fieldTools(docs);
   const tools = mk('div', 'fd-tools');
   tools.id = 'fd-tools';
-  tools.appendChild(fdToolBtn(s, 'report', 'report', '① 報告書', t.report, () => fdOpenReport(s, c, sel, t.report)));
-  tools.appendChild(fdToolBtn(s, 'estimate', 'receipt', '② 見積書', t.estimate, () => fdOpenEstimate(s, c, sel, phases, t.estimate)));
-  tools.appendChild(fdToolBtn(s, 'notice', 'megaphone', '③ 工事掲示', t.notice, () => fdOpenNotice(s, c, sel, phases, t.notice)));
+  const mkTool = {
+    schedule: () => fdSchedTool(s, c, sel, own, so),
+    report: () => fdToolBtn(s, 'report', 'report', '報告書作成', t.report, () => fdOpenReport(s, c, sel, t.report)),
+    estimate: () => fdToolBtn(s, 'estimate', 'receipt', '見積書作成', t.estimate, () => fdOpenEstimate(s, c, sel, phases, t.estimate)),
+    notice: () => fdToolBtn(s, 'notice', 'megaphone', '工事掲示', t.notice, () => fdOpenNotice(s, c, sel, phases, t.notice))
+  };
+  PhaseLogic.toolOrder(sel.kind).forEach(k => tools.appendChild(mkTool[k]()));
   nodes.push(tools);
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
@@ -897,6 +896,24 @@ function fdToolBtn(s, key, icon, title, state, onClick) {
   txt.appendChild(mk('span', 'fd-tool-st', s.busy === key ? '開いています…' : state.text));
   b.appendChild(txt);
   b.appendChild(mk('span', 'fd-tool-go', '›'));
+  return b;
+}
+
+// Task 59: 日程調整のカード。自分で登録した案件 = 日程を決める・変えるシート（スイッチ false は開始と終わりの手入力。js/schedule-ui.js schSheet）、
+//   管理者が作った案件 = 見るだけ（日程調整中ならトークのカードへ。スイッチ true のときだけ起きる）
+function fdSchedTool(s, c, sel, own, so) {
+  const go = own ? () => schSheet(sel, c, text => { fieldRowsInvalidate(); if (fdAlive(s)) { s.msg = text; fdReloadCase(s); } })
+    : so ? () => { location.hash = '#f/msg/' + c.id; } : null;
+  const b = go ? dBtn('', 'fd-tool', go) : mk('div', 'fd-tool view');
+  b.dataset.tool = 'schedule';
+  b.dataset.state = sel.scheduled_at ? 'done' : 'none';
+  if (go) b.disabled = !!s.busy;
+  b.appendChild(mk('span', 'fd-tool-ic')).appendChild(Icon.el('calendar', { size: 24 }));
+  const txt = mk('span', 'fd-tool-t');
+  txt.appendChild(mk('b', null, '日程調整'));
+  txt.appendChild(mk('span', 'fd-tool-st', PhaseLogic.schedText(sel) + (own ? (sel.scheduled_at ? ' ・ 日程を変える' : ' ・ 日程を決める') : so ? ' ・ メッセージで日程を見る' : ' ・ 管理者が決めます')));
+  b.appendChild(txt);
+  if (go) b.appendChild(mk('span', 'fd-tool-go', '›'));
   return b;
 }
 
@@ -1367,7 +1384,7 @@ function fdPhoneNorm(v) {
 }
 /* ---------- #f/new 案件の登録（Task 37） ---------- */
 let fdNewDraft = null; // 入力中の値（画面を離れても残す。登録したら消す）
-const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', kind: '', label: '', request: '', wk: 'pick', worker: '' }); // Task 51: 作業担当者の決め方（worker 空 = 自分）
+const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', end: '', kind: '', label: '', request: '', wk: 'pick', worker: '' }); // Task 51: 作業担当者の決め方（worker 空 = 自分）
 const FD_NEW_KINDS = () => PhaseLogic.KINDS.map(k => ({ key: k.key, label: k.label }));
 function fdRenderNew() {
   const s = fd;
@@ -1420,6 +1437,7 @@ function fdRenderNew() {
   card.appendChild(field('resident', '入居者の名前', { req: true, ph: '例: 山本 花子', max: M.resident }));
   card.appendChild(field('contact', '連絡先（任意）', { ph: '電話番号かメールアドレス', max: M.contact }));
   card.appendChild(field('at', '訪問日時', { req: true, type: 'datetime-local' }));
+  card.appendChild(field('end', '終わり（任意・空なら1時間）', { type: 'datetime-local' })); // Task 58
   // フェーズ（4つから1つ。押して選ぶ）
   const kb = mk('div', 'fd-set-f fd-new-f');
   kb.id = 'fd-new-f-kind';
@@ -1494,7 +1512,7 @@ async function fdNewSubmit(s, btn, errEls, err) {
   err.textContent = '';
   if (!chk.ok) {
     err.textContent = '入っていない欄があります（赤い字の所）';
-    const first = ['name', 'room', 'address', 'resident', 'contact', 'at', 'kind', 'label', 'request'].find(k => chk.errors[k]);
+    const first = ['name', 'room', 'address', 'resident', 'contact', 'at', 'end', 'kind', 'label', 'request'].find(k => chk.errors[k]);
     const el = first && (first === 'kind' ? document.querySelector('#fd-new-f-kind button') : $('fd-new-' + first));
     if (el) { el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'center' }); }
     return;
@@ -1507,6 +1525,11 @@ async function fdNewSubmit(s, btn, errEls, err) {
   });
   s.busy = '';
   if (!res || !res.case_id || !res.phase_id) return;
+  // Task 58: 終わり（rpc は開始だけ）。重なれば DB が止める（23P01）→ 案件はできているので知らせだけ
+  if (chk.end) {
+    try { await PhasesApi.update(res.phase_id, { scheduled_end: chk.end }); }
+    catch (e) { fieldSetFlash('案件は登録しましたが、終わりの日時を入れられませんでした: ' + errText(e)); }
+  }
   // Task 51: 一斉配信 → 募集を出して全体のトーク（自分のカード）へ。ほかの人を選んだ → その人を作業担当者にして案件の一覧へ
   const after = v.wk === 'call' ? 'call' : v.worker ? 'other' : '';
   if (after) {

@@ -6,8 +6,9 @@
 // 画面遷移は location.hash の変更だけ。ルーターが openReport を呼ぶ。
 // 自動保存: 入力から1.5秒で ReportsApi.save（photos は含めない）。写真のキャプション/区分を変えたときだけ photos も送る。
 //   同時に localStorage `report-draft-{id}` へ退避（読み込み時のサーバー updated_at = base と、写真のキャプション/区分も）。
-//   開いたとき、サーバーの updated_at が base と同じ（その後サーバーが変わっていない）ときだけ復元して保存し直す。違えばサーバー優先で破棄。
-//   hashchange / beforeunload / 非表示化 / 提出 / PDFプレビュー前に、保留中の保存を flush する。
+//   開いたとき、サーバーの updated_at が base と同じ（または送信中だった中身 p がサーバーと同じ）なら復元して保存し直す。
+//   Task 61: それ以外でサーバーと中身が違えば、どちらを使うか聞く（askLocalDraft。勝手に捨てない・勝手に上書きしない）。
+//   hashchange / beforeunload / pagehide（iPhone は beforeunload が来ない）/ 非表示化 / 提出 / PDFプレビュー前に、保留中の保存を flush する。
 // 世代番号 edSeq: 古い読み込み応答は捨てる。保存は1報告書につき直列（s.chain）。
 
 const ED_DELAY = 1500;
@@ -26,7 +27,7 @@ function edLsGet(id) {
 function edLsSet(s) {
   try {
     const photos = (s.report.photos || []).map(p => ({ path: p.path, caption: p.caption || '', phase: p.phase || '', phaseNote: p.phaseNote || '', marks: PhotoMarks.normalize(p.marks) }));
-    localStorage.setItem(edKey(s.id), JSON.stringify({ t: Date.now(), base: s.report.updated_at || null, f: edCollect(s), photos }));
+    localStorage.setItem(edKey(s.id), JSON.stringify({ t: Date.now(), base: s.report.updated_at || null, f: edCollect(s), photos, p: s.inflight || null }));
   } catch (e) { /* 容量不足など。サーバ保存が本線 */ }
 }
 function edLsDel(id) { try { localStorage.removeItem(edKey(id)); } catch (e) { /* 何もしない */ } }
@@ -78,7 +79,7 @@ function edSetSave(s, state) {
   el.className = 'rep-save' + (state === 'saved' ? '' : state === 'error' ? ' err' : ' busy');
   if (state === 'pending') el.textContent = '保存待ち…';
   else if (state === 'saving') el.textContent = '保存中…';
-  else if (state === 'saved') el.textContent = '自動保存 ' + edHm(s.lastSaved || new Date());
+  else if (state === 'saved') el.textContent = '保存しました ' + edHm(s.lastSaved || new Date());
   else if (state === 'error') el.textContent = '保存できませんでした: ' + (s.saveErr || '');
   else if (state === 'restored') { el.className = 'rep-save busy'; el.textContent = '前回の未保存の入力を復元しました'; }
   else el.textContent = '';
@@ -113,14 +114,18 @@ async function edDoSave(s) {
   const patch = withPhotos ? Object.assign(fields, { photos: (s.report.photos || []).map(p => Object.assign({}, p)) }) : fields;
   s.dirty = false;
   s.photosDirty = false;
+  s.inflight = edCollect(s);
+  edLsSet(s); // Task 61: 送信中の中身も退避（届いた後にページが閉じても、開き直したとき「自分の保存」と分かる）
   edSetSave(s, 'saving');
   try {
     const row = await ReportsApi.save(s.id, patch);
+    s.inflight = null;
     if (row && row.updated_at) s.report.updated_at = row.updated_at;
     s.lastSaved = new Date();
     if (s.dirty || s.photosDirty) { edLsSet(s); edSetSave(s, 'pending'); } // 保存中にさらに入力があった（次のタイマーで保存）。退避の base を新しいサーバー値に合わせる
     else { edLsDel(s.id); edSetSave(s, 'saved'); }
   } catch (e) {
+    s.inflight = null;
     s.dirty = true;
     if (withPhotos) s.photosDirty = true;
     s.saveErr = errText(e);
@@ -130,7 +135,7 @@ async function edDoSave(s) {
 const edPending = s => !!s && (s.dirty || s.photosDirty);
 
 window.addEventListener('hashchange', () => { edStopVoice(); if (ed && edPending(ed)) edFlush(ed); });
-window.addEventListener('beforeunload', () => { if (ed && edPending(ed)) edFlush(ed); });
+['beforeunload', 'pagehide'].forEach(t => window.addEventListener(t, () => { if (ed && edPending(ed)) edFlush(ed); }));
 document.addEventListener('visibilitychange', () => { if (document.hidden && ed && edPending(ed)) edFlush(ed); });
 
 /* ---------- 入力チェック表示 ---------- */
@@ -532,21 +537,26 @@ async function openReport(id) {
   edFlash = null;
 
   // 端末に退避した入力の復元（下書きのときだけ）。端末の時計は使わず、退避した時点のサーバー updated_at（base）と
-  // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）ときだけ戻す。違えばサーバー優先で退避を捨てる
+  // 今のサーバー updated_at が同じ（＝その後サーバーが変わっていない）か、送信中だった中身 p がサーバーと同じなら戻す。
+  // Task 61: それ以外でサーバーと中身が違えば、どちらを使うか聞く（勝手に捨てない）。中身が同じなら退避を消すだけ
   let restored = false;
   if (s.ro) edLsDel(s.id);
   else {
     const ls = edLsGet(s.id);
     if (ls) {
-      if (edSameStamp(ls.base, r.updated_at)) {
+      const photosSame = !edApplyPhotoDraft(JSON.parse(JSON.stringify(r.photos)), ls.photos);
+      const same = edSameAsRow(ls.f, r) && photosSame;
+      let use = !same && (edSameStamp(ls.base, r.updated_at) || (ls.p && edSameAsRow(ls.p, r)));
+      if (!same && !use) {
+        use = await askLocalDraft('報告書', ls.t);
+        if (seq !== edSeq) return; // 聞いている間に別の画面へ（退避は残す）
+      }
+      if (use) {
         edApplyDraft(s.f, ls.f);
         if (edApplyPhotoDraft(r.photos, ls.photos)) s.photosDirty = true;
         s.dirty = true;
         restored = true;
-      } else {
-        edLsDel(s.id);
-        s.notice = 'この端末に未保存の入力がありましたが、他で更新されたため破棄しました';
-      }
+      } else edLsDel(s.id);
     }
   }
   // 作業日の既定: 新規作成直後（何も入力されていない下書き）は今日（旧ツールどおり）
@@ -565,7 +575,8 @@ async function openReport(id) {
   edBuild(s);
   edApplyMode(s);
   edRenderPhotos(s);
-  edSetSave(s, restored ? 'restored' : '');
+  if (!restored && !s.ro && r.updated_at) s.lastSaved = new Date(r.updated_at); // Task 61: 開いたときも「保存しました HH:MM」
+  edSetSave(s, restored ? 'restored' : s.lastSaved ? 'saved' : '');
 
   const bar = $('report-bar');
   bar.hidden = false;
@@ -593,6 +604,12 @@ function edFixedOf(r, info) {
 }
 
 /* ---------- 復元の補助 ---------- */
+// 退避した入力（edCollect の形）を当てても、サーバーの行と保存する列が同じか（euStable は estimate-ui.js）
+function edSameAsRow(d, r) {
+  const a = edFromRow(r), b = edFromRow(r);
+  if (d && typeof d === 'object') edApplyDraft(b, d);
+  return euStable(edCollect({ f: a })) === euStable(edCollect({ f: b }));
+}
 function edSameStamp(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;

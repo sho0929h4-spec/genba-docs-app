@@ -47,3 +47,13 @@ function askPopup(text, opts) {
     ok.focus({ preventScroll: true });
   });
 }
+
+// Task 61: 端末に残った「保存できていない入力」と、そのあと変わったサーバーの内容のどちらを使うか（見積書・報告書・工事掲示）。
+//   true = 端末の入力を使う（サーバーの内容を置き換える）、false = 今の内容を使う（端末の入力は捨てる）。勝手には上書きしない
+function askLocalDraft(what, t) {
+  let when = '';
+  try { if (Number(t)) when = '（' + new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(t))) + ' の入力）'; }
+  catch (e) { /* 時刻が出せなくても聞く */ }
+  return askPopup('この端末に、まだ保存できていない' + what + 'の入力があります' + when + '。\nそのあと別の画面か別の端末で、この' + what + 'が更新されています。どちらを使いますか？\n「この端末の入力を使う」を選ぶと、今の内容をこの端末の入力で置き換えます。',
+    { title: '保存できていない入力があります', okLabel: 'この端末の入力を使う', cancelLabel: '今の内容を使う', id: 'ask-draft' });
+}

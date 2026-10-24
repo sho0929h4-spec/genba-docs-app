@@ -16,8 +16,9 @@
 // 諸経費の自動行・「税込合計を00に」の値引き行は EstimatesApi.normalizeLines で毎回取り直す（保存時と同じ計算）。
 // 自動保存: 入力から1.5秒で EstimatesApi.save（data と lines。lines は正規化して合計と一緒に送られる）。
 //   同時に localStorage `estimate-draft-{id}` へ退避（base = 読み込み時のサーバー updated_at）。
-//   開いたとき base とサーバーの updated_at が同じときだけ復元して保存し直す。違えばサーバー優先で破棄。
-//   hashchange / beforeunload / 非表示化 / PDFプレビュー / 提出の前に、保留中の保存を flush する。
+//   開いたとき base とサーバーの updated_at が同じ（または送信中だった中身 p がサーバーと同じ）なら復元して保存し直す。
+//   Task 61: それ以外でサーバーと中身が違えば、どちらを使うか聞く（askLocalDraft。勝手に捨てない・勝手に上書きしない）。
+//   hashchange / beforeunload / pagehide（iPhone は beforeunload が来ない）/ 非表示化 / PDFプレビュー / 提出の前に、保留中の保存を flush する。
 // 世代番号: 一覧 eulSeq・編集 eueSeq・PDF eupSeq。古い応答は捨てる。保存は1見積につき直列（s.chain）。
 // Task 36: 現場用（fieldHidesAdmin）で開いたときだけ、入力パネルの一番上に「調査の内容」の折りたたみ欄（js/survey-view.js）。
 //   どの調査かは PhaseLogic.estimateSurvey（報告書は ReportsApi.listByCase）。ページへ移る前に flush。管理画面では読み込みもしない
@@ -291,7 +292,7 @@ function eueSetSave(s, state) {
   const p = n => String(n).padStart(2, '0');
   if (state === 'pending') el.textContent = '保存待ち…';
   else if (state === 'saving') el.textContent = '保存中…';
-  else if (state === 'saved') { const d = s.lastSaved || new Date(); el.textContent = '自動保存 ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+  else if (state === 'saved') { const d = s.lastSaved || new Date(); el.textContent = '保存しました ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
   else if (state === 'error') el.textContent = '保存できませんでした: ' + (s.saveErr || '');
   else if (state === 'invalid') el.textContent = s.saveErr || '入力に誤りがあるため保存していません';
   else if (state === 'restored') el.textContent = '前回の未保存の入力を復元しました';
@@ -335,6 +336,7 @@ async function eueDoSave(s) {
   const lines = euClone(s.lines);
   s.dirty = false;
   s.inflight = { d: data, l: lines };
+  eueLsSet(s); // Task 61: 送信中の中身も退避（届いた後にページが閉じても、開き直したとき「自分の保存」と分かる）
   eueSetSave(s, 'saving');
   try {
     // amount 整数・postTax boolean・cost 整数に正規化して合計と送る。利益率と業者PDFの保存先も一緒に（Task 19）
@@ -360,7 +362,7 @@ window.addEventListener('hashchange', () => {
   if (s.dirty) eueFlush(s);
   if (!ESTIMATE_HASH_RE.test(location.hash)) s.left = true;
 });
-window.addEventListener('beforeunload', () => { if (eue && eue.dirty) eueFlush(eue); });
+['beforeunload', 'pagehide'].forEach(t => window.addEventListener(t, () => { if (eue && eue.dirty) eueFlush(eue); }));
 document.addEventListener('visibilitychange', () => { if (document.hidden && eue && eue.dirty) eueFlush(eue); });
 
 /* ---------- 部品 ---------- */
@@ -1362,22 +1364,27 @@ async function openEstimate(id) {
   let restored = false;
   const ls = eueLsGet(s.id);
   if (ls && !s.readOnly) {
-    if (eueSameStamp(ls.base, row.updated_at) || eueSameContent(ls.p, row)) {
+    // 端末の入力がサーバーと同じ（保存は届いている）なら何もしない
+    const same = eueSameContent(ls, row) && (ls.m === undefined || EstimateLogic.normMargin(ls.m) === s.margin) && (ls.pdf === undefined || (ls.pdf || null) === s.sourcePdf);
+    let use = !same && (eueSameStamp(ls.base, row.updated_at) || eueSameContent(ls.p, row));
+    if (!same && !use) {
+      use = await askLocalDraft('見積書', ls.t);
+      if (seq !== eueSeq) return; // 聞いている間に別の画面へ（退避は残す）
+    }
+    if (use) {
       s.data = eueNormData(ls.d);
       s.lines = eueNormLines(ls.l);
       if (ls.m !== undefined && EstimateLogic.normMargin(ls.m) !== null) s.margin = EstimateLogic.normMargin(ls.m);
       if (ls.pdf !== undefined) s.sourcePdf = ls.pdf || null;
       s.dirty = true;
       restored = true;
-    } else {
-      eueLsDel(s.id);
-      s.notice = 'この端末に未保存の入力がありましたが、他で更新されたため破棄しました';
-    }
+    } else eueLsDel(s.id);
   } else if (ls) eueLsDel(s.id);
 
   eue = s;
   eueBuild(s);
-  eueSetSave(s, restored ? 'restored' : '');
+  if (!restored && !s.readOnly && row.updated_at) s.lastSaved = new Date(row.updated_at); // Task 61: 開いたときも「保存しました HH:MM」
+  eueSetSave(s, restored ? 'restored' : s.lastSaved ? 'saved' : '');
   $('estimate-bar').hidden = false;
   $('eu-pdf').onclick = () => euePdf(s);
   $('eu-issue').onclick = () => eueIssue(s);

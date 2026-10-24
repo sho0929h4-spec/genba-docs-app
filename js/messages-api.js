@@ -31,7 +31,9 @@ const StaffMessagesApi = (() => {
       if (opts.noCase) q = q.is('case_id', null);   // 053: 日報とその返事
       if (opts.fromUser) q = q.eq('from_user', opts.fromUser);
       if (opts.source) q = q.eq('source', opts.source);
-      return must(await q.order('created_at', { ascending: false }).limit(opts.limit || 300)) || [];
+      const rows = must(await q.order('created_at', { ascending: false }).limit(opts.limit || 300)) || [];
+      // Task 58: スイッチ false は日程調整のカード・知らせ（source schedule）を出さない（トーク・現場からの連絡・お知らせのどれにも）
+      return PhaseLogic.schedOn() ? rows : rows.filter(m => m.source !== 'schedule');
     },
     // 送る。files（File の配列）は先にアップロードして、失敗したら片付ける
     //   { caseId（Task 46: null = 全体のトーク）, phaseId, toUser（null = 管理者全員）, subject, body, files, replyTo, asClient（065: 元請から。管理者だけ） }

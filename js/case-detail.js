@@ -174,7 +174,7 @@ function buildDetail() {
     phases.id = 'case-phases';
   }
 
-  // ツール（①報告書 ②見積書 ③工事掲示。現場用と同じ大きなカード＋対応の切替チップ。Task 19）。中身は renderCaseTools
+  // ツール（日程調整・報告書作成・見積書作成・工事掲示。並びは対応の種類ごと（Task 59）。現場用と同じ大きなカード＋対応の切替チップ。Task 19）。中身は renderCaseTools
   const tools = mk('div', 'taio ctools');
   tools.id = 'case-tools';
 
@@ -243,11 +243,11 @@ function buildDetail() {
 // 状態の1行は選んだ対応の書類（PhaseLogic.fieldTools。現場用のツールページと同じ）。対応が無い案件は案件全体の書類
 let ctState = null;               // { caseId, data: {phases, reports, estimates, notices} | null, busy, err, banner（送信待ちの下書きのボタン） }
 const ctSel = new Map();          // 案件ごとに選んだ対応（この画面を開いている間だけ覚える。書類から戻ったとき同じ対応を選ぶ）
-const CT_TOOLS = [
-  { key: 'report', icon: 'report', title: '① 報告書作成ツール', id: 'case-tool-reports', list: 'reports', name: '報告書' },
-  { key: 'estimate', icon: 'receipt', title: '② 見積書作成ツール', id: 'case-tool-estimates', list: 'estimates', name: '見積書' },
-  { key: 'notice', icon: 'megaphone', title: '③ 工事掲示作成ツール', id: 'case-tool-notices', list: 'notices', name: '工事掲示' }
-];
+const CT_TOOLS = {
+  report: { key: 'report', icon: 'report', title: '報告書作成', id: 'case-tool-reports', list: 'reports', name: '報告書' },
+  estimate: { key: 'estimate', icon: 'receipt', title: '見積書作成', id: 'case-tool-estimates', list: 'estimates', name: '見積書' },
+  notice: { key: 'notice', icon: 'megaphone', title: '工事掲示', id: 'case-tool-notices', list: 'notices', name: '工事掲示' }
+};
 
 function syncCaseTools(caseId, data) {
   if (!ctState || ctState.caseId !== caseId || caseDetailId !== caseId) return;
@@ -307,11 +307,43 @@ function renderCaseTools() {
     const of = list => (list || []).filter(x => !sel || x.phase_id === sel.id);
     t = PhaseLogic.fieldTools({ reports: of(s.data.reports), estimates: of(s.data.estimates), notices: of(s.data.notices) });
   }
+  // Task 59: 並びは対応の種類ごと（PhaseLogic.toolOrder）。対応が無い案件は日程調整を出さない（日時を入れる対応が無い）
   const grid = mk('div', 'ctools-grid');
-  CT_TOOLS.forEach(def => grid.appendChild(ctCard(def, t ? t[def.key] : null, sel)));
+  PhaseLogic.toolOrder(sel && sel.kind).forEach(k => {
+    if (k === 'schedule') { if (sel) grid.appendChild(ctSchedCard(sel)); }
+    else grid.appendChild(ctCard(CT_TOOLS[k], t ? t[k] : null, sel));
+  });
+  const nodes = [head, grid];
+  // 調査に付いた工事掲示（前のデータ）はカードを出さないので、一覧への入口だけ残す（消さない）
+  const old = sel && sel.kind === 'survey' && s.data ? (s.data.notices || []).filter(n => n.phase_id === sel.id).length : 0;
+  if (old) {
+    const ln = dBtn('この調査に付いている工事掲示 ' + old + '件（前のデータ）を一覧で見る ›', 'linkbtn ctools-old-notice', () => { location.hash = '#case/' + c.id + '/notices'; });
+    ln.id = 'case-tool-old-notices';
+    nodes.push(ln);
+  }
   const err = mk('div', 'err', s.err || '');
   err.id = 'case-tools-err';
-  box.replaceChildren(head, grid, err);
+  box.replaceChildren(...nodes, err);
+}
+
+// Task 59: 日程調整のカード。押すと対応の表のその行の「日時」の欄を開く（Task 58 の手入力。スイッチ true なら Task 50 の日程調整の欄）
+function ctSchedCard(sel) {
+  const s = ctState;
+  const card = mk('div', 'ctool');
+  card.dataset.tool = 'schedule';
+  card.dataset.state = !s.data ? 'loading' : sel.scheduled_at ? 'done' : 'none';
+  const main = dBtn('', 'ctool-main', () => phOpenCell(sel, 'when'));
+  main.dataset.open = 'schedule';
+  main.disabled = !s.data || !!s.busy || typeof phOpenCell !== 'function';
+  main.appendChild(mk('span', 'ctool-ic')).appendChild(Icon.el('calendar', { size: 20 }));
+  const body = mk('span', 'ctool-t');
+  body.appendChild(mk('b', null, '日程調整'));
+  const open = PhaseLogic.schedOpen(sel);
+  body.appendChild(mk('span', 'ctool-st', !s.data ? '読み込み中…' : open && typeof schStatusText === 'function' ? schStatusText(sel) : PhaseLogic.schedText(sel)));
+  main.appendChild(body);
+  main.setAttribute('aria-label', '日程調整：' + PhaseLogic.schedText(sel) + '・日時を入れる・変える');
+  card.appendChild(main);
+  return card;
 }
 
 // 見積の件数（系列の数。case_summaries.estimate_count と同じ数え方）
