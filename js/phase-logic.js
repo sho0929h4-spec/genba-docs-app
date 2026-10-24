@@ -1338,7 +1338,7 @@
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
-    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
+    const todo = x.type === 'call' ? `募集 ${callWhen(p)} — 行けますか？` : x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
     if (DUE_TYPES.includes(x.type)) {
       const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(x.due));
@@ -1346,6 +1346,7 @@
       if (at) due = at + 'まで' + (x.late ? '・超過' : '');
     } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
     else if (x.type === 'conditions') due = listOf(x.missing).join('・') + 'が未記入'; // Task 47
+    else if (x.type === 'call') due = ''; // Task 51: 日時は「やること」の中にある
     else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
     return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && DUE_TYPES.includes(x.type), sendback: !!x.sendback };
   }
@@ -1369,13 +1370,13 @@
     const groups = new Map();
     for (const x of listOf(items)) {
       const ymd = DUE_TYPES.includes(x.type) && x.due ? (x.dueAt ? jstYmd(x.dueAt) : str(x.due).slice(0, 10)) : '';
-      const key = x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
+      const key = x.type === 'call' ? 'call' : x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(x);
     }
-    const rank = k => (k === 'message' ? '0' : k === 'late' ? '1' : k === 'today' ? '2' : k === 'none' ? '4' : '3' + k);
+    const rank = k => (k === 'call' ? '-' : k === 'message' ? '0' : k === 'late' ? '1' : k === 'today' ? '2' : k === 'none' ? '4' : '3' + k);
     return [...groups.keys()].sort((a, b) => (rank(a) < rank(b) ? -1 : 1)).map(key => ({ key, items: groups.get(key),
-      label: key === 'message' ? '管理者から' : key === 'late' ? '期限超過' : key === 'today' ? '本日期限' : key === 'none' ? '期限なし' : fmtYmdMD(key) + '期限' }));
+      label: key === 'call' ? '募集（早い者順）' : key === 'message' ? '管理者から' : key === 'late' ? '期限超過' : key === 'today' ? '本日期限' : key === 'none' ? '期限なし' : fmtYmdMD(key) + '期限' }));
   }
   // Task 43: フェーズの有効なタスクの記録（phase.task_flags = phase_task_flags の行。PhasesApi.attachTaskFlags が付ける）。
   //   task: report / estimate / notice / tomorrow、action: dismiss（削除）/ sendback（差し戻し）→ 1件 or null（closed_at があるものは済み）
@@ -1595,6 +1596,7 @@
   // 担当者の状態（カードの表示）→ { key: 'none'|'unset'|'notified'|'ack', label }
   function workerState(phase) {
     const p = phase || {};
+    if (isOpenCall(p)) return { key: 'call', label: '募集中（一斉配信・早い者順）' }; // Task 51
     if (!p.worker_id) return { key: 'unset', label: '担当者が決まっていません' };
     if (p.ack_at) return { key: 'ack', label: `確認済み ${fmtMDHM(p.ack_at)}${str(p.ack_by_name) ? `（${str(p.ack_by_name)}）` : ''}` };
     if (p.notified_at) return { key: 'notified', label: `知らせた ${fmtMDHM(p.notified_at)}` };
@@ -1629,6 +1631,12 @@
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
+        // Task 51: 一斉配信の募集（会社の全員。自分が出した募集は除く）。決まる・取り消すと消える
+        if (meId && isOpenCall(p) && p.open_call_by !== meId) {
+          const seq = p.seq != null ? p.seq : count[p.kind];
+          out.push({ type: 'call', caseRow: c, phase: p, title: phaseTitle(p, seq), label: callText(p, c, seq), due: null, dueAt: null, late: false,
+            from: '', fromAt: p.open_call_at, tomorrow: false, brief: '' });
+        }
         if (!meId || p.worker_id !== meId || p.lost_at) continue; // Task 47: 失注はタスクから外す
         const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
         // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない（下書きでは消えない）
@@ -1677,7 +1685,7 @@
       x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : '';
       x.sendback = x.type === 'message' ? null : taskFlag(x.phase, x.type, 'sendback');
     });
-    const rank = { nudge: 0, message: 1, report: 2, estimate: 3, schedule: 3.5, conditions: 4, notice: 5, tomorrow: 6 };
+    const rank = { call: -1, nudge: 0, message: 1, report: 2, estimate: 3, schedule: 3.5, conditions: 4, notice: 5, tomorrow: 6 };
     const dueMs = x => (x.dueAt ? ms(x.dueAt) : ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0)));
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? dueMs(x) : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
     const rk = x => (x.nudge ? rank.nudge : rank[x.type]);
@@ -2087,6 +2095,7 @@
   //   → { key: 'unset'|'none'|'notified'|'ack', text: '担当未定' / '未通知' / '知らせた 10/17' / '✓ 鈴木 10/18', short: スマホのチップ用（日付なし） }
   function workerCell(phase, members) {
     const p = phase || {};
+    if (isOpenCall(p)) return { key: 'call', text: '募集中', short: '募集中' }; // Task 51
     if (!p.worker_id) return { key: 'unset', text: '担当未定', short: '担当未定' };
     if (p.ack_at) {
       const m = listOf(members).find(x => x && x.user_id === (p.ack_by || p.worker_id));
@@ -2101,6 +2110,7 @@
   // Task 28: 表の「担当者」の列（作業担当者の名前・未設定）
   function workerCol(phase, members) {
     const p = phase || {};
+    if (isOpenCall(p)) return { set: false, call: true, text: '募集中' }; // Task 51: 一斉配信
     if (!p.worker_id) return { set: false, text: '未設定' };
     return { set: true, text: workerNameOf(p, members) || '（退会したメンバー）' };
   }
@@ -2378,7 +2388,7 @@
     for (const c of listOf(caseRows)) {
       if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       for (const p of listOf(c.phases)) {
-        if (!p.id || p.report_overdue_at || taskFlag(p, 'report', 'dismiss')) continue; // Task 43: 報告書作成を削除している間は知らせない
+        if (!p.id || p.report_overdue_at || taskFlag(p, 'report', 'dismiss') || isOpenCall(p)) continue; // Task 51: 募集中も知らせない // Task 43: 報告書作成を削除している間は知らせない
         const rt = reportTodo(p, now);
         if (rt && rt.late) out.push({ caseRow: c, phase: p });
       }
@@ -2678,6 +2688,25 @@
   }
   const SCHED_CARD_TITLE = { offer: '日程候補', conditions: '入居者の都合', wish: '希望（作業担当者が選んだ日時）', propose: '日程候補（作業担当者から）', confirm: '日程確定' };
 
+  /* ---------- Task 51: 一斉配信（早い者順） ---------- */
+  // 募集中 = open_call_at があり作業担当者が空（失注は除く。DB の check で担当者がいれば open_call_at は空）
+  const isOpenCall = p => !!(p && p.open_call_at && !p.worker_id && !p.lost_at);
+  // 募集の日時の文: 10/26 10:00 ／ 日程は候補から選ぶ（2件）／ 日程は入居者の都合（平日 18:00以降）を見て決める ／ 日時未定
+  function callWhen(phase) {
+    const p = phase || {};
+    if (p.scheduled_at) return fmtMDHM(p.scheduled_at);
+    const s = schedOpen(p);
+    if (s && s.state === 'candidates') return `日程は候補から選ぶ（${listOf(s.cands).length}件）`;
+    if (s && s.state === 'conditions') return `日程は入居者の都合（${condText(s.cond)}）を見て決める`;
+    return '日時未定';
+  }
+  // 「募集: メゾン青葉 501号室 調査 10/26 10:00 — 行けますか？」（1回目は「1回目」を付けない）
+  function callText(phase, caseRow, seq) {
+    const p = phase || {};
+    const name = p.kind === 'other' || seq > 1 ? phaseTitle(p, seq) : kindLabel(p.kind);
+    return `募集: ${[placeName(caseRow || {}), name, callWhen(p)].filter(Boolean).join(' ')} — 行けますか？`;
+  }
+
   // Task 44: 件名の先頭の絵文字（migration 052 / 058 の催促は「⚠️ 催促: …」で保存される）を表示では外す
   function plainSubject(s) { return str(s).replace(/^[\u26a0\u2600-\u27bf\ufe0f\s]+/u, ''); }
 
@@ -2701,7 +2730,7 @@
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions,
-    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText };
+    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

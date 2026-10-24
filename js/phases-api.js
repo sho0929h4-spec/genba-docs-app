@@ -333,6 +333,10 @@ const PhasesApi = (() => {
     async schedPropose(phaseId, cands) { return must(await sb.rpc('phase_sched_propose', { p_phase: phaseId, p_cands: cands })); },
     async schedConfirm(phaseId, start, end) { return must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null })); },
     // この案件の対応の日程調整の行を phase.schedule に付ける（案件ページの表。case_summaries には最初から入っている）
+    // Task 51: 一斉配信（早い者順。migration 070）。accept は { ok, state } か { ok: false, reason: 'taken'|'closed', worker_name }
+    async openCall(phaseId) { return must(await sb.rpc('phase_open_call', { p_phase: phaseId })); },
+    async cancelOpenCall(phaseId) { return must(await sb.rpc('phase_open_call_cancel', { p_phase: phaseId })); },
+    async acceptOpenCall(phaseId, start) { return must(await sb.rpc('phase_open_call_accept', { p_phase: phaseId, p_start: start || null })); },
     async attachSchedules(phases) {
       const ids = (phases || []).map(p => p.id);
       const rows = ids.length ? must(await sb.from('phase_schedules').select('*').in('phase_id', ids)) || [] : [];

@@ -498,7 +498,7 @@ function phTableRow(p, multi) {
   }
   // Task 28: 担当者（作業担当者。押すとその場でメンバーを選ぶ）。スマホは1行目に「担当 鈴木」
   const wk = PhaseLogic.workerCol(p, phMembers());
-  cell('worker', wk.text, wk.set ? 'ph-c-worker' : 'ph-c-worker none', '作業担当者を選ぶ', () => phOpenCell(p, 'worker'));
+  cell('worker', wk.text, wk.set ? 'ph-c-worker' : wk.call ? 'ph-c-worker call' : 'ph-c-worker none', wk.call ? '募集中（一斉配信）' : '作業担当者を選ぶ', () => phOpenCell(p, 'worker')); // Task 51: 募集中
   // スマホの改行（2行目にチップ）
   tr.appendChild(mk('span', 'ph-br'));
   // 報告書（Task 25: 無ければ報告書と担当者URLを作って開く。あればこのフェーズの一番新しい報告書を開く＝Task 23 M5）
@@ -667,8 +667,7 @@ function phPanel(p, col, docs, errId, row) {
   } else if (col === 'confirm') {
     phWorkerBody(p, docs, errId).forEach(el => body.appendChild(el));
   } else if (col === 'worker') {
-    body.appendChild(phWorkerSelect(p, errId));
-    body.appendChild(mk('div', 'ph-sub', '変えると、このフェーズの未提出の報告書の作業者も同じ人になります。知らせる・催促は「確認」の欄から'));
+    phWorkerPanel(p, errId).forEach(el => body.appendChild(el));
   }
   box.appendChild(body);
   return box;
@@ -2057,6 +2056,39 @@ function phWorkerBody(p, docs, errId, opts) {
     ? '「担当者に知らせる」を押すと、担当者のアプリに「確認してください」が出て、メールの下書きもできます。担当者が「確認した」を押すとここに戻ってきます'
     : '作業する人を選んでください（社内メンバー）'));
   out.push(box);
+  return out;
+}
+
+// Task 51: 表の「担当者」の欄。「特定の担当者を選ぶ」（今までの選択）か「一斉配信（早い者順）」（募集を出す・取り消す）。
+//   募集中に特定の人を選ぶと募集は閉じる（DB のトリガー）。切り替えは押すまで DB を変えない
+const phWkMode = new Map(); // 対応ごとに今見ている決め方（この画面の間だけ）
+function phWorkerPanel(p, errId) {
+  const open = PhaseLogic.isOpenCall(p);
+  const mode = phWkMode.get(p.id) || (open ? 'call' : 'pick');
+  const out = [ocModeEl(mode, k => { phWkMode.set(p.id, k); phMsg(errId, ''); phDraw(); }, 'ph-wk-mode-' + p.id)];
+  if (mode === 'pick') {
+    if (open) out.push(mk('div', 'ph-sub oc-status', '募集中です。ここで人を選ぶと募集は閉じて、その人が担当になります'));
+    out.push(phWorkerSelect(p, errId));
+    out.push(mk('div', 'ph-sub', '変えると、このフェーズの未提出の報告書の作業者も同じ人になります。知らせる・催促は「確認」の欄から'));
+    return out;
+  }
+  if (open) {
+    out.push(mk('div', 'ph-sub oc-status', '募集中（' + PhaseLogic.fmtMDHM(p.open_call_at) + 'から・まだ決まっていません）'));
+    out.push(mk('div', 'oc-hint', PhaseLogic.callText(p, currentCase || {}, phSeqOf(p))));
+    const b = dBtn('募集を取り消す', 'btn sm ghost inline ph-call-cancel', btn => phRun(btn, errId, '募集の取り消し', async () => {
+      await PhasesApi.cancelOpenCall(p.id);
+      phWkMode.delete(p.id);
+    }));
+    out.push(b);
+    out.push(mk('div', 'oc-hint', '取り消すと担当者なしに戻ります。特定の人にするときは「特定の担当者を選ぶ」から選んでください'));
+    return out;
+  }
+  out.push(mk('div', 'oc-hint', OC_HINT + (p.worker_id ? '。今の担当者は外れます' : '')
+    + (p.scheduled_at || PhaseLogic.schedOpen(p) ? '' : '。日時が未定なら、先に「日時」で候補か入居者の都合を入れると募集に添えられます')));
+  out.push(dBtn('一斉配信する', 'btn sm inline ph-call-open', btn => phRun(btn, errId, '一斉配信', async () => {
+    await PhasesApi.openCall(p.id);
+    phWkMode.delete(p.id);
+  })));
   return out;
 }
 

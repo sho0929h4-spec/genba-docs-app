@@ -22,7 +22,7 @@
     const name = PL().workName(p.kind, p);
     return seq > 1 ? `${name} ${seq}回目` : name;
   }
-  const RANK = { card: 0, cond: 1, sched: 1, log: 2, msg: 3 };
+  const RANK = { card: 0, cond: 1, sched: 1, call: 1, log: 2, msg: 3 };
   // 自動の連絡のうち、ログの行にするもの（report_submit は報告書の受領の行と重なるので出さない）
   const LOG_SOURCES = ['nudge', 'late', 'overdue', 'reedit', 'case_create', 'task_delete'];
   // タイムラインの自動記録のうち、フェーズの記録に無いものだけを短くする（ほかは出さない。重ならないように）
@@ -137,6 +137,15 @@
         if (meta.action === 'offer' || meta.action === 'conditions') log(new Date(ms(m.created_at) + 1).toISOString(), `${k}日程調整中`);
         continue;
       }
+      if (m.source === 'open_call') { // Task 51: 全体のトークの募集のカード（meta に対応）・案件のトークの「○○が担当になりました」のログ
+        const meta = m.meta || {};
+        if (meta.action === 'taken') { log(m.created_at, [k, (nameOf(m.from_user) || '不明') + 'が担当になりました'].filter(Boolean).join(' ')); continue; }
+        if (meta.action !== 'call') continue;
+        const cs = callState(m, o.messages, o.caseRows);
+        out.push(Object.assign({ kind: 'call', id: m.id, at: m.created_at, msg: m, from: m.from_user || null, fromName: nameOf(m.from_user) || '不明',
+          mine: !!me && m.from_user === me, text: cs.phase ? PL().callText(cs.phase, cs.caseRow, cs.seq) : PL().plainSubject(m.subject) }, cs));
+        continue;
+      }
       if (m.source === 'stage') { // Task 47: 「10/27 9:00 501号室 原因元工事 失注」
         const lab = /「(.+?)」/.exec(subj);
         log(m.created_at, [k, lab ? lab[1] : subj].filter(Boolean).join(' '));
@@ -160,10 +169,25 @@
     }
     const read = ms(o.readAt);
     out.forEach(x => {
-      x.unread = (x.kind === 'msg' || x.kind === 'card' || x.kind === 'sched') && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
-        : (x.kind === 'msg' || x.kind === 'sched') && PL().messageForMe(x.msg, me, !!o.isOwner));
+      x.unread = (x.kind === 'msg' || x.kind === 'card' || x.kind === 'sched' || x.kind === 'call') && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
+        : ((x.kind === 'msg' || x.kind === 'sched') && PL().messageForMe(x.msg, me, !!o.isOwner)) || (x.kind === 'call' && x.state === 'open')); // Task 51: 印が無くても募集中のカードは未読
     });
     return out.sort((a, b) => ms(a.at) - ms(b.at) || RANK[a.kind] - RANK[b.kind]);
+  }
+  // Task 51: 募集のカードの今: その対応の一番新しい募集のカードで、まだ募集中 → open、担当が決まった → taken（takerName）、それ以外（取り消し・古い募集・案件が無い）→ closed
+  //   caseRows = 会社の案件（case_summaries の行。全体のトークは案件が無いので全部から探す）
+  function callState(m, messages, caseRows) {
+    const meta = (m && m.meta) || {};
+    const c = listOf(caseRows).find(x => x.id === meta.case_id && !x.deleted_at) || null;
+    const hit = c ? withSeq(c.phases).find(x => x.p.id === meta.phase_id) : null;
+    const base = { phase: hit ? hit.p : null, caseRow: c, seq: hit ? hit.seq : null, phaseId: meta.phase_id || null, state: 'closed', takerName: '' };
+    if (!hit) return base;
+    const latest = listOf(messages).filter(x => x.source === 'open_call' && x.meta && x.meta.action === 'call' && x.meta.phase_id === meta.phase_id)
+      .sort((a, b) => ms(b.created_at) - ms(a.created_at) || String(b.id).localeCompare(String(a.id)))[0];
+    if (!latest || latest.id !== m.id) return base;
+    if (PL().isOpenCall(hit.p)) return Object.assign(base, { state: 'open' });
+    if (hit.p.worker_id) return Object.assign(base, { state: 'taken', takerName: str(hit.p.worker_name) || '（退会したメンバー）', takerId: hit.p.worker_id });
+    return base;
   }
   // Task 50: 日程調整のカードが今も押せるか = その対応の一番新しい日程調整のカードで、今の状態（phase.schedule.state）がそのカードの次の番
   //   （候補 → candidates・条件 → conditions・希望 → wish）。確定のカードはボタンなし（日程を変えるは別）
@@ -198,7 +222,7 @@
   function lastLine(x) {
     if (!x) return '';
     if (x.kind === 'card') return x.text + 'が届きました';
-    if (x.kind === 'cond' || x.kind === 'sched') return x.text;
+    if (x.kind === 'cond' || x.kind === 'sched' || x.kind === 'call') return x.text;
     if (x.kind === 'msg') return (x.asClient ? '元請から: ' : '') + String(x.text || '').split('\n')[0];
     return x.text;
   }
@@ -218,7 +242,7 @@
       return { key: c.id, caseRow: c, title, initial: Array.from(str(c.name) || '？')[0],
         last: last ? { at: last.at, text: lastLine(last) } : null, unread: list.filter(x => x.unread).length };
     });
-    const allList = items({ caseRow: null, messages: msgs.filter(m => !m.case_id), me, isOwner: o.isOwner, readAt: readOf(ALL), names: o.names });
+    const allList = items({ caseRow: null, caseRows: o.caseRows, messages: msgs.filter(m => !m.case_id), me, isOwner: o.isOwner, readAt: readOf(ALL), names: o.names });
     const al = allList[allList.length - 1] || null;
     out.push({ key: ALL, caseRow: null, title: '全体', initial: '全', last: al ? { at: al.at, text: lastLine(al) } : null,
       unread: allList.filter(x => x.unread).length });
@@ -249,7 +273,7 @@
     return `例: 日程候補日 ${PL().fmtMD(t + 7 * 86400000)}・${PL().fmtMD(t + 8 * 86400000)} の午前中希望`;
   }
 
-  const api = { ALL, kindName, canManage, scheduleHint, timelineLine, bubbleText, subjectOf, items, withDays, lastLine, threads, unreadTotal, recipient };
+  const api = { ALL, callState, kindName, canManage, scheduleHint, timelineLine, bubbleText, subjectOf, items, withDays, lastLine, threads, unreadTotal, recipient };
   if (inNode) module.exports = api;
   else root.TalkLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

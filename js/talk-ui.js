@@ -180,7 +180,7 @@ function talkRenderThread(s) {
     s.root.replaceChildren(...nodes);
     return;
   }
-  const items = TalkLogic.items({ caseRow: c, messages: s.msgs, timeline: s.timeline, me: talkMe(), isOwner: talkOwner(s),
+  const items = TalkLogic.items({ caseRow: c, caseRows: s.rows, messages: s.msgs, timeline: s.timeline, me: talkMe(), isOwner: talkOwner(s),
     readAt: null, names: talkNames(s) });
   const body = mk('div', 'talk-body');
   body.id = 'talk-body';
@@ -196,6 +196,13 @@ function talkItemEl(s, x) {
   if (x.day) { const d = mk('div', 'talk-day'); d.appendChild(mk('span', null, x.day)); return d; }
   if (x.kind === 'log') { const l = mk('div', 'talk-log'); l.appendChild(mk('span', null, x.text)); return l; }
   if (x.kind === 'cond') return talkCondEl(x);
+  if (x.kind === 'call') { // Task 51: 一斉配信の募集のカード（js/open-call-ui.js）
+    return ocCardEl(x, { me: talkMe(), onDone: async text => {
+      if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+      s.flash = text || '';
+      if (talkAlive(s)) await talkLoad(s);
+    } });
+  }
   if (x.kind === 'sched') { // Task 50: 日程調整のカード（js/schedule-ui.js）
     const c = talkCase(s);
     const ownerRole = !!(ctx && ctx.membership && ctx.membership.role === 'owner');

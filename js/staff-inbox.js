@@ -27,7 +27,7 @@ async function refreshStaffBanner(rows, isAlive) {
   let msgs = [];
   try { msgs = await siLoadMessages(rows); } catch (e) { console.warn('連絡の読み込みに失敗', e); }
   if (isAlive && !isAlive()) return;
-  const n = PhaseLogic.staffInbox(rows || [], siMyId(), new Date(), { messages: msgs }).length;
+  const n = PhaseLogic.staffInbox(rows || [], siMyId(), new Date(), { messages: msgs }).filter(x => x.type !== 'call').length; // Task 51: 募集は現場用のタスクだけ
   el.replaceChildren(Icon.prepend(mk('span', null, '確認してください ' + n + '件'), 'bell'), mk('span', 'rep-sub', '見る →'));
   el.hidden = n === 0;
 }
@@ -150,7 +150,7 @@ function siFieldItemEl(it) {
   row.appendChild(main);
   row.appendChild(mk('span', 'si-chev', '›'));
   row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due && (dueItem ? '期限 ' + r.due : r.due), r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
-  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || !p) return row; // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
+  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || it.type === 'call' || !p) return row; // Task 51: 募集も削除・差し戻しの対象外 // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
   // Task 43: 小さな「…」→ 行の下にメニュー（もう一度押すと閉じる）
   //   「…」は行の右端（「›」の場所）に重ねる（行の幅を減らさない＝4項目が1行に収まる）
   const wrap = mk('div', 'si-fwrap');
@@ -258,7 +258,7 @@ function siSendbackSheet(it, r) {
   ta.focus();
 }
 const siKey = it => (it.type === 'message' ? 'msg-' + it.message.id : it.type === 'estimate' ? 'est-' + it.phase.id : it.type === 'report' ? 'rep-' + it.phase.id
-  : it.type === 'conditions' ? 'cond-' + it.phase.id : it.type === 'schedule' ? 'sch-' + it.phase.id : it.phase.id);
+  : it.type === 'conditions' ? 'cond-' + it.phase.id : it.type === 'schedule' ? 'sch-' + it.phase.id : it.type === 'call' ? 'call-' + it.phase.id : it.phase.id);
 // 行を押した → そのタスクの続き（今までの「その場で進めるボタン」と同じ行き先）
 //   見積書作成 → 見積の作成／続き、報告書作成 → 報告書の作成／続き、確認依頼・翌日の予定 → その対応のツールページ（「確認した」は依頼内容の一番下）、
 //   管理者からの返事・催促 → 既読にして、その案件のメッセージのトーク（Task 46: #f/msg/{案件ID}。案件の無い返事（日報への返事）は全体 #f/msg/all）
@@ -266,6 +266,7 @@ async function siFieldOpen(it) {
   if (it.type === 'estimate') return siMakeEstimate(it);
   if (it.type === 'report') return siMakeReport(it);
   if (it.type === 'message') return siOpenMessage(it);
+  if (it.type === 'call') { location.hash = '#f/msg/all'; return; } // Task 51: 全体のトークの募集のカードで「行けます」
   if (it.type === 'conditions' || it.type === 'schedule') { location.hash = '#f/msg/' + it.caseRow.id; return; } // Task 47: トークの条件のカード・Task 50: 日程のカード（ボタンで選ぶ・候補を出す）
   location.hash = '#f/case/' + it.caseRow.id + '/phase/' + it.phase.id;
 }
@@ -370,7 +371,7 @@ function siRender() {
     nodes.push(mk('div', 'err', si.err));
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox(si.opts)));
   } else {
-    const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs });
+    const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs }).filter(x => si.field || x.type !== 'call'); // Task 51: 募集は現場用のタスクだけ
     if (si.field && typeof fieldTaskBadge === 'function') fieldTaskBadge(items); // Task 45: 下のタブの数のバッジ
     if (!items.length) {
       const e = mk('div', 'empty', si.field ? '今やることはありません' : '確認することはありません');

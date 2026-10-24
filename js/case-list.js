@@ -141,6 +141,8 @@ function caseRowEl(r, now) {
 
   const badges = mk('div', 'badges');
   if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '未対応の依頼 ' + r.open_requests));
+  const calls = (r.phases || []).filter(PhaseLogic.isOpenCall).length; // Task 51: 一斉配信の募集中
+  if (calls) badges.appendChild(mk('span', 'bdg call', '募集中' + (calls > 1 ? ' ' + calls + '件' : '')));
   badges.appendChild(Icon.prepend(mk('span', 'bdg', (r.timeline_count || 0) + '件'), 'chat', 12));
   el.appendChild(badges);
 
@@ -317,6 +319,10 @@ async function openCaseModal(row, onSaved, opts) {
   fillClientOptions(wantClient);
   $('cm-client-add').disabled = true; // 元請マスタが揃うまで追加させない（同じ名前の確認ができないため）
 
+  caseModalMode = 'pick';
+  caseModalModeDraw();
+  $('cm-call-kind').value = 'survey';
+  $('cm-call-at').value = '';
   const sel = $('cm-assignee');
   const want = row ? row.assignee_id || '' : ctx.user.id;
   sel.replaceChildren(new Option('未設定', ''));
@@ -359,6 +365,17 @@ async function openCaseModal(row, onSaved, opts) {
   $('cm-save').disabled = false;
 }
 
+// Task 51: 新規案件の作業担当者の決め方（「特定の担当者を選ぶ」= 今までの担当者／「一斉配信（早い者順）」= 担当者なしで対応を1つ作って募集）。編集では出さない
+let caseModalMode = 'pick';
+function caseModalModeDraw() {
+  const host = $('cm-wk-mode');
+  const fresh = !caseModalRow;
+  host.replaceChildren(...(fresh ? [ocModeEl(caseModalMode, k => { caseModalMode = k; setMsg('cm-msg', ''); caseModalModeDraw(); }, 'cm-mode')] : []));
+  host.hidden = !fresh;
+  $('cm-assignee').hidden = fresh && caseModalMode === 'call';
+  $('cm-call').hidden = !(fresh && caseModalMode === 'call');
+}
+
 // 元請の選択 → 保存する列。undefined = 元請の列は送らない（今のまま）
 function clientFieldsOf(value) {
   const row = caseModalRow;
@@ -391,10 +408,13 @@ async function saveCaseModal() {
     $(CM_PARTY.find(x => x[0] === badEmail[0])[1]).focus();
     return;
   }
+  const call = !caseModalRow && caseModalMode === 'call';
+  const callAt = call && $('cm-call-at').value ? PhaseLogic.jstInput($('cm-call-at').value) : null;
+  if (call && $('cm-call-at').value && !callAt) { setMsg('cm-msg', '募集の日時の形が正しくありません'); $('cm-call-at').focus(); return; }
   const fields = {
     name,
     due_date: $('cm-due').value || null,
-    assignee_id: $('cm-assignee').value || null,
+    assignee_id: call ? null : $('cm-assignee').value || null, // Task 51: 一斉配信は担当者なし
     address: $('cm-address').value.trim() || null,
     room: $('cm-room').value.trim() || null, // 号室（migration 025）
     ...party,
@@ -416,6 +436,16 @@ async function saveCaseModal() {
   } catch (e) {
     errMsg = '保存できませんでした: ' + (e && e.message ? e.message : e);
   }
+  // Task 51: 一斉配信 → 対応を1つ作って（日時があれば入れて）募集を出す。失敗しても案件はできているので、案件ページの「担当者」から出し直せる
+  let callErr = '';
+  if (created && call) {
+    try {
+      const kind = $('cm-call-kind').value;
+      const ph = await PhasesApi.create(created.id, kind, created, null);
+      if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString() });
+      await PhasesApi.openCall(ph.id);
+    } catch (e) { callErr = '案件は作りましたが、一斉配信にできませんでした（案件ページの対応の表「担当者」から出し直せます）: ' + (e && e.message ? e.message : e); }
+  }
   // 強制クローズ（画面遷移）や別モーダルの表示で世代が変わっていたら、UIにも画面遷移にも一切触れない。
   // 保存自体は成功している場合があり、一覧は次回表示で反映される
   if (seq !== caseModalSeq) return;
@@ -424,6 +454,14 @@ async function saveCaseModal() {
   $('cm-client-add').disabled = !caseModalClientsOk;
   $('cm-save').textContent = idleLabel;
   if (errMsg) { setMsg('cm-msg', errMsg); return; }
+  if (callErr) { // 案件はできたので、ここからは編集として開いたままにする（もう一度押しても案件は増えない）
+    caseModalRow = created;
+    $('cm-title').textContent = '案件を編集';
+    $('cm-save').textContent = '保存する';
+    caseModalModeDraw();
+    setMsg('cm-msg', callErr);
+    return;
+  }
   // ここから先は保存成功。後続処理の失敗は保存失敗として扱わない
   closeCaseModal();
   try {

@@ -171,7 +171,7 @@ function smMsgEl(m, isRoot) {
   const box = mk('div', 'sm-msg' + (isRoot ? ' root' : ' reply'));
   box.dataset.msgId = m.id;
   const head = mk('div', 'sm-head');
-  const auto = ['report_submit', 'late', 'overdue', 'reedit', 'case_create', 'case_delete', 'task_delete'].includes(m.source); // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出・058: 現場用の案件登録・062: 案件の削除・063: タスクの削除も自動
+  const auto = ['report_submit', 'late', 'overdue', 'reedit', 'case_create', 'case_delete', 'task_delete', 'open_call'].includes(m.source); // Task 51: 一斉配信の「担当になりました」も自動 // 052: 到着が遅れそう・053: 報告書の期限超過・057: 再編集と再提出・058: 現場用の案件登録・062: 案件の削除・063: タスクの削除も自動
   head.appendChild(mk('b', 'sm-from', m.from_user === me ? 'あなた' : m.source === 'overdue' ? '自動のお知らせ' : !m.from_user && auto ? '担当者URL' : smName(m.from_user)));
   if (auto) head.appendChild(mk('span', 'sm-auto', '自動'));
   head.appendChild(mk('span', 'sm-at', PhaseLogic.fmtMDHM(m.created_at)));

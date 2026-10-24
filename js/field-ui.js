@@ -1367,7 +1367,7 @@ function fdPhoneNorm(v) {
 }
 /* ---------- #f/new 案件の登録（Task 37） ---------- */
 let fdNewDraft = null; // 入力中の値（画面を離れても残す。登録したら消す）
-const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', kind: '', label: '', request: '' });
+const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', kind: '', label: '', request: '', wk: 'pick', worker: '' }); // Task 51: 作業担当者の決め方（worker 空 = 自分）
 const FD_NEW_KINDS = () => PhaseLogic.KINDS.map(k => ({ key: k.key, label: k.label }));
 function fdRenderNew() {
   const s = fd;
@@ -1453,6 +1453,7 @@ function fdRenderNew() {
   card.appendChild(kb);
   card.appendChild(labelBox);
   paint();
+  card.appendChild(fdNewWorkerEl(v));
   card.appendChild(field('request', '依頼内容詳細（任意）', { area: true, ph: '例: 台所の床が濡れている。お部屋の荷物が多い', max: M.request }));
   const err = mk('div', 'err', '');
   err.id = 'fd-new-err';
@@ -1462,6 +1463,28 @@ function fdRenderNew() {
   submit.id = 'fd-new-submit';
   card.appendChild(submit);
   host.replaceChildren(card);
+}
+// Task 51: 作業担当者（「特定の担当者を選ぶ」= 自分か会社の人／「一斉配信（早い者順）」= 登録した後に募集を出す）
+function fdNewWorkerEl(v) {
+  if (!v.wk) v.wk = 'pick';
+  const box = mk('div', 'fd-set-f fd-new-f');
+  box.id = 'fd-new-f-worker';
+  box.appendChild(mk('span', 'fd-new-k', '作業担当者'));
+  const body = mk('div', 'oc-box');
+  const sel = document.createElement('select');
+  sel.id = 'fd-new-worker';
+  sel.setAttribute('aria-label', '作業担当者');
+  sel.appendChild(new Option('自分', ''));
+  sel.addEventListener('change', () => { v.worker = sel.value; });
+  CasesApi.listMembers().then(ms => {
+    (ms || []).filter(m => m.user_id !== fdMe()).forEach(m => sel.appendChild(new Option((m.display_name || '（名前なし）') + memberTel(m), m.user_id)));
+    sel.value = v.worker || '';
+  }, e => console.warn('メンバーを読み込めませんでした', e));
+  const draw = () => body.replaceChildren(ocModeEl(v.wk, k => { v.wk = k; draw(); }, 'fd-new-wk'),
+    v.wk === 'call' ? mk('div', 'oc-hint', OC_HINT + '（登録した後に出します。自分は応募しません）') : sel);
+  draw();
+  box.appendChild(body);
+  return box;
 }
 async function fdNewSubmit(s, btn, errEls, err) {
   if (!fdAlive(s) || s.busy) return;
@@ -1484,6 +1507,18 @@ async function fdNewSubmit(s, btn, errEls, err) {
   });
   s.busy = '';
   if (!res || !res.case_id || !res.phase_id) return;
+  // Task 51: 一斉配信 → 募集を出して全体のトーク（自分のカード）へ。ほかの人を選んだ → その人を作業担当者にして案件の一覧へ
+  const after = v.wk === 'call' ? 'call' : v.worker ? 'other' : '';
+  if (after) {
+    try {
+      if (after === 'call') await PhasesApi.openCall(res.phase_id);
+      else await PhasesApi.update(res.phase_id, { worker_id: v.worker });
+    } catch (e) { fieldSetFlash('案件は登録しましたが、' + (after === 'call' ? '一斉配信' : '作業担当者の変更') + 'ができませんでした: ' + errText(e)); }
+    fdNewDraft = null;
+    fieldRowsInvalidate();
+    if (fdAlive(s)) location.hash = after === 'call' && !fdFlash ? '#f/msg/all' : '#f';
+    return;
+  }
   fdNewDraft = null;
   fieldRowsInvalidate();
   fdSel.set(String(res.case_id).toLowerCase(), String(res.phase_id).toLowerCase());

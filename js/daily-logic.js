@@ -70,7 +70,7 @@
     return list.length ? '下書き' : '未作成';
   }
   // 自分の対応か（作業担当者が自分。作業担当者が空なら案件の担当者が自分）
-  const mine = (c, p, me) => !!me && (p.worker_id === me || (!p.worker_id && c.assignee_id === me));
+  const mine = (c, p, me) => !!me && (p.worker_id === me || (!p.worker_id && !p.open_call_at && c.assignee_id === me)); // Task 51: 募集中は案件の担当者の日報に入れない
   // 報告書の作業開始〜終了（times = [{ phase_id, time_start, time_end }]。両方ある最後のもの）→ { minutes, text } | null
   function autoTime(times, phaseId) {
     const list = listOf(times).filter(t => t.phase_id === phaseId && hmMin(t.time_start) != null && hmMin(t.time_end) != null);
