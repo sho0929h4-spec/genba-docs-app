@@ -5,7 +5,8 @@
 //     パスワードは保存・記録・URL に入れない。使ったら欄を空にする。入力があるので外側クリック・Esc では閉じない（× とキャンセルだけ）
 //   - Task 42: 現場用のツールページの一番下にも（fieldSection。自分が登録した案件だけ。rpc field_trash_case / migration 062）
 //   - 削除後は案件一覧に戻り「削除しました。設定 → 削除した案件 から30日以内なら戻せます」
-//   - 設定の「削除した案件」（管理者だけ）: 一覧と「元に戻す」（画面内で確かめる）。30日を過ぎた分の自動削除は後日（docs/phase0-deferred.md）
+//   - 設定の「削除した案件」（管理者だけ）: 一覧と「元に戻す」（画面内で確かめる）・「あと N 日で完全に削除されます」
+//   - Task 56: 30日を過ぎた案件は DB が毎日完全に消す（migration 078）。ファイルは管理者がアプリを開いたとき cleanupFiles が Storage API で消す
 //   ユーザー入力は createElement + textContent で描く（innerHTML は使わない）。alert / confirm は使わない。
 // DB は CasesApi（trashCase / restoreCase / listTrashed）。mk は case-list.js、dBtn / errText は case-detail.js、withBusy / setMsg / $ は app.js
 const CaseTrash = (() => {
@@ -165,6 +166,7 @@ const CaseTrash = (() => {
     const my = ++seq;
     setMsg('trash-msg', '');
     list.replaceChildren(mk('div', 'trash-empty', '読み込み中…'));
+    cleanupFiles();
     let rows;
     try { rows = await CasesApi.listTrashed(); }
     catch (e) {
@@ -189,7 +191,7 @@ const CaseTrash = (() => {
     main.appendChild(mk('b', 'trash-name', r.name));
     const left = daysLeft(r.deleted_at);
     main.appendChild(mk('span', 'trash-when', PhaseLogic.fmtMD(r.deleted_at) + ' 削除' +
-      (left == null ? '' : left > 0 ? '・あと' + left + '日で自動削除の対象' : '・30日を過ぎました（後日の自動削除の対象）')));
+      (left == null ? '' : left > 0 ? '・あと ' + left + ' 日で完全に削除されます' : '・まもなく完全に削除されます')));
     el.appendChild(main);
     const ops = mk('div', 'trash-ops');
     const msg = mk('div', 'err trash-row-err');
@@ -218,6 +220,15 @@ const CaseTrash = (() => {
     return el;
   }
 
-  return { section, fieldSection, openSheet, renderCard };
+  // Task 56: 完全に消した案件のファイルの片付け（管理者だけ。同時に1回。失敗しても画面は止めない＝次に開いたときにもう一度）
+  let cleaning = null;
+  function cleanupFiles() {
+    if (!isOwner()) return Promise.resolve(0);
+    return cleaning || (cleaning = CasesApi.cleanupPurgedFiles()
+      .catch(e => { console.warn('削除した案件のファイルを片付けられませんでした', e); return 0; })
+      .finally(() => { cleaning = null; }));
+  }
+
+  return { section, fieldSection, openSheet, renderCard, cleanupFiles };
 })();
 window.CaseTrash = CaseTrash;

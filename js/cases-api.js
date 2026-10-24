@@ -114,6 +114,18 @@ const CasesApi = (() => {
       return must(await sb.from('cases').select('id, name, address, deleted_at, deleted_by')
         .not('deleted_at', 'is', null).order('deleted_at', { ascending: false })) || [];
     },
+    // Task 56: 完全に消した案件のファイル（purge_files・migration 078。管理者だけ読める）を Storage API で消し、
+    // 消せたもの（もう無かったものも）を purge_files_done で「消した」にする（使用量も DB が減らす）。消せなかったものは次回
+    async cleanupPurgedFiles() {
+      const rows = must(await sb.from('purge_files').select('id, bucket, path').is('done_at', null).limit(200)) || [];
+      const done = [];
+      for (const r of rows) {
+        try { await AppStorage.remove(r.path, r.bucket); done.push(r.id); }
+        catch (e) { console.warn('ファイルを消せませんでした（次に開いたときにもう一度）', r.path, e); }
+      }
+      if (done.length) must(await sb.rpc('purge_files_done', { p_ids: done }));
+      return done.length;
+    },
     // まだ取り消していない編集（新しい順・直近 50 件）
     async listEdits(caseId) {
       return must(await sb.from('case_edits').select('*').eq('case_id', caseId).is('undone_at', null)

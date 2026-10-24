@@ -315,6 +315,8 @@ async function boot() {
     clearInviteHash(); routeFromHash();
     // Task 55: 開いたときに自分の Google カレンダーのファイルを作り直す（ほかの人の操作・報告書の提出で変わった分。使い始めていなければ何もしない）
     if (typeof CalFeed !== 'undefined') CalFeed.touch([ctx.user.id]);
+    // Task 56: 完全に消した案件のファイルを片付ける（管理者だけ・待たない）
+    if (typeof CaseTrash !== 'undefined') CaseTrash.cleanupFiles();
     return;
   }
   const token = inviteTokenFromHash();
