@@ -875,13 +875,7 @@
   .ph-c-status .ph-why{flex-basis:100%;}
   .rep-due-why{background:#fff7ed;border:1px solid #fde3c4;}
   .rep-due-why-head{font-size:13px;font-weight:700;color:#9a3412;margin-bottom:6px;}
-  /* Task 21: お部屋の状況・鍵の取り扱い・写真の区分（自由記載） */
-  .rep-checks.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
-  .rep-room-row{margin-top:8px;}
-  .rep-room-row .rep-group-ttl{display:block;}
-  .rep-room-n{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .rep-room-n input{width:96px;flex:0 0 96px;min-height:44px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:16px;font-family:inherit;background:#fff;color:var(--text);}
-  .rep-room-err{color:#b91c1c;font-size:13px;}
+  /* Task 21: 鍵の取り扱い・写真の区分（自由記載） */
   .rep-key-box{margin-top:8px;}
   .rep-key-box .rep-checks{margin-bottom:8px;}
   .rep-key-ph{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -1132,15 +1126,16 @@
   .eu-pr-acts{margin-top:6px;}
   .eu-pr-msg:empty{display:none;}
   .eu-pr-msg{margin-top:4px;}
-  .eu-pr-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;}
+  .eu-pr-btns{display:grid;gap:8px;margin-top:4px;min-width:0;}
+  .eu-pr-tier{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0;}
+  .eu-pr-tier-h{flex:0 0 100%;font-size:12px;font-weight:700;color:var(--muted);}
+  .eu-pr-tiers{margin:0 0 6px;}
+  .eu-pr-tier-note{margin:0 0 10px;}
+  .eu-pr-item.view{background:#f8fafc;}
+  .eu-pr-v-name{font-size:14px;font-weight:700;color:var(--navy);overflow-wrap:anywhere;}
+  .eu-pr-v-line{overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
   .eu-pr-btns .btn{min-height:40px;}
-  .eu-pr-stepper{display:inline-flex;align-items:stretch;gap:4px;max-width:100%;}
-  .eu-pr-st{flex:none;min-width:40px;min-height:40px;padding:0;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--navy);font-size:18px;font-weight:700;font-family:inherit;line-height:1;cursor:pointer;}
-  .eu-pr-st:disabled{opacity:.35;cursor:default;}
   .eu-adj-row{margin-top:10px;}
-  .eu-pr-grid .g-step{grid-column:1/-1;}
-  .eu-pr-ff .nu-chk.eu-pr-i-step{display:flex;align-items:center;gap:10px;min-height:40px;font-size:14px;font-weight:400;color:var(--text);margin:0;}
-  .eu-pr-ff .nu-chk.eu-pr-i-step input{width:20px;height:20px;min-height:0;padding:0;flex:none;}
   .eu-pr-add{margin:0 0 8px;}
   .eu-pr-item.new{border-style:dashed;border-color:var(--navy2);}
   .eu-more-menu{grid-column:1/-1;display:flex;justify-content:flex-end;gap:6px;padding-top:2px;}
@@ -2427,74 +2422,74 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/icons.js?v=aef1cf6"></script>
-<script src="js/crypto-util.js?v=aef1cf6"></script>
-<script src="js/supabase-config.js?v=aef1cf6"></script>
-<script src="js/supabase.js?v=aef1cf6"></script>
-<script src="js/auth.js?v=aef1cf6"></script>
-<script src="js/storage.js?v=aef1cf6"></script>
-<script src="js/quota.js?v=aef1cf6"></script>
-<script src="js/messages-api.js?v=aef1cf6"></script>
-<script src="js/case-logic.js?v=aef1cf6"></script>
-<script src="js/mail-templates.js?v=aef1cf6"></script>
-<script src="js/phase-logic.js?v=aef1cf6"></script>
-<script src="js/request-view.js?v=aef1cf6"></script>
-<script src="js/survey-view.js?v=aef1cf6"></script>
-<script src="js/case-band.js?v=aef1cf6"></script>
-<script src="js/image.js?v=aef1cf6"></script>
-<script src="js/cases-api.js?v=aef1cf6"></script>
-<script src="js/clients-api.js?v=aef1cf6"></script>
-<script src="js/phases-api.js?v=aef1cf6"></script>
+<script src="js/icons.js?v=90cf3b9"></script>
+<script src="js/crypto-util.js?v=90cf3b9"></script>
+<script src="js/supabase-config.js?v=90cf3b9"></script>
+<script src="js/supabase.js?v=90cf3b9"></script>
+<script src="js/auth.js?v=90cf3b9"></script>
+<script src="js/storage.js?v=90cf3b9"></script>
+<script src="js/quota.js?v=90cf3b9"></script>
+<script src="js/messages-api.js?v=90cf3b9"></script>
+<script src="js/case-logic.js?v=90cf3b9"></script>
+<script src="js/mail-templates.js?v=90cf3b9"></script>
+<script src="js/phase-logic.js?v=90cf3b9"></script>
+<script src="js/request-view.js?v=90cf3b9"></script>
+<script src="js/survey-view.js?v=90cf3b9"></script>
+<script src="js/case-band.js?v=90cf3b9"></script>
+<script src="js/image.js?v=90cf3b9"></script>
+<script src="js/cases-api.js?v=90cf3b9"></script>
+<script src="js/clients-api.js?v=90cf3b9"></script>
+<script src="js/phases-api.js?v=90cf3b9"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=aef1cf6"></script>
-<script src="js/reports-api.js?v=aef1cf6"></script>
-<script src="js/photo-marks.js?v=aef1cf6"></script>
-<script src="js/report-pdf.js?v=aef1cf6"></script>
-<script src="js/daily-logic.js?v=aef1cf6"></script>
-<script src="js/daily-pdf.js?v=aef1cf6"></script>
-<script src="js/notice-logic.js?v=aef1cf6"></script>
-<script src="js/notices-api.js?v=aef1cf6"></script>
-<script src="js/notice-pdf.js?v=aef1cf6"></script>
-<script src="js/estimate-logic.js?v=aef1cf6"></script>
-<script src="js/estimates-api.js?v=aef1cf6"></script>
-<script src="js/estimate-pdf.js?v=aef1cf6"></script>
-<script src="js/estimate-presets-api.js?v=aef1cf6"></script>
-<script src="js/estimate-presets.js?v=aef1cf6"></script>
-<script src="js/estimate-layout.js?v=aef1cf6"></script>
-<script src="js/estimate-import.js?v=aef1cf6"></script>
-<script src="js/case-list.js?v=aef1cf6"></script>
-<script src="js/clients-ui.js?v=aef1cf6"></script>
-<script src="js/case-detail.js?v=aef1cf6"></script>
-<script src="js/case-rooms-api.js?v=aef1cf6"></script>
-<script src="js/case-rooms.js?v=aef1cf6"></script>
-<script src="js/case-request.js?v=aef1cf6"></script>
-<script src="js/edit-logic.js?v=aef1cf6"></script>
-<script src="js/case-trash.js?v=aef1cf6"></script>
-<script src="js/case-undo.js?v=aef1cf6"></script>
-<script src="js/phase-ui.js?v=aef1cf6"></script>
-<script src="js/phase-detail.js?v=aef1cf6"></script>
-<script src="js/billing-ui.js?v=aef1cf6"></script>
-<script src="js/team.js?v=aef1cf6"></script>
-<script src="js/tasks.js?v=aef1cf6"></script>
-<script src="js/calendar-logic.js?v=aef1cf6"></script>
-<script src="js/calendar-ui.js?v=aef1cf6"></script>
-<script src="js/timeline.js?v=aef1cf6"></script>
-<script src="js/photo-mark-editor.js?v=aef1cf6"></script>
-<script src="js/report-form.js?v=aef1cf6"></script>
-<script src="js/report-ui.js?v=aef1cf6"></script>
-<script src="js/report-share.js?v=aef1cf6"></script>
-<script src="js/report-edit.js?v=aef1cf6"></script>
-<script src="js/mail-ui.js?v=aef1cf6"></script>
-<script src="js/outbox-ui.js?v=aef1cf6"></script>
-<script src="js/staff-inbox.js?v=aef1cf6"></script>
-<script src="js/staff-messages.js?v=aef1cf6"></script>
-<script src="js/talk-logic.js?v=aef1cf6"></script>
-<script src="js/talk-ui.js?v=aef1cf6"></script>
-<script src="js/notice-ui.js?v=aef1cf6"></script>
-<script src="js/notice-edit.js?v=aef1cf6"></script>
-<script src="js/estimate-ui.js?v=aef1cf6"></script>
-<script src="js/field-ui.js?v=aef1cf6"></script>
-<script src="js/app.js?v=aef1cf6"></script>
+<script src="js/report-logic.js?v=90cf3b9"></script>
+<script src="js/reports-api.js?v=90cf3b9"></script>
+<script src="js/photo-marks.js?v=90cf3b9"></script>
+<script src="js/report-pdf.js?v=90cf3b9"></script>
+<script src="js/daily-logic.js?v=90cf3b9"></script>
+<script src="js/daily-pdf.js?v=90cf3b9"></script>
+<script src="js/notice-logic.js?v=90cf3b9"></script>
+<script src="js/notices-api.js?v=90cf3b9"></script>
+<script src="js/notice-pdf.js?v=90cf3b9"></script>
+<script src="js/estimate-logic.js?v=90cf3b9"></script>
+<script src="js/estimates-api.js?v=90cf3b9"></script>
+<script src="js/estimate-pdf.js?v=90cf3b9"></script>
+<script src="js/estimate-presets-api.js?v=90cf3b9"></script>
+<script src="js/estimate-presets.js?v=90cf3b9"></script>
+<script src="js/estimate-layout.js?v=90cf3b9"></script>
+<script src="js/estimate-import.js?v=90cf3b9"></script>
+<script src="js/case-list.js?v=90cf3b9"></script>
+<script src="js/clients-ui.js?v=90cf3b9"></script>
+<script src="js/case-detail.js?v=90cf3b9"></script>
+<script src="js/case-rooms-api.js?v=90cf3b9"></script>
+<script src="js/case-rooms.js?v=90cf3b9"></script>
+<script src="js/case-request.js?v=90cf3b9"></script>
+<script src="js/edit-logic.js?v=90cf3b9"></script>
+<script src="js/case-trash.js?v=90cf3b9"></script>
+<script src="js/case-undo.js?v=90cf3b9"></script>
+<script src="js/phase-ui.js?v=90cf3b9"></script>
+<script src="js/phase-detail.js?v=90cf3b9"></script>
+<script src="js/billing-ui.js?v=90cf3b9"></script>
+<script src="js/team.js?v=90cf3b9"></script>
+<script src="js/tasks.js?v=90cf3b9"></script>
+<script src="js/calendar-logic.js?v=90cf3b9"></script>
+<script src="js/calendar-ui.js?v=90cf3b9"></script>
+<script src="js/timeline.js?v=90cf3b9"></script>
+<script src="js/photo-mark-editor.js?v=90cf3b9"></script>
+<script src="js/report-form.js?v=90cf3b9"></script>
+<script src="js/report-ui.js?v=90cf3b9"></script>
+<script src="js/report-share.js?v=90cf3b9"></script>
+<script src="js/report-edit.js?v=90cf3b9"></script>
+<script src="js/mail-ui.js?v=90cf3b9"></script>
+<script src="js/outbox-ui.js?v=90cf3b9"></script>
+<script src="js/staff-inbox.js?v=90cf3b9"></script>
+<script src="js/staff-messages.js?v=90cf3b9"></script>
+<script src="js/talk-logic.js?v=90cf3b9"></script>
+<script src="js/talk-ui.js?v=90cf3b9"></script>
+<script src="js/notice-ui.js?v=90cf3b9"></script>
+<script src="js/notice-edit.js?v=90cf3b9"></script>
+<script src="js/estimate-ui.js?v=90cf3b9"></script>
+<script src="js/field-ui.js?v=90cf3b9"></script>
+<script src="js/app.js?v=90cf3b9"></script>
 </body>
 </html>

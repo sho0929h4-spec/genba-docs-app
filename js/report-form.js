@@ -385,7 +385,6 @@ function rfBuildForm(s, opts) {
   els.reason.classList.add('rep-reason'); // 記載例が全部見える高さ（index.html / r.html の CSS）
   edNextPicker(s, content);
   longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
-  edRoomPicker(s, content);
   nodes.push(content);
 
   // ---- 写真（枠だけ。一覧の中身は rfRenderPhotos、追加の処理は呼び出し側が els.photoInput の change で行う） ----
@@ -627,69 +626,6 @@ function edApplyNext(s) {
   }
 }
 
-/* ---------- お部屋の状況（任意。荷物量・ペットは1つ選ぶ・入居者数は 0〜20。Task 21 追加） ---------- */
-function edRoomPicker(s, parent) {
-  const L = ReportLogic, d = s.f.data, els = s.els;
-  d.roomStatus = L.normalizeRoom(d.roomStatus);
-  const r = d.roomStatus;
-  els.roomWrap = rfMk('div', 'rep-ff');
-  els.roomWrap.id = 'rp-room-wrap';
-  const ttl = rfMk('div', 'rep-lbl-row');
-  ttl.appendChild(rfMk('label', null, 'お部屋の状況'));
-  els.roomWrap.append(ttl, rfMk('span', 'rep-hint', '分かる項目だけ（任意）。選んだものをもう一度押すと外れます'));
-  const pair = (key, label, opts) => {
-    const box = rfMk('div', 'rep-room-row');
-    box.appendChild(rfMk('div', 'rep-group-ttl', label));
-    const grid = rfMk('div', 'rep-checks grid2');
-    grid.id = 'rp-room-' + key;
-    grid.setAttribute('role', 'radiogroup');
-    grid.setAttribute('aria-label', label);
-    const btns = [];
-    opts.forEach(o => {
-      const b = edCheck(o.label, r[key] === o.key, s.ro, now => {
-        r[key] = now ? o.key : null;
-        btns.forEach(x => edSetOn(x.b, r[key] === x.k));
-        rfDirty(s);
-      }, true);
-      b.setAttribute('role', 'radio');
-      b.dataset.room = String(o.key);
-      btns.push({ b, k: o.key });
-      grid.appendChild(b);
-    });
-    box.appendChild(grid);
-    return box;
-  };
-  els.roomWrap.append(pair('luggage', '荷物量', L.ROOM_LUGGAGE), pair('pet', 'ペット', L.ROOM_PET));
-  const nBox = rfMk('div', 'rep-room-row');
-  const nl = rfMk('label', 'rep-group-ttl', '入居者数');
-  nl.htmlFor = 'rp-room-residents';
-  const nRow = rfMk('div', 'rep-room-n');
-  const inp = document.createElement('input');
-  inp.type = 'number';
-  inp.id = 'rp-room-residents';
-  inp.min = '0';
-  inp.max = String(L.RESIDENTS_MAX);
-  inp.step = '1';
-  inp.inputMode = 'numeric';
-  inp.placeholder = '例：2';
-  inp.value = r.residents === null ? '' : String(r.residents);
-  inp.disabled = s.ro;
-  const err = rfMk('span', 'rep-room-err');
-  err.id = 'rp-room-residents-err';
-  err.setAttribute('role', 'status');
-  inp.addEventListener('input', () => {
-    const v = inp.value.trim();
-    const ok = /^\d{1,2}$/.test(v) && +v <= L.RESIDENTS_MAX;
-    r.residents = ok ? +v : null;
-    err.textContent = v && !ok ? '0〜' + L.RESIDENTS_MAX + ' の数字で入れてください' : '';
-    rfDirty(s);
-  });
-  nRow.append(inp, rfMk('span', null, '人'), err);
-  nBox.append(nl, nRow);
-  els.roomWrap.appendChild(nBox);
-  parent.appendChild(els.roomWrap);
-}
-
 /* ---------- 鍵の取り扱い（「鍵を借りた」を押したときだけ 返却・写真・コメント。Task 21） ---------- */
 function edKeyBox(s, parent) {
   const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
@@ -782,7 +718,6 @@ function edApplyMode(s) {
   e.f2Wrap.hidden = !cfg.showF2 || (cfg.pickCause && !s.legacy.f2);
   e.reasonWrap.hidden = !cfg.showReason;
   e.f4Wrap.hidden = !cfg.showF4 || (cfg.pickNext && !s.legacy.f4);
-  e.roomWrap.hidden = !cfg.pickNext; // お部屋の状況は調査だけ
   edRenderWorkChips(s);
 }
 

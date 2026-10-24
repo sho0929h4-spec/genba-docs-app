@@ -1,11 +1,14 @@
-// js/estimate-presets.js — 見積の「よく使う明細」（定型）の画面（対応フェーズ Task 11 / migration 029、Task 22 / migration 039）
+// js/estimate-presets.js — 見積の「よく使う明細」（定型）の画面（対応フェーズ Task 11 / migration 029、Task 22、Task 49 / migration 068）
+//   2段: 自分専用（owner_user_id = 自分。本人だけが読む・書く）と 会社共通（owner_user_id = null。全員が読む・管理者だけが書く）
 //   見積画面（⑭ #estimate/{id}）の明細の下に置く（明細の下の唯一の追加候補。固定のクイック追加は Task 22 で廃止）:
-//     - ボタン列: 今の見積のフェーズの種類（estimates.phase_id → case_phases.kind）＋共通。フェーズが無ければ共通だけ。
+//     - ボタン列: 自分専用 → 会社共通 の順（ある段だけ見出しつき）。今の見積のフェーズの種類（estimates.phase_id → case_phases.kind）＋共通。
 //       各ボタンは「＋ 名前 ¥金額」。押すと行を末尾に足す（hooks.add → estimate-ui の eueAddPreset。自動保存・合計・諸経費の自動行の再計算はそちら）
-//       刻み（line.step）のある候補は、ボタンの横の「−」「＋」で金額を step 円ずつ変えてから足せる（下限 0。変えた金額はこの画面を開いている間だけ覚える）
-//     - 「よく使う明細に登録」シート（明細行の「…」から）: 名前＝摘要が初期値、種類＝今のフェーズの種類が初期値（共通なども選べる）
-//     - 「よく使う明細を編集」シート: 種類ごとの一覧・名前／種類／摘要／詳細／数量／単位／金額／「500円単位で変えられる」（step 500）の変更・
-//       ↑↓・削除（画面内で確かめる）・「＋ 候補を追加」（空の候補。保存で登録。摘要が空なら名前を摘要にする）
+//       行は定型の写し。後で定型を変えても作った見積書は変わらない。金額の「−」「＋」（Task 22 の刻み）は Task 49 で廃止
+//     - 「よく使う明細に登録」シート（明細行の「…」から）: 名前＝摘要が初期値、種類＝今のフェーズの種類が初期値（共通なども選べる）。
+//       登録先は作業担当者なら自分専用だけ、管理者は 自分専用／会社共通 を選べる
+//     - 「よく使う明細を編集」シート（全員）: 上の「自分専用／会社共通」の切替。段ごと・種類ごとの一覧・名前／種類／摘要／詳細／数量／単位／金額の変更・
+//       ↑↓・削除（画面内で確かめる）・「＋ 候補を追加」（空の候補。保存で登録。摘要が空なら名前を摘要にする）。
+//       作業担当者の会社共通は見るだけ（入力欄・ボタンなし）
 //   シートは入力があるので、外側のクリック・Esc では閉じない（× とキャンセル／閉じるだけ）。
 //   ユーザー入力は createElement + textContent で描く（innerHTML は使わない）。alert / confirm は使わない。
 // 計算・判定は EstimateLogic（presetToLine / lineToPreset / validatePreset / presetsFor / groupPresets / movePreset）、
@@ -17,6 +20,13 @@ const EstimatePresets = (() => {
   let loading = null;       // 読み込み中の Promise
   let cur = null;           // 表示中の見積画面 { s, hooks, root, btns, msg, kind }
   let uid = 0;
+  const TIER_LABEL = { mine: '自分専用', company: '会社共通' };
+  const tierOf = p => EL().presetTier(p);
+  const canCompany = () => !!(typeof ctx !== 'undefined' && ctx && ctx.membership && ctx.membership.role === 'owner'); // 会社共通を書けるのは管理者だけ（068）
+  const myId = () => (typeof ctx !== 'undefined' && ctx && ctx.user ? ctx.user.id : null);
+  // 登録・編集で最初に選ぶ段: 管理者の管理画面は会社共通、それ以外（作業担当者・現場用）は自分専用
+  const defaultTier = () => (canCompany() && !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) ? 'company' : 'mine');
+  const tierList = t => (list || []).filter(p => tierOf(p) === t);
 
   // ── 小物 ──────────────────────────────────────────────────────────────
   const str = v => (v == null ? '' : String(v));
@@ -67,16 +77,6 @@ const EstimatePresets = (() => {
       ? yen(Math.round(Number(l.unitPrice) * (Number(l.quantity) || 0))) + '（単価 ' + yen(l.unitPrice) + '）'
       : (Number(l.amount) ? yen(l.amount) : '金額は入力待ち');
     return [str(l.description), str(l.quantity) + ' ' + str(l.unit), amt].filter(Boolean).join(' ・ ');
-  }
-  function checkbox(cls, label, checked) {
-    const w = mk('label', 'nu-chk ' + cls);
-    const i = document.createElement('input');
-    i.type = 'checkbox';
-    i.id = 'eu-pr-f' + (++uid);
-    i.checked = !!checked;
-    w.htmlFor = i.id;
-    w.append(i, mk('span', null, label));
-    return { w, i };
   }
   function sheet(id, title) {
     const prev = document.getElementById(id);
@@ -143,19 +143,15 @@ const EstimatePresets = (() => {
     btns.id = 'eu-presets-btns';
     btns.appendChild(mk('span', 'rep-sub', '読み込み中…'));
     const acts = mk('div', 'eu-pr-acts');
-    // 候補の編集・削除は管理者だけ（Task 23。DB も migration 042 で管理者だけ）。現場用・スタッフには出さない（登録はできる）
-    const canEdit = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin()) && !!(ctx && ctx.membership && ctx.membership.role === 'owner');
-    if (canEdit) {
-      const edit = dBtn('よく使う明細を編集', 'btn sm ghost inline', () => openEditor());
-      edit.id = 'eu-presets-edit';
-      acts.appendChild(edit);
-    }
+    // 編集シートは全員（Task 49: 作業担当者は自分専用を増やす・直す。会社共通を直せるのは管理者だけ＝DB も 068）
+    const edit = dBtn('よく使う明細を編集', 'btn sm ghost inline', () => openEditor());
+    edit.id = 'eu-presets-edit';
+    acts.appendChild(edit);
     const msg = mk('div', 'rep-sub eu-pr-msg');
     msg.id = 'eu-presets-msg';
     msg.setAttribute('role', 'status');
     root.append(ttl, btns, acts, msg);
-    // adj: 「−」「＋」で変えた金額（preset id → 円）。この画面を開いている間だけ
-    const me = { s, hooks, root, btns, msg, kinds: t2, kind: undefined, adj: new Map() };
+    const me = { s, hooks, root, btns, msg, kinds: t2, kind: undefined };
     cur = me;
     (async () => {
       me.kind = await phaseKind(s);
@@ -173,8 +169,23 @@ const EstimatePresets = (() => {
     })();
     return root;
   }
-  // 今ボタンに出す金額（「−」「＋」で変えていればその金額）
-  const shownAmount = (me, p) => (EL().presetStep(p) && me.adj.has(p.id) ? me.adj.get(p.id) : EL().presetAmount(p));
+  function presetButton(me, p) {
+    const amt = EL().presetAmount(p);
+    const name = str(p.label);
+    const b = mk('button', 'btn sm ghost inline eu-pr-btn');
+    b.type = 'button';
+    b.dataset.presetId = p.id;
+    b.appendChild(mk('span', 'eu-pr-name', '＋ ' + name));
+    if (amt) b.appendChild(mk('span', 'eu-pr-amt', yen(amt)));
+    b.title = lineText(p.line) + ' ・ ' + KL(p.kind) + ' ・ ' + TIER_LABEL[tierOf(p)];
+    b.setAttribute('aria-label', name + (amt ? ' ' + yen(amt) : '') + ' を明細に追加（' + TIER_LABEL[tierOf(p)] + '）');
+    b.addEventListener('click', () => {
+      if (me.s.readOnly) return;
+      me.hooks.add(p);
+      me.msg.textContent = '「' + name + '」' + (amt ? yen(amt) + ' ' : '') + 'を明細の最後に足しました';
+    });
+    return b;
+  }
   function renderButtons(note) {
     const me = cur;
     if (!me) return;
@@ -183,57 +194,24 @@ const EstimatePresets = (() => {
     if (!list) { me.btns.replaceChildren(mk('span', 'rep-sub', '読み込み中…')); return; }
     const ps = EL().presetsFor(list, me.kind);
     if (!ps.length) {
-      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。明細の「…」→「よく使う明細に登録」で増やせます' + (document.getElementById('eu-presets-edit') ? '（「よく使う明細を編集」の「＋ 候補を追加」からも）' : ''));
+      const e = mk('span', 'rep-sub eu-pr-empty', 'まだありません。「よく使う明細を編集」の「＋ 候補を追加」か、明細の「…」→「よく使う明細に登録」で増やせます');
       e.id = 'eu-presets-empty';
       me.btns.replaceChildren(e);
     } else {
-      const focused = document.activeElement && me.btns.contains(document.activeElement)
-        ? { id: document.activeElement.dataset.presetId, cls: document.activeElement.dataset.op } : null;
-      me.btns.replaceChildren(...ps.map(p => {
-        const step = EL().presetStep(p);
-        const amt = shownAmount(me, p);
-        const name = str(p.label);
-        const b = mk('button', 'btn sm ghost inline eu-pr-btn');
-        b.type = 'button';
-        b.dataset.presetId = p.id;
-        b.dataset.op = 'add';
-        b.appendChild(mk('span', 'eu-pr-name', '＋ ' + name));
-        if (amt || step) b.appendChild(mk('span', 'eu-pr-amt', yen(amt)));
-        b.title = lineText(p.line) + ' ・ ' + KL(p.kind);
-        b.setAttribute('aria-label', name + (amt || step ? ' ' + yen(amt) : '') + ' を明細に追加');
-        b.addEventListener('click', () => {
-          if (me.s.readOnly) return;
-          me.hooks.add(p, step ? amt : undefined);
-          me.msg.textContent = '「' + name + '」' + (amt || step ? yen(amt) + ' ' : '') + 'を明細の最後に足しました';
-        });
-        if (!step) return b;
-        // 刻みのある候補: ［＋ 交通費 ¥3,500］［−］［＋］
-        const g = mk('span', 'eu-pr-stepper');
-        g.dataset.presetId = p.id;
-        const sb_ = (t, op, dir, label) => {
-          const x = mk('button', 'eu-pr-st ' + op, t);
-          x.type = 'button';
-          x.dataset.presetId = p.id;
-          x.dataset.op = op;
-          x.setAttribute('aria-label', label);
-          x.title = label;
-          x.disabled = dir < 0 && amt <= 0;
-          x.addEventListener('click', () => {
-            if (me.s.readOnly) return;
-            const next = EL().stepAmount(shownAmount(me, p), step, dir);
-            if (next === EL().presetAmount(p)) me.adj.delete(p.id); else me.adj.set(p.id, next);
-            renderButtons();
-          });
-          return x;
-        };
-        g.append(b, sb_('−', 'dn', -1, name + 'の金額を' + EL().fmt(step) + '円下げる'),
-          sb_('＋', 'up', 1, name + 'の金額を' + EL().fmt(step) + '円上げる'));
-        return g;
-      }));
-      if (focused && focused.id) {
-        const el = me.btns.querySelector('button[data-preset-id="' + focused.id + '"][data-op="' + focused.cls + '"]');
-        const to = el && !el.disabled ? el : me.btns.querySelector('button[data-preset-id="' + focused.id + '"][data-op="add"]');
-        if (to) to.focus({ preventScroll: true });
+      const focused = document.activeElement && me.btns.contains(document.activeElement) ? document.activeElement.dataset.presetId : null;
+      // 自分専用 → 会社共通（ある段だけ。presetsFor が自分専用を先に並べる）
+      me.btns.replaceChildren(...['mine', 'company'].map(t => {
+        const items = ps.filter(p => tierOf(p) === t);
+        if (!items.length) return null;
+        const row = mk('div', 'eu-pr-tier');
+        row.dataset.tier = t;
+        row.appendChild(mk('span', 'eu-pr-tier-h', TIER_LABEL[t]));
+        items.forEach(p => row.appendChild(presetButton(me, p)));
+        return row;
+      }).filter(Boolean));
+      if (focused) {
+        const el = me.btns.querySelector('button[data-preset-id="' + focused + '"]');
+        if (el) el.focus({ preventScroll: true });
       }
     }
     if (note !== undefined) me.msg.textContent = note;
@@ -269,6 +247,20 @@ const EstimatePresets = (() => {
     const k0 = cur && cur.s === s ? cur.kind : null;
     const kind = kindSelect(k0 || 'common', 'eu-pr-reg-kind');
     dlg.appendChild(field('種類（その種類のフェーズの見積に出ます。共通はすべての見積に出ます）', kind));
+    // 登録先: 作業担当者は自分専用だけ。管理者は選べる（会社共通は社内の全員に出る）
+    let tierSel = null;
+    if (canCompany()) {
+      tierSel = document.createElement('select');
+      tierSel.className = 'eu-pr-kind';
+      tierSel.id = 'eu-pr-reg-tier';
+      tierSel.append(new Option('自分専用（自分の見積書だけに出ます）', 'mine'), new Option('会社共通（社内の全員の見積書に出ます）', 'company'));
+      tierSel.value = defaultTier();
+      dlg.appendChild(field('登録先', tierSel));
+    } else {
+      const tn = mk('div', 'rep-sub eu-pr-tier-note', '「自分専用」に登録します（ほかの人には見えません）');
+      tn.id = 'eu-pr-reg-tier-note';
+      dlg.appendChild(tn);
+    }
     const err = mk('div', 'err eu-pr-err');
     err.id = 'eu-pr-reg-err';
     err.setAttribute('role', 'alert');
@@ -286,10 +278,11 @@ const EstimatePresets = (() => {
       save.textContent = '登録中…';
       err.textContent = '';
       let made = null;
+      const tier = tierSel ? tierSel.value : 'mine';
       try {
         if (!list) await load();
-        row.sort = EL().nextPresetSort(list, row.kind);
-        made = await EstimatePresetsApi.create(row);
+        row.sort = EL().nextPresetSort(tierList(tier), row.kind);
+        made = await EstimatePresetsApi.create(Object.assign({}, row, tier === 'mine' ? { owner_user_id: myId() } : {}));
       } catch (e) { err.textContent = '登録できませんでした: ' + errText(e); }
       busy = false;
       save.disabled = cancel.disabled = x.disabled = false;
@@ -299,7 +292,7 @@ const EstimatePresets = (() => {
       back();
       if (cur && cur.s === s) {
         const shown = EL().presetKindsFor(cur.kind).includes(made.kind);
-        renderButtons('「' + made.label + '」を登録しました' + (shown ? '' : '（' + KL(made.kind) + 'の見積に出ます）'));
+        renderButtons('「' + made.label + '」を' + TIER_LABEL[tierOf(made)] + 'に登録しました' + (shown ? '' : '（' + KL(made.kind) + 'の見積に出ます）'));
       }
     });
     save.id = 'eu-pr-reg-save';
@@ -310,13 +303,15 @@ const EstimatePresets = (() => {
   }
 
   // ── 編集シート ─────────────────────────────────────────────────────────
-  // drafts: 保存していない入力（描き直しても残す）id → { label, description, detail, quantity, unit, amount, kind, step }
-  // news: 「＋ 候補を追加」で足した、まだ保存していない候補の仮の id（'new-1' …）
+  // drafts: 保存していない入力（描き直しても残す）id → { label, description, detail, quantity, unit, amount, kind }
+  // news: 「＋ 候補を追加」で足した、まだ保存していない候補の仮の id（'new-1' …）。newTier: 仮の id → 段
+  // tier: 見ている段（上の「自分専用／会社共通」の切替）
   function openEditor() {
     const sh = sheet('eu-pr-edit', 'よく使う明細を編集');
     const { dlg, x, close } = sh;
     dlg.classList.add('eu-pr-wide');
-    const st = { drafts: new Map(), busy: new Set(), armDel: null, armClose: false, news: [], newNo: 0 };
+    const st = { drafts: new Map(), busy: new Set(), armDel: null, armClose: false, news: [], newNo: 0, newTier: new Map(), tier: defaultTier() };
+    const editable = () => st.tier === 'mine' || canCompany();
     const tryClose = () => {
       if (st.busy.size) return;
       if (st.drafts.size && !st.armClose) {
@@ -330,7 +325,21 @@ const EstimatePresets = (() => {
       if (b) b.focus({ preventScroll: true });
     };
     x.addEventListener('click', tryClose);
-    dlg.appendChild(mk('div', 'rep-sub eu-pr-sub', '変えたら各明細の「保存」を押してください。↑↓ と削除はすぐに反映されます'));
+    const howTo = mk('div', 'rep-sub eu-pr-sub', '変えたら各明細の「保存」を押してください。↑↓ と削除はすぐに反映されます');
+    dlg.appendChild(howTo);
+    const sw = mk('div', 'eu-choice eu-pr-tiers');
+    sw.id = 'eu-pr-tiers';
+    sw.setAttribute('role', 'group');
+    sw.setAttribute('aria-label', '見る明細');
+    const tierBtns = ['mine', 'company'].map(t => {
+      const b = dBtn(TIER_LABEL[t], 'eu-choice-b', () => { if (st.tier === t) return; st.tier = t; st.armDel = null; render(); });
+      b.dataset.tier = t;
+      sw.appendChild(b);
+      return b;
+    });
+    const tierNote = mk('div', 'rep-sub eu-pr-tier-note');
+    tierNote.id = 'eu-pr-tier-note';
+    dlg.append(sw, tierNote);
     const body = mk('div', 'eu-pr-list');
     body.id = 'eu-pr-list';
     body.appendChild(mk('div', 'rep-sub', '読み込み中…'));
@@ -338,8 +347,10 @@ const EstimatePresets = (() => {
     // 空の候補を足す（保存するまで DB には入らない）
     const addNew = dBtn('＋ 候補を追加', 'btn sm ghost inline eu-pr-add', () => {
       if (!list) return;
+      if (!editable()) return;
       const tid = 'new-' + (++st.newNo);
       st.news.push(tid);
+      st.newTier.set(tid, st.tier);
       render();
       const f = body.querySelector('[data-preset-id="' + tid + '"] .eu-pr-i-label');
       if (f) { f.scrollIntoView({ block: 'center' }); f.focus({ preventScroll: true }); }
@@ -359,29 +370,42 @@ const EstimatePresets = (() => {
     const say = (t, bad) => { foot.textContent = t; foot.className = (bad ? 'err' : 'rep-sub') + ' eu-pr-foot'; st.armClose = false; };
 
     const render = () => {
+      tierBtns.forEach(b => { const on = b.dataset.tier === st.tier; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      tierNote.textContent = st.tier === 'mine' ? '自分専用: 自分の見積書だけに出ます（ほかの人には見えません）'
+        : '会社共通: 社内の全員の見積書に出ます' + (canCompany() ? '' : '。変えられるのは管理者だけです（見るだけ）');
+      addNew.hidden = howTo.hidden = !editable();
       if (!list) return;
-      const groups = EL().groupPresets(list);
+      const groups = EL().groupPresets(tierList(st.tier));
       const nodes = [];
       groups.forEach(g => {
         const sec = mk('section', 'eu-pr-grp');
         sec.dataset.kind = g.kind;
         sec.appendChild(mk('div', 'eu-pr-grp-h', g.label + '（' + g.items.length + '件）'));
         if (!g.items.length) sec.appendChild(mk('div', 'rep-sub eu-pr-none', 'なし'));
-        g.items.forEach((p, i) => sec.appendChild(item(p, i, g.items.length)));
+        g.items.forEach((p, i) => sec.appendChild(editable() ? item(p, i, g.items.length) : viewItem(p)));
         nodes.push(sec);
       });
-      if (st.news.length) {
+      const news = st.news.filter(tid => st.newTier.get(tid) === st.tier);
+      if (news.length) {
         const sec = mk('section', 'eu-pr-grp eu-pr-grp-new');
         sec.id = 'eu-pr-new';
         sec.appendChild(mk('div', 'eu-pr-grp-h', '追加する候補（まだ保存していません）'));
-        st.news.forEach(tid => sec.appendChild(item(blank(tid), 0, 1)));
+        news.forEach(tid => sec.appendChild(item(blank(tid), 0, 1)));
         nodes.push(sec);
       }
       body.replaceChildren(...nodes);
     };
+    // 見るだけ（作業担当者の会社共通）: 名前と行の中身だけ
+    const viewItem = p => {
+      const box = mk('div', 'eu-pr-item view');
+      box.dataset.presetId = p.id;
+      box.append(mk('div', 'eu-pr-v-name', str(p.label)), mk('div', 'rep-sub eu-pr-v-line', lineText(p.line)));
+      if (p.line && p.line.detail) box.appendChild(mk('div', 'rep-sub eu-pr-v-line', '詳細: ' + p.line.detail));
+      return box;
+    };
     const blank = tid => ({ id: tid, isNew: true, kind: (cur && cur.kind) || 'common', label: '',
       line: { description: '', quantity: 1, unit: '式', amount: 0 } });
-    const dropNew = tid => { st.news = st.news.filter(t => t !== tid); st.drafts.delete(tid); };
+    const dropNew = tid => { st.news = st.news.filter(t => t !== tid); st.newTier.delete(tid); st.drafts.delete(tid); };
     const item = (p, i, n) => {
       const d = st.drafts.get(p.id) || {};
       const l = p.line || {};
@@ -389,8 +413,6 @@ const EstimatePresets = (() => {
       const val = (k, v) => (d[k] !== undefined ? d[k] : v);
       const box = mk('div', 'eu-pr-item' + (st.drafts.has(p.id) ? ' dirty' : '') + (p.isNew ? ' new' : ''));
       box.dataset.presetId = p.id;
-      const stepOn = d.step !== undefined ? d.step : !!EL().presetStep(p);
-      const stepBox = checkbox('eu-pr-i-step', EL().fmt(EL().presetStep(p) || EL().PRESET_STEP) + '円単位で変えられる（ボタンの横に「−」「＋」）', stepOn);
       const f = {
         label: input('eu-pr-i-label', val('label', p.label), { maxLength: EL().PRESET_LABEL_MAX }),
         description: input('eu-pr-i-desc', val('description', l.description), { maxLength: 200 }),
@@ -409,19 +431,15 @@ const EstimatePresets = (() => {
         field('数量', f.quantity, 'g-qty'),
         field('単位', f.unit, 'g-unit'),
         field(hasUp ? '単価（金額＝単価×数量）' : '金額（円）', f.amount, 'g-amt'));
-      const gs = mk('div', 'eu-pr-ff g-step');
-      gs.appendChild(stepBox.w);
-      grid.appendChild(gs);
       if (p.isNew) f.description.placeholder = '空なら名前と同じ';
       box.appendChild(grid);
       const mark = () => {
         st.drafts.set(p.id, { label: f.label.value, description: f.description.value, detail: f.detail.value,
-          quantity: f.quantity.value, unit: f.unit.value, amount: f.amount.value, kind: f.kind.value, step: stepBox.i.checked });
+          quantity: f.quantity.value, unit: f.unit.value, amount: f.amount.value, kind: f.kind.value });
         box.classList.add('dirty');
         st.armClose = false;
       };
       Object.values(f).forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', mark));
-      stepBox.i.addEventListener('change', mark);
       const err = mk('div', 'err eu-pr-err');
       err.setAttribute('role', 'alert');
       const ops = mk('div', 'eu-pr-ops eu-ops');
@@ -451,7 +469,6 @@ const EstimatePresets = (() => {
         if (f.detail.value.trim()) line.detail = f.detail.value.trim();
         if (hasUp) { line.unitPrice = Number.isFinite(amt) ? amt : NaN; line.amount = Math.round(num0(l.amount)); }
         else line.amount = Number.isFinite(amt) ? Math.round(amt) : NaN;
-        if (stepBox.i.checked) line.step = EL().presetStep(p) || EL().PRESET_STEP;
         const row = { kind: f.kind.value, label, line };
         const v = EL().validatePreset(row);
         // 新しい候補で名前も摘要も空: 摘要は名前から作るので「名前を入力」だけ出す
@@ -464,8 +481,10 @@ const EstimatePresets = (() => {
         err.textContent = '';
         let saved = null;
         try {
-          if (p.isNew) saved = await EstimatePresetsApi.create(Object.assign({}, row, { sort: EL().nextPresetSort(list, row.kind) }));
-          else saved = await EstimatePresetsApi.update(p, Object.assign({}, row, row.kind !== p.kind ? { sort: EL().nextPresetSort(list, row.kind) } : {}));
+          if (p.isNew) {
+            const t = st.newTier.get(p.id) || 'mine';
+            saved = await EstimatePresetsApi.create(Object.assign({}, row, { sort: EL().nextPresetSort(tierList(t), row.kind) }, t === 'mine' ? { owner_user_id: myId() } : {}));
+          } else saved = await EstimatePresetsApi.update(p, Object.assign({}, row, row.kind !== p.kind ? { sort: EL().nextPresetSort(tierList(tierOf(p)), row.kind) } : {}));
         } catch (e) { err.textContent = (p.isNew ? '追加' : '保存') + 'できませんでした: ' + errText(e); }
         st.busy.delete(p.id);
         sv.disabled = false;
@@ -473,7 +492,6 @@ const EstimatePresets = (() => {
         if (!saved) return;
         if (p.isNew) dropNew(p.id); else st.drafts.delete(p.id);
         replaceInList(saved);
-        if (cur) cur.adj.delete(saved.id);   // 金額・刻みを変えたら「−」「＋」で変えた金額は捨てる
         render();
         renderButtons();
         say('「' + saved.label + '」を' + (p.isNew ? '追加' : '保存') + 'しました');

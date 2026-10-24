@@ -2471,7 +2471,7 @@
   // 調査の内容の要約（見積書の入力画面の折りたたみ欄・調査の内容ページで共通）。src = estimateSurvey の戻り値（report があるとき）
   //   estPhase: 見積のフェーズ（見積書の期限と理由を出す。任意）
   //   → { title, date: '調査日 11/2（月）', rooms: [{ name, role, roleText, cause, damage }], reason, workItems: [], workText,
-  //       next, due: '見積書の期限 11/4（水）（理由: …）', extras: [{ label, value }]（漏水の状況・漏水時の対応・お部屋の状況）,
+  //       next, due: '見積書の期限 11/4（水）（理由: …）', extras: [{ label, value }]（漏水の状況・漏水時の対応）,
   //       photos: [{ path, caption, marks }] }
   function surveySummary(src, estPhase) {
     const s = src || {}, p = s.phase || {}, r = s.report || {};
@@ -2497,7 +2497,7 @@
       workText: str(d.f1),
       next: R.nextActionText(d) || str(res.scope),
       due,
-      extras: ['漏水の状況', '漏水時の対応', 'お部屋の状況'].map(label => ({ label, value: val(label) })).filter(x => x.value),
+      extras: ['漏水の状況', '漏水時の対応'].map(label => ({ label, value: val(label) })).filter(x => x.value),
       photos: listOf(r.photos).filter(x => x && x.path).map(x => ({ path: String(x.path), caption: str(x.caption), marks: x.marks }))
     };
   }

@@ -34,10 +34,6 @@
     { key: 'other', label: 'その他' }
   ];
   const NEXT_KEYS = NEXT_ACTIONS.map(n => n.key);
-  // お部屋の状況（Task 21 追加。任意。data.roomStatus = { luggage: 'many'|'few'|null, pet: true|false|null, residents: 0〜20|null }）
-  const ROOM_LUGGAGE = [{ key: 'many', label: '多い' }, { key: 'few', label: '少ない' }];
-  const ROOM_PET = [{ key: true, label: 'あり' }, { key: false, label: 'なし' }];
-  const RESIDENTS_MAX = 20;
   // 報告書の作業区分はフェーズの種類で決まる（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。Task 20）
   const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'restore', other: 'repair' }; // Task 37: その他は設備修繕の書式
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
@@ -184,8 +180,7 @@
         { label: '漏水時の対応', field: 'leakAction' },
         { label: '原　因', field: 'f2' },
         { label: '原因と判断した理由', field: 'reason' },
-        { label: '次の対応方針', field: 'f4', next: true },
-        { label: 'お部屋の状況', field: 'roomStatus' }
+        { label: '次の対応方針', field: 'f4', next: true }
       ]
     },
     repair: {
@@ -225,26 +220,6 @@
   const trim = v => str(v).trim();
   const arr = v => (Array.isArray(v) ? v : []);
 
-  const emptyRoom = () => ({ luggage: null, pet: null, residents: null });
-  // お部屋の状況の正規化（知らない値は null。入居者数は 0〜20 の整数だけ）
-  function normalizeRoom(v) {
-    const r = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
-    const n = typeof r.residents === 'number' ? r.residents : (typeof r.residents === 'string' && /^\d{1,2}$/.test(r.residents.trim()) ? +r.residents.trim() : NaN);
-    return {
-      luggage: r.luggage === 'many' || r.luggage === 'few' ? r.luggage : null,
-      pet: typeof r.pet === 'boolean' ? r.pet : null,
-      residents: Number.isInteger(n) && n >= 0 && n <= RESIDENTS_MAX ? n : null
-    };
-  }
-  // 「荷物量 多い・ペット あり・入居者 2人」（未入力の項目は省く。全部空なら ''）
-  function roomStatusText(data) {
-    const r = normalizeRoom(data && data.roomStatus);
-    const out = [];
-    if (r.luggage) out.push('荷物量 ' + ROOM_LUGGAGE.find(x => x.key === r.luggage).label);
-    if (r.pet !== null) out.push('ペット ' + (r.pet ? 'あり' : 'なし'));
-    if (r.residents !== null) out.push('入居者 ' + r.residents + '人');
-    return out.join('・');
-  }
   const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '', estimateDueReason: '', estimateDueBy: '' });
   function emptyData() {
     return {
@@ -252,8 +227,8 @@
       afterSel: '', afterNote: '', scopePlaces: [], scopePlaceFree: '', scopeParts: [], scopePartFree: '',
       workChecklist: [], keyChecklist: [], keyReturn: '', keyBorrowed: false, keyReturned: false,
       // Task 20: 調査の選択式
-      workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext(),
-      roomStatus: emptyRoom()
+      workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext()
+      // Task 49: お部屋の状況（roomStatus）は廃止。古い報告書の値はそのまま残る（読まない・出さない）
     };
   }
   // 原因の選択 → [{ key, detail }]（知らないキー・重複は落とす。detail は「詳細」がある項目だけ）
@@ -283,7 +258,6 @@
     d.workItems = arr(d.workItems).map(str).filter(Boolean);
     d.causes = normalizeCauses(d.causes);
     d.nextAction = normalizeNext(d.nextAction);
-    d.roomStatus = normalizeRoom(d.roomStatus);
     if ('rooms' in raw) d.rooms = normRooms(raw.rooms); // Task 39: 無い（古い報告書）ときは足さない（startRooms が「まだ選んでいない」と分かるように）
     const oldKey = arr(raw.keyChecklist).map(str);
     if (typeof raw.keyBorrowed !== 'boolean') d.keyBorrowed = oldKey.some(x => KEY_CHECKLIST.includes(x)) || !!trim(raw.keyReturn);
@@ -515,7 +489,7 @@
     const d = normalizeData(report.data);
     const vals = {
       f1: trim(d.f1), f2: cfg.pickCause ? causeText(d) : trim(d.f2), f4: cfg.pickNext ? nextActionText(d) : trim(d.f4), reason: trim(d.reason),
-      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d), roomStatus: roomStatusText(d)
+      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d)
     };
     return cfg.rRows
       .map(r => ({ label: r.label, value: vals[r.field] || '', next: !!r.next }))
@@ -695,7 +669,6 @@
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
-    ROOM_LUGGAGE, ROOM_PET, RESIDENTS_MAX, normalizeRoom, roomStatusText,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,

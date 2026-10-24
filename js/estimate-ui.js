@@ -531,7 +531,7 @@ function eueBuild(s) {
 
   // よく使う明細（定型・Task 11 / Task 22）: 明細の下の唯一の追加候補（見積のフェーズの種類＋共通のボタン）。読み取り専用では出さない。
   // 固定のクイック追加（現場管理費・交通費・諸経費）は Task 22 で廃止（EstimateLogic.QUICK は残す。既存の諸経費の自動行は表示・再計算だけ続ける）
-  if (!ro) c2.appendChild(EstimatePresets.section(s, { add: (p, amount) => eueAddPreset(s, p, amount) }));
+  if (!ro) c2.appendChild(EstimatePresets.section(s, { add: p => eueAddPreset(s, p) }));
   const q = mk('div', 'eu-quick eu-adj-row');
   els.adj = eueCheck('eu-adjust', '税込合計を00に', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
   els.adj.classList.add('eu-adj-chk');
@@ -1123,11 +1123,11 @@ function eueMoreMenu(s, id, row) {
   if (btn) btn.setAttribute('aria-expanded', 'true');
   reg.focus({ preventScroll: true });
 }
-// よく使う明細のボタン: 定型の行を末尾に足す（空の行は除く）。amount は「−」「＋」で変えた金額（刻みのある候補だけ）。
+// よく使う明細のボタン: 定型の行を末尾に足す（空の行は除く。行は定型の写しなので後で定型を変えても変わらない）。
 // 金額が0なら金額の欄へ（入力待ち）
-function eueAddPreset(s, preset, amount) {
+function eueAddPreset(s, preset) {
   if (s.readOnly) return;
-  const l = EstimateLogic.presetToLine(preset, amount);
+  const l = EstimateLogic.presetToLine(preset);
   s.lines = s.lines.filter(x => EstimateLogic.isRealLine(x) || x.isAutoShokehi || eueIsAdj(x)).concat([l]);
   s.els.qMsg.textContent = '';
   eueLinesRebuilt(s);
