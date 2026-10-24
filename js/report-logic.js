@@ -58,11 +58,12 @@
 
   /* ---- 旧ツール 438–468行 ---- */
   const WORK_CHECKLISTS = {
+    // Task 61: 調査は4つ＋鍵（KEY_STATUS）の5つ。前の項目（文が違う）は出さない・読まない（checklistLines が今の項目だけに絞る）
     investigate: [
-      '入居者へ水をこぼしていないかヒアリングし、現場と整合するか確認した',
-      '作業で出たゴミ・チリの清掃を終えた',
-      '写真の手ブレがないか確認した',
-      '不具合のある設備の型番・年式が分かる写真を撮影した'
+      '入居者過失（水をこぼしたりしていないか）の確認と現地の確認',
+      '作業後清掃対応済み',
+      '写真に手ブレがないか確認した',
+      '対応した設備の型番、年式がわかる写真は撮影したか'
     ],
     repair: [
       '設備の動作確認をした（通水・通電・排水など）',
@@ -88,8 +89,10 @@
     '鍵を返却した',
     '返却時の写真をアップロードした'
   ];
-  // Task 21: 鍵の取り扱いは「鍵を借りた」を押したときだけ、返却のチェック・返却時の写真（区分「鍵返却」）・コメントを出す
-  const KEY_TEXT = { borrowed: '鍵を借りた（借りた場合だけ）', borrowedPdf: '鍵を借りた', returned: '鍵を返却した' };
+  // Task 61: 鍵は「返却した」／「借りていない」のどちらかを選ぶ（data.keyStatus = 'returned' / 'none'）。「返却した」のときだけ返却時の写真（区分「鍵返却」）・コメント。
+  //   Task 21 の keyBorrowed / keyReturned（鍵を借りた → 返却のチェック）は読まない（古い報告書は未選択に見える）
+  const KEY_STATUS = [{ key: 'returned', label: '返却した' }, { key: 'none', label: '借りていない' }];
+  const KEY_TEXT = { returned: '鍵: 返却した', none: '鍵: 借りていない' };
 
   /* ---- 写真の区分（Task 21: 作業前／作業中／作業後／鍵返却／自由記載 の5つだけ。自由記載は photo.phaseNote に文字） ---- */
   const PHOTO_FREE = 'free';
@@ -135,7 +138,7 @@
     estimateDueLabel: '見積書の提出予定日',
     estimateDueHint: '原因元工事の見積書をいつまでに出すかの日付です。提出すると、作業担当者のタスクに「原因元工事の見積書作成」（この日が期限）が入ります',
     resurveyDueHint: '再調査の見積書をいつまでに出すかの日付です。提出すると「調査（次の回）」が作られ、作業担当者のタスクに「再調査の見積書作成」（この日が期限）が入ります',
-    unknownNextHint: '原因が「不明」なので「再調査」です（「不明」を外すとほかも選べます）',
+    unknownNextHint: '原因が「不明」なので「再調査」か「その他」を選んでください（「不明」を外すと原因元工事も選べます）',
     resurveyReasonLabel: '再調査の理由',
     // Task 29: 見積書提案期日が今日＋2日より先のとき
     estimateDueWhyHead: '見積書の提出予定日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
@@ -145,6 +148,9 @@
     estimateDueWhyHint: '理由は案件の管理者に知らせ、案件ページの表にも出ます（依頼元には出ません）',
     resurveyDetailLabel: '再調査の内容',
     nextOtherLabel: '次の対応方針（その他）',
+    // Task 61: 次の対応方針の下に入居者からの申し送り（任意。PDF にも出す・空なら出さない）
+    tenantNoteLabel: '入居者からの申し送り',
+    tenantNoteHint: '入居者から聞いたこと・伝えてほしいと言われたことなど（任意）',
     selectPlaceholder: '— 選択してください —',
     freePlaceholder: '自由記載',
     checklistTitle: 'チェックリスト',
@@ -174,13 +180,15 @@
       showLeak: true, showAfter: false, showF2: true, showReason: true, showF4: true, pickCause: true, pickNext: true,
       f1ph: '例：605号室キッチン脇のダウンライトまわりから漏水を確認。給水管の耐圧テストを実施。',
       rSection: '調査結果',
+      // Task 61: 作業実施内容は「原因と判断した理由」の下。次の対応方針の下に入居者からの申し送り
       rRows: [
-        { label: '作業実施内容', field: 'f1' },
         { label: '漏水の状況', field: 'leak' },
         { label: '漏水時の対応', field: 'leakAction' },
         { label: '原　因', field: 'f2' },
         { label: '原因と判断した理由', field: 'reason' },
-        { label: '次の対応方針', field: 'f4', next: true }
+        { label: '作業実施内容', field: 'f1' },
+        { label: '次の対応方針', field: 'f4', next: true },
+        { label: '入居者からの申し送り', field: 'tenantNote' }
       ]
     },
     repair: {
@@ -225,7 +233,7 @@
     return {
       items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakActionOther: '', leakRoom: '', reason: '', f2: '', f4: '',
       afterSel: '', afterNote: '', scopePlaces: [], scopePlaceFree: '', scopeParts: [], scopePartFree: '',
-      workChecklist: [], keyChecklist: [], keyReturn: '', keyBorrowed: false, keyReturned: false,
+      workChecklist: [], keyChecklist: [], keyReturn: '', keyBorrowed: false, keyReturned: false, keyStatus: '', tenantNote: '',
       // Task 20: 調査の選択式
       workItems: [], workItemOther: '', causes: [], causeTenantReason: '', causeOther: '', nextAction: emptyNext()
       // Task 49: お部屋の状況（roomStatus）は廃止。古い報告書の値はそのまま残る（読まない・出さない）
@@ -263,22 +271,22 @@
     if (typeof raw.keyBorrowed !== 'boolean') d.keyBorrowed = oldKey.some(x => KEY_CHECKLIST.includes(x)) || !!trim(raw.keyReturn);
     if (typeof raw.keyReturned !== 'boolean') d.keyReturned = oldKey.includes(KEY_CHECKLIST[1]);
     d.keyChecklist = oldKey;
+    if (!KEY_STATUS.some(k => k.key === d.keyStatus)) d.keyStatus = ''; // Task 61
+    d.tenantNote = str(d.tenantNote);
     return d;
   }
-  // 鍵の取り扱い（PDF・入力画面）→ { borrowed, returned, comment }。借りていなければ返却・コメントは出さない
+  // 鍵の取り扱い（PDF・入力画面）→ { status: 'returned'|'none'|'', returned, comment }。コメントは「返却した」のときだけ
   function keyInfo(data) {
     const d = normalizeData(data);
-    return { borrowed: !!d.keyBorrowed, returned: !!d.keyBorrowed && !!d.keyReturned, comment: d.keyBorrowed ? trim(d.keyReturn) : '' };
+    const returned = d.keyStatus === 'returned';
+    return { status: d.keyStatus, returned, comment: returned ? trim(d.keyReturn) : '' };
   }
-  // PDF のチェックリストの行 → [{ on, text, key? }]（作業チェックリスト → 鍵を借りたときだけ 借りた・返却）
-  function checklistLines(data) {
+  // PDF のチェックリストの行 → [{ on, text, key? }]（今の作業チェックリストの項目だけ → 鍵を選んでいればその行）
+  function checklistLines(data, workType) {
     const d = normalizeData(data);
-    const out = arr(d.workChecklist).map(trim).filter(Boolean).map(text => ({ on: true, text }));
-    const k = keyInfo(d);
-    if (k.borrowed) {
-      out.push({ on: true, text: KEY_TEXT.borrowedPdf, key: true });
-      out.push({ on: k.returned, text: KEY_TEXT.returned, key: true });
-    }
+    const list = WORK_CHECKLISTS[workType] || WORK_CHECKLISTS.investigate;
+    const out = arr(d.workChecklist).map(trim).filter(t => list.includes(t)).map(text => ({ on: true, text }));
+    if (d.keyStatus) out.push({ on: true, text: KEY_TEXT[d.keyStatus], key: true });
     return out;
   }
 
@@ -461,8 +469,11 @@
     // Task 20: 次の対応方針（原因元工事は見積書提案期日が必須・再調査は理由と内容が必須）
     if (cfg.pickNext) {
       const n = d.nextAction;
-      // Task 45: 原因が「不明」なら次の対応方針は「再調査」だけ
-      if (cfg.pickCause && hasCause(d, CAUSE_UNKNOWN) && n.type !== 'resurvey') errors.push('原因が「不明」のときは、次の対応方針を「再調査」にしてください');
+      // Task 45 / 61: 原因が「不明」なら次の対応方針は「再調査」か「その他」（その他は内容が必須）
+      if (cfg.pickCause && hasCause(d, CAUSE_UNKNOWN)) {
+        if (n.type !== 'resurvey' && n.type !== 'other') errors.push('原因が「不明」のときは、次の対応方針を「再調査」か「その他」にしてください');
+        else if (n.type === 'other' && !trim(n.other)) errors.push('「その他」の内容を入れてください');
+      }
       if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書の提出予定日を入れてください');
       if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書の提出予定日を入れてください'); // Task 21
       if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
@@ -474,9 +485,8 @@
       }
     }
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
-    // Task 21: 鍵を借りたときだけ、返却のチェックと返却時の写真
-    if (d.keyBorrowed && !d.keyReturned) warnings.push('「鍵を返却した」にチェックがありません');
-    if (d.keyBorrowed && keyPhotoCount(report.photos) === 0) warnings.push('鍵返却の写真がありません（写真の区分「鍵返却」）');
+    // Task 61: 鍵を「返却した」ときだけ返却時の写真
+    if (d.keyStatus === 'returned' && keyPhotoCount(report.photos) === 0) warnings.push('鍵返却の写真がありません（写真の区分「鍵返却」）');
     const ts = trim(report.time_start), te = trim(report.time_end);
     if (!ts) warnings.push('作業開始時刻が未入力です');
     if (ts && te && te < ts) errors.push('作業終了時間が開始時間より前になっています');
@@ -489,7 +499,7 @@
     const d = normalizeData(report.data);
     const vals = {
       f1: trim(d.f1), f2: cfg.pickCause ? causeText(d) : trim(d.f2), f4: cfg.pickNext ? nextActionText(d) : trim(d.f4), reason: trim(d.reason),
-      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d)
+      leak: trim(d.leak), leakAction: leakActionText(d), afterStatus: afterStatusText(d), tenantNote: trim(d.tenantNote)
     };
     return cfg.rRows
       .map(r => ({ label: r.label, value: vals[r.field] || '', next: !!r.next }))
@@ -670,7 +680,7 @@
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
-    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
+    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,

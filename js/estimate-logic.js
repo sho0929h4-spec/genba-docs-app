@@ -716,6 +716,86 @@
     return { ok: errors.length === 0, errors };
   }
 
+  /* ---- Task 61: 他社の見積もり（Excel・CSV）の表 → 読み取り結果の items（importItems の形）---- */
+  // 見出しの言葉 → 列の役割。摘要は必須、金額か単価のどちらかが要る
+  const SHEET_HEADS = {
+    description: ['摘要', '品名', '項目', '内容', '名称', '品目', '工事名'],
+    quantity: ['数量', '員数', '個数'],
+    unit: ['単位'],
+    unit_price: ['単価'],
+    amount: ['金額', '価格', '見積額']
+  };
+  const SHEET_ROLES = Object.keys(SHEET_HEADS);
+  const SHEET_SCAN_ROWS = 30; // 見出しを探す行数（表の上に宛名・件名などがある）
+  const cellText = v => String(v == null ? '' : v).replace(/[\s　]+/g, ' ').trim();
+  // 見出しの文字 → 役割（無ければ ''）
+  function sheetHeadRole(v) {
+    const t = cellText(v).replace(/\s/g, '');
+    if (!t || t.length > 12) return '';
+    return SHEET_ROLES.find(r => SHEET_HEADS[r].some(w => t.includes(w))) || '';
+  }
+  // 数（"1,200" "¥3,000" "△500"（マイナス）・全角も）。読めなければ 0
+  function sheetNum(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    let t = cellText(v).replace(/[０-９．－]/g, c => (c === '．' ? '.' : c === '－' ? '-' : String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    const neg = /^[△▲\-−]/.test(t) || /^\(.*\)$/.test(t);
+    t = t.replace(/[^0-9.]/g, '');
+    const n = Number(t);
+    return t && Number.isFinite(n) ? (neg ? -n : n) : 0;
+  }
+  // 表（行の配列。各行はセルの配列）→ { header: 見出しの行の番号, cols: { description, quantity, unit, unit_price, amount }（無い役割は -1）} か null
+  function detectColumns(rows) {
+    const rs = Array.isArray(rows) ? rows : [];
+    for (let r = 0; r < Math.min(rs.length, SHEET_SCAN_ROWS); r++) {
+      const cols = { description: -1, quantity: -1, unit: -1, unit_price: -1, amount: -1 };
+      (Array.isArray(rs[r]) ? rs[r] : []).forEach((c, i) => { const role = sheetHeadRole(c); if (role && cols[role] < 0) cols[role] = i; });
+      if (cols.description >= 0 && (cols.amount >= 0 || cols.unit_price >= 0)) return { header: r, cols };
+    }
+    return null;
+  }
+  // 見出しの下の行 → items。摘要が空・小計／合計／消費税の行・金額も単価も無い行（見出しだけの行）は入れない。金額が無ければ 単価×数量
+  const SHEET_SUM_RE = /^(小計|合計|総計|総合計|消費税|税込|税抜|御見積金額|お見積金額|見積金額)/;
+  function rowsToItems(rows, m) {
+    const rs = Array.isArray(rows) ? rows : [];
+    const c = (m && m.cols) || {};
+    const at = (row, k) => (c[k] >= 0 && Array.isArray(row) ? row[c[k]] : '');
+    const out = [];
+    for (let r = (m && m.header >= 0 ? m.header : -1) + 1; r < rs.length && out.length < IMPORT_MAX_ITEMS; r++) {
+      const row = rs[r];
+      const description = cellText(at(row, 'description')).slice(0, 200);
+      if (!description || SHEET_SUM_RE.test(description.replace(/\s/g, ''))) continue;
+      const qRaw = sheetNum(at(row, 'quantity'));
+      const quantity = qRaw > 0 ? qRaw : 1;
+      const price = sheetNum(at(row, 'unit_price'));
+      let amount = c.amount >= 0 ? sheetNum(at(row, 'amount')) : 0;
+      if (!amount && price) amount = Math.round(price * quantity);
+      if (!amount) continue;
+      out.push({ description, quantity, unit: cellText(at(row, 'unit')).slice(0, 10), unit_price: price, amount: Math.round(amount) });
+    }
+    return out;
+  }
+  // CSV の文字 → 行の配列（"…" の中のカンマ・改行・"" に対応。区切りはカンマ、1行目にカンマが無くタブがあればタブ）
+  function parseCsv(text) {
+    const t = String(text == null ? '' : text).replace(/^﻿/, '');
+    const first = t.split(/\r?\n/, 1)[0] || '';
+    const sep = !first.includes(',') && first.includes('\t') ? '\t' : ',';
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (q) {
+        if (ch === '"' && t[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
+      } else if (ch === '"' && cell === '') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && t[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
   const api = {
     QUICK, NOTE_FIRST, TAX_RATE,
     todayStr, addDays,
@@ -728,6 +808,7 @@
     hankoParts, hankoCols, validate,
     MARGIN_MAX, IMPORT_MAX_ITEMS, hasCost, normMargin, marginPrice, applyMargin, profitSummary, costTotals, importItems, importToLines, mergeImported, verifyImport,
     pdfTextLines, parseEstimateText, extractTotals, dedupSummary,
+    SHEET_HEADS, sheetHeadRole, sheetNum, detectColumns, rowsToItems, parseCsv,
     PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
     presetAmount, presetTier, presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
   };

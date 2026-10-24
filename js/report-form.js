@@ -325,6 +325,7 @@ function rfBuildForm(s, opts) {
   const f1 = rfMk('div', 'rep-ff');
   f1.append(f1Row.row, els.f1Hint, els.f1);
   content.appendChild(f1);
+  els.f1Wrap = f1; // Task 61: 調査では「原因と判断した理由」の下へ動かす（edApplyMode）
 
   // 漏水の状況・対応・元栓の号室（調査のみ）
   els.leakWrap = rfMk('div');
@@ -384,6 +385,9 @@ function rfBuildForm(s, opts) {
   longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap', T.reasonPlaceholder); // Task 26: 記載例
   els.reason.classList.add('rep-reason'); // 記載例が全部見える高さ（index.html / r.html の CSS）
   edNextPicker(s, content);
+  // Task 61: 次の対応方針の下に入居者からの申し送り（任意・調査のとき）
+  longField('rp-tenant-note', 'tenantNote', T.tenantNoteLabel, T.tenantNoteHint, 'tenantWrap');
+  els.tenantNote.maxLength = 1000;
   longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
   nodes.push(content);
 
@@ -538,7 +542,7 @@ function edNextPicker(s, parent) {
   const btns = {};
   L.NEXT_ACTIONS.forEach(a => {
     const b = edCheck(a.label, n.type === a.key, s.ro, now => {
-      // Task 45: 原因が「不明」の間は「再調査」のまま（もう一度押しても外れない）
+      // Task 45 / 61: 原因が「不明」の間は「再調査」か「その他」のどちらか（選んでいるものをもう一度押しても外れない）
       if (s.nextLocked && !now) { edSetOn(b, true); return; }
       n.type = now ? a.key : '';
       Object.keys(btns).forEach(k => edSetOn(btns[k], n.type === k));
@@ -597,16 +601,18 @@ function edNextPicker(s, parent) {
   edApplyNext(s);
   if (L.hasCause(d, L.CAUSE_UNKNOWN)) edApplyUnknown(s, true);
 }
-// Task 45: 原因の「不明」→ 次の対応方針は「再調査」だけ（ほかは押せない）。外すと、不明にする前の方針に戻して選べるようにする
+// Task 45 / 61: 原因の「不明」→ 次の対応方針は「再調査」か「その他」（原因元工事は押せない。未選択・原因元工事なら「再調査」にする）。
+//   外すと、不明にする前の方針に戻して選べるようにする
 function edApplyUnknown(s, on) {
   const e = s.els, n = s.f.data.nextAction;
   if (!e.nextBtns) return;
-  if (on && !s.nextLocked) { s.nextKeep = n.type === 'resurvey' ? null : n.type; n.type = 'resurvey'; }
+  const ok = t => t === 'resurvey' || t === 'other';
+  if (on && !s.nextLocked) { s.nextKeep = ok(n.type) ? null : n.type; if (!ok(n.type)) n.type = 'resurvey'; }
   if (!on && s.nextLocked && s.nextKeep != null) { n.type = s.nextKeep; s.nextKeep = null; }
   s.nextLocked = !!on;
   Object.keys(e.nextBtns).forEach(k => {
     edSetOn(e.nextBtns[k], n.type === k);
-    e.nextBtns[k].disabled = s.ro || (on && k !== 'resurvey');
+    e.nextBtns[k].disabled = s.ro || (on && !ok(k));
   });
   e.nextLockNote.hidden = !on;
   edApplyNext(s);
@@ -626,27 +632,28 @@ function edApplyNext(s) {
   }
 }
 
-/* ---------- 鍵の取り扱い（「鍵を借りた」を押したときだけ 返却・写真・コメント。Task 21） ---------- */
+/* ---------- 鍵（「返却した」／「借りていない」のどちらか。「返却した」のときだけ 返却時の写真・コメント。Task 61） ---------- */
 function edKeyBox(s, parent) {
   const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
-  const kc = rfMk('div', 'rep-checks');
+  const kc = rfMk('div', 'rep-checks grid');
   kc.id = 'rp-key-checks';
+  kc.setAttribute('role', 'radiogroup');
+  kc.setAttribute('aria-label', '鍵');
   els.keyBox = rfMk('div', 'rep-sub-fields rep-key-box');
   els.keyBox.id = 'rp-key-box';
-  const borrowed = edCheck(L.KEY_TEXT.borrowed, !!d.keyBorrowed, s.ro, on => {
-    d.keyBorrowed = on;
-    d.keyChecklist = []; // 旧3項目は使わない（読み替えは normalizeData）
-    els.keyBox.hidden = !on;
-    rfDirty(s);
+  const btns = L.KEY_STATUS.map(k => {
+    const b = edCheck(k.label, d.keyStatus === k.key, s.ro, now => {
+      d.keyStatus = now ? k.key : '';
+      btns.forEach(x => edSetOn(x, x.dataset.key === d.keyStatus));
+      els.keyBox.hidden = d.keyStatus !== 'returned';
+      rfDirty(s);
+    }, true);
+    b.dataset.key = k.key;
+    b.setAttribute('role', 'radio');
+    return b;
   });
-  borrowed.dataset.key = 'borrowed';
-  kc.appendChild(borrowed);
+  kc.append(...btns);
   parent.appendChild(kc);
-  const returned = edCheck(L.KEY_TEXT.returned, !!d.keyReturned, s.ro, on => { d.keyReturned = on; d.keyChecklist = []; rfDirty(s); });
-  returned.dataset.key = 'returned';
-  const rc = rfMk('div', 'rep-checks');
-  rc.appendChild(returned);
-  els.keyBox.appendChild(rc);
   // 返却時の写真（写真の区分「鍵返却」で追加。一覧は下の写真の欄）
   const ph = rfMk('div', 'rep-ff rep-ff-sub');
   ph.appendChild(rfMk('label', null, T.keyPhotoLabel));
@@ -663,7 +670,7 @@ function edKeyBox(s, parent) {
   els.keyBox.appendChild(ph);
   els.keyReturn = edInput('rp-keyreturn', 'text', d.keyReturn, v => { d.keyReturn = v; rfDirty(s); }, { placeholder: T.keyReturnPlaceholder, autocomplete: 'off', maxLength: 1000 });
   els.keyBox.appendChild(edField(T.keyReturnLabel + '（コメント）', els.keyReturn, null, 'rep-ff-sub'));
-  els.keyBox.hidden = !d.keyBorrowed;
+  els.keyBox.hidden = d.keyStatus !== 'returned';
   parent.appendChild(els.keyBox);
   edSyncKeyPhotos(s);
 }
@@ -718,6 +725,10 @@ function edApplyMode(s) {
   e.f2Wrap.hidden = !cfg.showF2 || (cfg.pickCause && !s.legacy.f2);
   e.reasonWrap.hidden = !cfg.showReason;
   e.f4Wrap.hidden = !cfg.showF4 || (cfg.pickNext && !s.legacy.f4);
+  e.tenantWrap.hidden = !cfg.pickNext;
+  // Task 61: 調査は「作業実施内容」を「原因と判断した理由」の下に（ほかの区分は今まで通り一番上）
+  const at = k === 'investigate' ? e.reasonWrap.nextSibling : e.leakWrap;
+  if (e.f1Wrap.nextSibling !== at && e.f1Wrap !== at) e.f1Wrap.parentNode.insertBefore(e.f1Wrap, at);
   edRenderWorkChips(s);
 }
 

@@ -203,8 +203,8 @@
     res.appendChild(rb);
     page.appendChild(res);
 
-    // チェックリスト（作業＋鍵を借りたときだけ 借りた・返却・返却方法。Task 21。どれも無ければ出さない）
-    const cl = RL().checklistLines(d);
+    // チェックリスト（今の作業チェックリストの項目＋鍵「返却した／借りていない」・返却したときの返却方法。Task 61。どれも無ければ出さない）
+    const cl = RL().checklistLines(d, report.work_type);
     const keyReturn = RL().keyInfo(d).comment;
     if (cl.length || keyReturn) {
       page.appendChild(el('div', 'rp-sec', RL().TEXT.checklistTitle));

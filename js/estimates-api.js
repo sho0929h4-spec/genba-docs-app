@@ -207,13 +207,15 @@ const EstimatesApi = (() => {
     },
     // 読み込んだ業者の見積PDFを非公開フォルダに保存して、保存先を返す（見積の行の source_pdf_path は呼び出し側が保存で書く）。
     // パスは {org}/cases/{case}/estimates/{見積ID}/src-{乱数}.pdf（DB の check と同じ形）。容量の上限を見て、使用量に足す
-    async uploadSourcePdf(est, blob) {
+    // Task 61: Excel（xlsx・xls）・CSV も同じ場所に（拡張子と種類は呼び出し側。migration 075 で DB とバケットが許す）
+    async uploadSourcePdf(est, blob, ext = 'pdf', type = 'application/pdf') {
       if (!est || !est.id) throw new Error('見積書が見つかりません');
+      if (!['pdf', 'xlsx', 'xls', 'csv'].includes(ext)) throw new Error('保存できないファイルの種類です');
       const size = blob && blob.size ? blob.size : 0;
       const q = await checkQuota(size, 0);
       if (!q.ok) throw new Error(q.reason);
-      const path = `${ctx.org.id}/cases/${est.case_id}/estimates/${est.id}/src-${CryptoUtil.uuid().replace(/-/g, '')}.pdf`;
-      await AppStorage.upload(path, blob, { contentType: 'application/pdf', upsert: false });
+      const path = `${ctx.org.id}/cases/${est.case_id}/estimates/${est.id}/src-${CryptoUtil.uuid().replace(/-/g, '')}.${ext}`;
+      await AppStorage.upload(path, blob, { contentType: type, upsert: false });
       try { await addUsage(size, 0); } catch (e) { console.warn('使用量の更新に失敗', e); }
       return path;
     },
