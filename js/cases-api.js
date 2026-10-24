@@ -35,12 +35,17 @@ const CasesApi = (() => {
         casesExpireAt = Date.now();
         try { await PhasesApi.expireOpenCalls(); } catch (e) { console.warn('一斉配信の期限切れを確かめられませんでした', e); }
       }
-      const [rows, flags] = await Promise.all([
+      // Task 57: 作業担当者は関わる案件だけ読める（DB の RLS）。一斉配信のカード・タスクに要る分は rpc open_call_cases の最小限
+      //   （call_only の行: 物件名・号室・募集の対応だけ）を足す。画面の一覧・カレンダー・日報は fieldMine などで自分の案件に絞っているので出ない
+      const owner = !!(typeof ctx !== 'undefined' && ctx && ctx.membership && ctx.membership.role === 'owner');
+      const [rows, flags, calls] = await Promise.all([
         sb.from('case_summaries').select('*').then(must),
-        PhasesApi.listTaskFlags().catch(e => { console.warn('タスクの記録を読み込めませんでした', e); return []; })
+        PhasesApi.listTaskFlags().catch(e => { console.warn('タスクの記録を読み込めませんでした', e); return []; }),
+        owner ? [] : sb.rpc('open_call_cases').then(must).catch(e => { console.warn('募集を読み込めませんでした', e); return []; })
       ]);
       PhasesApi.attachTaskFlags((rows || []).flatMap(r => r.phases || []), flags);
-      return rows;
+      const seen = new Set((rows || []).map(r => r.id));
+      return (rows || []).concat((calls || []).filter(c => !seen.has(c.id)));
     },
     async getSummary(id) { return must(await sb.from('case_summaries').select('*').eq('id', id).maybeSingle()); },
     // 本人の担当者名・電話番号（Task 32 / migration 056。本人の行だけ・列 grant は display_name と phone）
