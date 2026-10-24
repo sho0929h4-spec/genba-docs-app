@@ -135,7 +135,13 @@
       }
       if (m.source === 'open_call') { // Task 51: 全体のトークの募集のカード（meta に対応）・案件のトークの「○○が担当になりました」のログ
         const meta = m.meta || {};
-        if (meta.action === 'taken') { log(m.created_at, [k, (nameOf(m.from_user) || '不明') + 'が担当になりました'].filter(Boolean).join(' ')); continue; }
+        if (meta.action === 'taken') {
+          if (m.to_user) continue; // Task 60: 募集した人あての同じ知らせ（ログは1行）
+          const who = nameOf(m.from_user) || '不明';
+          log(m.created_at, [k, meta.at ? `${who}が ${PL().fmtMDWHM(meta.at)} に行きます` : who + 'が担当になりました'].filter(Boolean).join(' ')); // Task 60: 到着の時刻
+          continue;
+        }
+        if (meta.action === 'expired') { log(m.created_at, [k, '募集が期限切れになりました（誰も行けませんでした）'].filter(Boolean).join(' ')); continue; } // Task 60
         if (meta.action !== 'call') continue;
         const cs = callState(m, o.messages, o.caseRows);
         out.push(Object.assign({ kind: 'call', id: m.id, at: m.created_at, msg: m, from: m.from_user || null, fromName: nameOf(m.from_user) || '不明',
@@ -170,7 +176,8 @@
     });
     return out.sort((a, b) => ms(a.at) - ms(b.at) || RANK[a.kind] - RANK[b.kind]);
   }
-  // Task 51: 募集のカードの今: その対応の一番新しい募集のカードで、まだ募集中 → open、担当が決まった → taken（takerName）、それ以外（取り消し・古い募集・案件が無い）→ closed
+  // Task 51: 募集のカードの今: その対応の一番新しい募集のカードで、まだ募集中 → open、担当が決まった → taken（takerName）、
+  //   Task 60: 期限切れ → expired、それ以外（取り消し・古い募集・案件が無い）→ closed
   //   caseRows = 会社の案件（case_summaries の行。全体のトークは案件が無いので全部から探す）
   function callState(m, messages, caseRows) {
     const meta = (m && m.meta) || {};
@@ -183,6 +190,7 @@
     if (!latest || latest.id !== m.id) return base;
     if (PL().isOpenCall(hit.p)) return Object.assign(base, { state: 'open' });
     if (hit.p.worker_id) return Object.assign(base, { state: 'taken', takerName: str(hit.p.worker_name) || '（退会したメンバー）', takerId: hit.p.worker_id });
+    if (PL().callExpired(hit.p)) return Object.assign(base, { state: 'expired' }); // Task 60: 期限切れ（出し直せる）
     return base;
   }
   // Task 50: 日程調整のカードが今も押せるか = その対応の一番新しい日程調整のカードで、今の状態（phase.schedule.state）がそのカードの次の番

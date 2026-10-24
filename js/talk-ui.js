@@ -197,7 +197,7 @@ function talkItemEl(s, x) {
   if (x.kind === 'log') { const l = mk('div', 'talk-log'); l.appendChild(mk('span', null, x.text)); return l; }
   if (x.kind === 'cond') return talkCondEl(x);
   if (x.kind === 'call') { // Task 51: 一斉配信の募集のカード（js/open-call-ui.js）
-    return ocCardEl(x, { me: talkMe(), onDone: async text => {
+    return ocCardEl(x, { me: talkMe(), isOwner: !!(ctx && ctx.membership && ctx.membership.role === 'owner'), onDone: async text => { // Task 60: 管理者は期限切れを出し直せる
       if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
       s.flash = text || '';
       if (talkAlive(s)) await talkLoad(s);

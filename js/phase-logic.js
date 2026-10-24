@@ -1338,7 +1338,9 @@
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
-    const todo = x.type === 'call' ? `募集 ${callWhen(p)} — 行けますか？` : x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
+    const todo = x.type === 'call' ? `募集 ${callWhen(p, x.now)} — 行けますか？`
+      : x.callMsg ? ((x.message && x.message.meta && x.message.meta.action) === 'expired' ? '募集が期限切れ（出し直せます）' : str(x.label).replace(/^.*?\d+回目 /, '')) // Task 60
+      : x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
     if (DUE_TYPES.includes(x.type)) {
       const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(x.due));
@@ -1370,7 +1372,7 @@
     const groups = new Map();
     for (const x of listOf(items)) {
       const ymd = DUE_TYPES.includes(x.type) && x.due ? (x.dueAt ? jstYmd(x.dueAt) : str(x.due).slice(0, 10)) : '';
-      const key = x.type === 'call' ? 'call' : x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
+      const key = x.type === 'call' || x.callMsg ? 'call' : x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(x);
     }
@@ -1378,6 +1380,10 @@
     return [...groups.keys()].sort((a, b) => (rank(a) < rank(b) ? -1 : 1)).map(key => ({ key, items: groups.get(key),
       label: key === 'call' ? '募集（早い者順）' : key === 'message' ? '管理者から' : key === 'late' ? '期限超過' : key === 'today' ? '本日期限' : key === 'none' ? '期限なし' : fmtYmdMD(key) + '期限' }));
   }
+  // Task 62: 作業担当者のタスク画面の切り替え。対応期日 = 全部（期限ごとの見出し・募集・管理者から）／報告書作成・見積書作成 = そのタスクだけ
+  const TASK_VIEWS = [{ key: 'due', label: '対応期日' }, { key: 'report', label: '報告書作成' }, { key: 'estimate', label: '見積書作成' }];
+  const taskView = (items, key) => (key === 'report' || key === 'estimate' ? listOf(items).filter(x => x.type === key) : listOf(items));
+  const taskViewCounts = items => Object.fromEntries(TASK_VIEWS.map(v => [v.key, taskView(items, v.key).length]));
   // Task 43: フェーズの有効なタスクの記録（phase.task_flags = phase_task_flags の行。PhasesApi.attachTaskFlags が付ける）。
   //   task: report / estimate / notice / tomorrow、action: dismiss（削除）/ sendback（差し戻し）→ 1件 or null（closed_at があるものは済み）
   function taskFlag(phase, task, action) {
@@ -1622,7 +1628,8 @@
       const hit = ws.find(x => x.p.id === m.phase_id);
       out.push({ type: 'message', caseRow: c, phase: hit ? hit.p : null, title: hit ? phaseTitle(hit.p, hit.seq) : c ? '案件全体' : '日報',
         // Task 28: 催促（source = nudge）は件名そのまま（「催促: …」。DB の件名の先頭の絵文字は表示で外す＝Task 44）
-        label: m.source === 'nudge' ? plainSubject(m.subject) : `管理者から: ${plainSubject(m.subject)}`, nudge: m.source === 'nudge',
+        // Task 60: 一斉配信の知らせ（「○○が 10/24 15:30 に行きます」「募集が期限切れになりました」）も件名そのまま
+        label: m.source === 'nudge' || m.source === 'open_call' ? plainSubject(m.subject) : `管理者から: ${plainSubject(m.subject)}`, nudge: m.source === 'nudge', callMsg: m.source === 'open_call',
         message: m, due: null, dueAt: null, late: false, from: '', fromAt: m.created_at, tomorrow: false, brief: '' });
     });
     for (const c of listOf(caseRows)) {
@@ -1631,10 +1638,10 @@
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
-        // Task 51: 一斉配信の募集（会社の全員。自分が出した募集は除く）。決まる・取り消すと消える
-        if (meId && isOpenCall(p) && p.open_call_by !== meId) {
+        // Task 51: 一斉配信の募集（会社の全員。Task 60 で出した本人も）。決まる・取り消す・期限切れで消える
+        if (meId && isOpenCall(p, now)) { // Task 60: 募集した本人にも出す
           const seq = p.seq != null ? p.seq : count[p.kind];
-          out.push({ type: 'call', caseRow: c, phase: p, title: phaseTitle(p, seq), label: callText(p, c, seq), due: null, dueAt: null, late: false,
+          out.push({ type: 'call', caseRow: c, phase: p, title: phaseTitle(p, seq), label: callText(p, c, seq, now), now, due: null, dueAt: null, late: false,
             from: '', fromAt: p.open_call_at, tomorrow: false, brief: '' });
         }
         if (!meId || p.worker_id !== meId || p.lost_at) continue; // Task 47: 失注はタスクから外す
@@ -1697,7 +1704,8 @@
   const MESSAGE_SUBJECTS = ['調査が終わりました', '見積を提出しました', '質問があります', '日程を変えたい'];
   // 自分あての未読か（宛先が自分。宛先が空 = 管理者全員あてなので管理者なら自分あて。自分が送ったものは除く）
   function messageForMe(m, meId, isOwner) {
-    if (!m || m.read_at || !meId || m.from_user === meId) return false;
+    // Task 60: 一斉配信の期限切れの知らせは、開いた人（DB の from_user）が募集した本人でも本人あて
+    if (!m || m.read_at || !meId || (m.from_user === meId && !(m.source === 'open_call' && m.meta && m.meta.action === 'expired'))) return false;
     return m.to_user ? m.to_user === meId : !!isOwner;
   }
   // 連絡をやり取りごとにまとめる → [{ root, replies: [古い順], last: 最後のやり取りの時刻, unread: 自分あての未読の数 }]（新しいやり取りが先）
@@ -2385,7 +2393,7 @@
     for (const c of listOf(caseRows)) {
       if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       for (const p of listOf(c.phases)) {
-        if (!p.id || p.report_overdue_at || taskFlag(p, 'report', 'dismiss') || isOpenCall(p)) continue; // Task 51: 募集中も知らせない // Task 43: 報告書作成を削除している間は知らせない
+        if (!p.id || p.report_overdue_at || taskFlag(p, 'report', 'dismiss') || isOpenCall(p) || callExpired(p, now)) continue; // Task 60: 期限切れで担当が空も // Task 51: 募集中も知らせない // Task 43: 報告書作成を削除している間は知らせない
         const rt = reportTodo(p, now);
         if (rt && rt.late) out.push({ caseRow: c, phase: p });
       }
@@ -2537,11 +2545,12 @@
     if (f.contact.includes('@')) {
       if (f.contact.length > NEW_CASE_MAX.contact || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.contact)) errors.contact = '連絡先のメールアドレスの形が正しくありません';
     } else if (Array.from(f.contact).length > NEW_CASE_MAX.tel) errors.contact = '連絡先（電話番号）は40文字までです';
-    const at = jstInput(x.at);
-    if (!at) errors.at = '訪問日時を入れてください';
+    // Task 60: noAt = 一斉配信の「今日中」などで登録する（訪問日時・終わりは使わない。範囲は登録の後の募集で入る）
+    const at = x.noAt ? null : jstInput(x.at);
+    if (!at && !x.noAt) errors.at = '訪問日時を入れてください';
     // Task 58: 終わり（任意。空なら1時間扱い）。rpc は開始だけなので、登録の後に scheduled_end を入れる（→ end）
-    const end = str(x.end) ? jstInput(x.end) : null;
-    if (str(x.end) && !end) errors.end = '終わりの日時の形が正しくありません';
+    const end = !x.noAt && str(x.end) ? jstInput(x.end) : null;
+    if (!x.noAt && str(x.end) && !end) errors.end = '終わりの日時の形が正しくありません';
     else if (end && at && end <= at) errors.end = '終わりは訪問日時より後にしてください';
     if (!KIND_KEYS.includes(f.kind)) errors.kind = 'フェーズを選んでください';
     if (f.kind === 'other') {
@@ -2551,7 +2560,7 @@
     if (Array.from(f.request).length > NEW_CASE_MAX.request) errors.request = '依頼内容詳細は2000文字までです';
     const ok = Object.keys(errors).length === 0;
     return { ok, errors, end: ok && end ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
-      p_scheduled_at: at.toISOString(), p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
+      p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
   }
 
   /* ---------- Task 48: トーク画面の右上の「フェーズ」（Task 47 のフェーズ管理を作り直し）・工事の日程の条件 ---------- */
@@ -2893,24 +2902,92 @@
   // 日程調整の所要時間（行の dur。カードの meta.dur を先に）
   const schedDur = (phase, meta) => normDur((meta && meta.dur) || (phase && phase.schedule && phase.schedule.dur));
 
-  /* ---------- Task 51: 一斉配信（早い者順） ---------- */
-  // 募集中 = open_call_at があり作業担当者が空（失注は除く。DB の check で担当者がいれば open_call_at は空）
-  const isOpenCall = p => !!(p && p.open_call_at && !p.worker_id && !p.lost_at);
-  // 募集の日時の文: 10/26 10:00 ／ 日程は候補から選ぶ（2件）／ 日程は入居者の都合（平日 18:00以降）を見て決める ／ 日時未定
-  function callWhen(phase) {
+  /* ---------- Task 51: 一斉配信（早い者順）／Task 60: いつ来てほしいか・到着の時刻・期限切れ ---------- */
+  // 選び方（DB の case_phases.open_call_kind）。1日の幅は 9:00〜22:00（日本時間）
+  const CALL_DAY_FROM = 9, CALL_DAY_TO = 22;
+  const CALL_WHENS = [
+    { key: 'today', label: '今日中（何時でも）' }, { key: 'today_after', label: '今日 ○時以降' },
+    { key: 'tomorrow', label: '明日（何時でも）' }, { key: 'tomorrow_after', label: '明日 ○時以降' },
+    { key: 'fixed', label: '日時を決める' }, { key: 'none', label: '日時未定' }];
+  const isCallWindow = k => k === 'today' || k === 'today_after' || k === 'tomorrow' || k === 'tomorrow_after';
+  const nowOr = now => (ms(now) != null ? ms(now) : Date.now());
+  // 範囲（DB の _open_call_window と同じ）→ { from, to }（ISO）か { error }。今日中は今の時刻を30分に切り上げ
+  function callWindow(when, hour, now) {
+    const n = nowOr(now);
+    if (!isCallWindow(when)) return { error: 'いつ来てほしいかの指定が正しくありません' };
+    const p = jst(n);
+    const day = p.d + (when.startsWith('tomorrow') ? 1 : 0);
+    const to = jstAt(p.y, p.m, day, CALL_DAY_TO, 0).getTime();
+    let from = jstAt(p.y, p.m, day, CALL_DAY_FROM, 0).getTime();
+    if (when.endsWith('_after')) {
+      const h = Number(hour);
+      if (hour == null || hour === '' || !Number.isInteger(h) || h < CALL_DAY_FROM || h >= CALL_DAY_TO) return { error: '何時以降かを 9時〜21時 から選んでください' };
+      from = jstAt(p.y, p.m, day, h, 0).getTime();
+    }
+    if (when === 'today') from = Math.max(from, Math.ceil(n / SCHED_STEP_MS) * SCHED_STEP_MS);
+    if (from >= to || to <= n) return { error: '今日はもう 22:00 までの時間がありません。「明日」を選んでください' };
+    return { from: isoOf(from), to: isoOf(to) };
+  }
+  // 「○時以降」の時の選択肢（9〜21時。今日は今より後の時だけ）
+  function callHours(when, now) {
+    const n = nowOr(now);
+    const p = jst(n);
+    const out = [];
+    for (let h = CALL_DAY_FROM; h < CALL_DAY_TO; h++) if (when === 'tomorrow_after' || jstAt(p.y, p.m, p.d, h, 0).getTime() > n) out.push(h);
+    return out;
+  }
+  // 募集の終わり（過ぎて担当が空なら期限切れ。DB の _open_call_end と同じ）: 範囲の終わり／日時を決めた募集は開始の時刻／日時未定は無し（null）
+  const callEnd = p => (!p ? null : p.open_call_to ? ms(p.open_call_to) : p.open_call_kind !== 'none' && p.scheduled_at ? ms(p.scheduled_at) : null);
+  // 募集中 = open_call_at があり作業担当者が空（失注は除く。DB の check で担当者がいれば open_call_at は空）。
+  //   now を渡すと終わりを過ぎたものは募集中でない（画面は案件を読む前に DB の open_call_expire で期限切れにしている）
+  const isOpenCall = (p, now) => !!(p && p.open_call_at && !p.worker_id && !p.lost_at) && !(now != null && callEnd(p) != null && callEnd(p) <= ms(now));
+  // 期限切れ（担当が空のまま）: DB が期限切れにした（open_call_expired_at）か、now を渡して終わりを過ぎた募集中
+  const callExpired = (p, now) => !!(p && !p.worker_id && !p.lost_at
+    && (p.open_call_at ? now != null && callEnd(p) != null && callEnd(p) <= ms(now) : !!p.open_call_expired_at));
+  // 範囲の日の言い方: 今日／明日／10/26（月）
+  function callDay(at, now) {
+    const d = Math.round((Date.parse(jstYmd(at)) - Date.parse(jstYmd(nowOr(now)))) / 86400000);
+    return d === 0 ? '今日' : d === 1 ? '明日' : fmtMDW(at);
+  }
+  // 募集の日時の文: 今日中 ／ 今日 15:00以降 ／ 明日 ／ 明日 15:00以降 ／ 10/26 10:00 ／ 日程は候補から選ぶ（2件）／ 日程は入居者の都合（…）を見て決める ／ 日時未定
+  function callWhen(phase, now) {
     const p = phase || {};
+    if (p.open_call_from && isCallWindow(p.open_call_kind)) {
+      const day = callDay(p.open_call_from, now);
+      if (p.open_call_kind.endsWith('_after')) return `${day} ${fmtHM(jst(p.open_call_from))}以降`;
+      return day === '今日' ? '今日中' : day;
+    }
     if (p.scheduled_at) return fmtMDHM(p.scheduled_at);
     const s = schedOpen(p);
     if (s && s.state === 'candidates') return `日程は候補から選ぶ（${listOf(s.cands).length}件）`;
     if (s && s.state === 'conditions') return `日程は入居者の都合（${condText(s.cond)}）を見て決める`;
     return '日時未定';
   }
-  // 「募集: メゾン青葉 501号室 調査 10/26 10:00 — 行けますか？」（1回目は「1回目」を付けない）
-  function callText(phase, caseRow, seq) {
+  // 「募集: メゾン青葉 501号室 調査 今日中 — 行けますか？」（1回目は「1回目」を付けない）
+  function callText(phase, caseRow, seq, now) {
     const p = phase || {};
     const name = p.kind === 'other' || seq > 1 ? phaseTitle(p, seq) : kindLabel(p.kind);
-    return `募集: ${[placeName(caseRow || {}), name, callWhen(p)].filter(Boolean).join(' ')} — 行けますか？`;
+    return `募集: ${[placeName(caseRow || {}), name, callWhen(p, now)].filter(Boolean).join(' ')} — 行けますか？`;
   }
+  // 範囲の文「10/24（土）13:30〜22:00」（範囲の無い募集は ''）
+  const callRangeText = p => (p && p.open_call_from && p.open_call_to ? `${fmtMDWHM(p.open_call_from)}〜${fmtHM(jst(p.open_call_to))}` : '');
+  // 到着の時刻を選ぶ時間帯: 範囲の始まり（今日なら今の時刻を30分に切り上げた方）〜範囲の終わり。範囲が無い・残っていなければ null
+  function callSlot(p, now) {
+    if (!p || !p.open_call_from || !p.open_call_to) return null;
+    const st = Math.max(ms(p.open_call_from), Math.ceil(nowOr(now) / SCHED_STEP_MS) * SCHED_STEP_MS);
+    return st < ms(p.open_call_to) ? { start: isoOf(st), end: isoOf(ms(p.open_call_to)) } : null;
+  }
+  // 到着できる時刻（30分きざみ・始まり＋所要時間が範囲の終わりまでに収まる・今より前は出さない）→ [{ start, end }]
+  const callStarts = (p, mins, now) => { const sl = callSlot(p, now); return sl ? slotStarts(sl, { mins }) : []; };
+  // 所要時間の初期値（分）: 調査 2時間・工事は見積書の工事時間（日数の工事は1日の時間）・無ければ1時間
+  function callDur(p) {
+    if (!p || p.kind === 'survey') return 120;
+    const d = durDefault(p);
+    const m = d && d.mins ? d.mins : d && d.days ? hmMin(d.to) - hmMin(d.from) : 0;
+    return m >= 30 ? Math.min(720, Math.round(m / 30) * 30) : 60;
+  }
+  // 所要時間の選択肢（30分〜8時間・30分きざみ。初期値が8時間より長ければ足す）
+  const callDurChoices = def => { const out = []; for (let m = 30; m <= 480; m += 30) out.push(m); if (def > 480) out.push(def); return out; };
 
   // Task 44: 件名の先頭の絵文字（migration 052 / 058 の催促は「⚠️ 催促: …」で保存される）を表示では外す
   function plainSubject(s) { return str(s).replace(/^[\u26a0\u2600-\u27bf\ufe0f\s]+/u, ''); }
@@ -2923,7 +3000,7 @@
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
     REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
-    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, taskDueGroups, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
+    BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, taskDueGroups, TASK_VIEWS, taskView, taskViewCounts, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
@@ -2936,6 +3013,7 @@
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
     SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOn, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText,
+    CALL_WHENS, isCallWindow, callWindow, callHours, callEnd, callExpired, callRangeText, callSlot, callStarts, callDur, callDurChoices,
     normDur, durText, durEnd, slotStarts, busyOf, clashOf, clashText, startOptions, slotFree, windowText, durDefault, schedDur, TOOL_NAMES, toolOrder, schedText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;

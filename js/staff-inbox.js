@@ -283,7 +283,9 @@ async function siOpenMessage(it) {
   s.busy.delete(key);
   if (si !== s) return;
   if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
-  if (!err) { location.hash = '#f/msg/' + (it.caseRow ? it.caseRow.id : 'all'); return; }
+  // Task 60: 一斉配信の期限切れの知らせは全体のトーク（募集のカードの「出し直す」）
+  const expired = it.message.source === 'open_call' && it.message.meta && it.message.meta.action === 'expired';
+  if (!err) { location.hash = '#f/msg/' + (it.caseRow && !expired ? it.caseRow.id : 'all'); return; }
   s.msg = err;
   siRender();
 }
@@ -371,10 +373,15 @@ function siRender() {
     nodes.push(mk('div', 'err', si.err));
     nodes.push(dBtn('再読み込み', 'btn sm ghost inline', () => openStaffInbox(si.opts)));
   } else {
-    const items = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs }).filter(x => si.field || x.type !== 'call'); // Task 51: 募集は現場用のタスクだけ
-    if (si.field && typeof fieldTaskBadge === 'function') fieldTaskBadge(items); // Task 45: 下のタブの数のバッジ
+    const all = PhaseLogic.staffInbox(si.rows, siMyId(), new Date(), { messages: si.msgs }).filter(x => si.field || x.type !== 'call'); // Task 51: 募集は現場用のタスクだけ
+    if (si.field && typeof fieldTaskBadge === 'function') fieldTaskBadge(all); // Task 45: 下のタブの数のバッジ（切り替えに関係なく全部）
+    // Task 62: 現場用は上に切り替え（対応期日 = 全部／報告書作成・見積書作成 = そのタスクだけ）。件数つき・選んだものは端末に覚える
+    const view = si.field ? siView() : 'due';
+    if (si.field) nodes.push(siViewsEl(all, view));
+    const items = PhaseLogic.taskView(all, view);
     if (!items.length) {
-      const e = mk('div', 'empty', si.field ? '今やることはありません' : '確認することはありません');
+      const e = mk('div', 'empty', !si.field ? '確認することはありません' : view === 'due' ? '今やることはありません'
+        : PhaseLogic.TASK_VIEWS.find(v => v.key === view).label + 'のタスクはありません');
       e.id = 'staff-inbox-empty';
       nodes.push(e);
     } else {
@@ -393,6 +400,33 @@ function siRender() {
     }
   }
   root.replaceChildren(...nodes);
+}
+
+// Task 62: タスク画面の切り替え（3つ・件数つき）。選んだものは端末に覚える（使えない端末ではこの画面の間だけ）
+const SI_VIEW_KEY = 'genba-docs.taskview';
+let siViewMem = '';
+function siView() {
+  let v = siViewMem;
+  try { v = localStorage.getItem(SI_VIEW_KEY) || v; } catch (e) { /* 覚えられない端末 */ }
+  return PhaseLogic.TASK_VIEWS.some(x => x.key === v) ? v : 'due';
+}
+function siViewsEl(all, view) {
+  const counts = PhaseLogic.taskViewCounts(all);
+  const box = mk('div', 'si-views');
+  box.id = 'si-views';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'タスクの並び');
+  PhaseLogic.TASK_VIEWS.forEach(v => {
+    const b = dBtn(v.label + ' ' + counts[v.key], 'si-view' + (v.key === view ? ' on' : ''), () => {
+      siViewMem = v.key;
+      try { localStorage.setItem(SI_VIEW_KEY, v.key); } catch (e) { /* 覚えられない端末ではこの画面の間だけ */ }
+      if (si) { si.menu = null; siRender(); }
+    });
+    b.dataset.view = v.key;
+    b.setAttribute('aria-pressed', v.key === view ? 'true' : 'false');
+    box.appendChild(b);
+  });
+  return box;
 }
 
 async function siAck(it) {

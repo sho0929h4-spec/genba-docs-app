@@ -1436,8 +1436,12 @@ function fdRenderNew() {
   card.appendChild(field('address', '住所', { req: true, ph: '例: 東京都新宿区西新宿2-8-1', max: M.address }));
   card.appendChild(field('resident', '入居者の名前', { req: true, ph: '例: 山本 花子', max: M.resident }));
   card.appendChild(field('contact', '連絡先（任意）', { ph: '電話番号かメールアドレス', max: M.contact }));
-  card.appendChild(field('at', '訪問日時', { req: true, type: 'datetime-local' }));
-  card.appendChild(field('end', '終わり（任意・空なら1時間）', { type: 'datetime-local' })); // Task 58
+  const atBox = field('at', '訪問日時', { req: true, type: 'datetime-local' });
+  const endBox = field('end', '終わり（任意・空なら1時間）', { type: 'datetime-local' }); // Task 58
+  atBox.id = 'fd-new-f-at';
+  endBox.id = 'fd-new-f-end';
+  card.appendChild(atBox);
+  card.appendChild(endBox);
   // フェーズ（4つから1つ。押して選ぶ）
   const kb = mk('div', 'fd-set-f fd-new-f');
   kb.id = 'fd-new-f-kind';
@@ -1471,7 +1475,10 @@ function fdRenderNew() {
   card.appendChild(kb);
   card.appendChild(labelBox);
   paint();
-  card.appendChild(fdNewWorkerEl(v));
+  // Task 60: 一斉配信の「今日中」などを選んでいる間は訪問日時の欄を隠す（日時は「行けます」で決まる）
+  const atShow = () => { atBox.hidden = endBox.hidden = fdNewNoAt(v); };
+  card.appendChild(fdNewWorkerEl(v, atShow));
+  atShow();
   card.appendChild(field('request', '依頼内容詳細（任意）', { area: true, ph: '例: 台所の床が濡れている。お部屋の荷物が多い', max: M.request }));
   const err = mk('div', 'err', '');
   err.id = 'fd-new-err';
@@ -1483,8 +1490,11 @@ function fdRenderNew() {
   host.replaceChildren(card);
 }
 // Task 51: 作業担当者（「特定の担当者を選ぶ」= 自分か会社の人／「一斉配信（早い者順）」= 登録した後に募集を出す）
-function fdNewWorkerEl(v) {
+//   Task 60: 一斉配信は「いつ来てほしいか」も選ぶ（日時を決める = 上の訪問日時のまま。ほかは訪問日時の欄を隠す）。登録した本人も「行けます」できる
+const fdNewNoAt = v => v.wk === 'call' && !!v.callWhen && v.callWhen.when !== 'fixed';
+function fdNewWorkerEl(v, onWhen) {
   if (!v.wk) v.wk = 'pick';
+  if (!v.callWhen) v.callWhen = ocWhenDefault(null);
   const box = mk('div', 'fd-set-f fd-new-f');
   box.id = 'fd-new-f-worker';
   box.appendChild(mk('span', 'fd-new-k', '作業担当者'));
@@ -1498,8 +1508,11 @@ function fdNewWorkerEl(v) {
     (ms || []).filter(m => m.user_id !== fdMe()).forEach(m => sel.appendChild(new Option((m.display_name || '（名前なし）') + memberTel(m), m.user_id)));
     sel.value = v.worker || '';
   }, e => console.warn('メンバーを読み込めませんでした', e));
-  const draw = () => body.replaceChildren(ocModeEl(v.wk, k => { v.wk = k; draw(); }, 'fd-new-wk'),
-    v.wk === 'call' ? mk('div', 'oc-hint', OC_HINT + '（登録した後に出します。自分は応募しません）') : sel);
+  const draw = () => {
+    body.replaceChildren(ocModeEl(v.wk, k => { v.wk = k; draw(); if (onWhen) onWhen(); }, 'fd-new-wk'),
+      ...(v.wk === 'call' ? [mk('div', 'oc-hint', OC_HINT + '（登録した後に出します。自分も「行けます」を押せます）'), mk('div', 'oc-when-k', 'いつ来てほしいか'),
+        ocWhenEl(v.callWhen, { idPrefix: 'fd-new-when', fixedText: '上の「訪問日時」で募集します', onChange: () => { if (onWhen) onWhen(); } })] : [sel]));
+  };
   draw();
   box.appendChild(body);
   return box;
@@ -1507,9 +1520,11 @@ function fdNewWorkerEl(v) {
 async function fdNewSubmit(s, btn, errEls, err) {
   if (!fdAlive(s) || s.busy) return;
   const v = fdNewDraft || fdNewBlank();
-  const chk = PhaseLogic.newCaseCheck(v);
+  const chk = PhaseLogic.newCaseCheck(Object.assign({}, v, { noAt: fdNewNoAt(v) })); // Task 60
   Object.keys(errEls).forEach(k => { errEls[k].textContent = chk.errors[k] || ''; });
   err.textContent = '';
+  const w = fdNewNoAt(v) && PhaseLogic.isCallWindow(v.callWhen.when) ? PhaseLogic.callWindow(v.callWhen.when, v.callWhen.hour) : null; // Task 60
+  if (chk.ok && w && w.error) { err.textContent = w.error; return; }
   if (!chk.ok) {
     err.textContent = '入っていない欄があります（赤い字の所）';
     const first = ['name', 'room', 'address', 'resident', 'contact', 'at', 'end', 'kind', 'label', 'request'].find(k => chk.errors[k]);
@@ -1534,7 +1549,7 @@ async function fdNewSubmit(s, btn, errEls, err) {
   const after = v.wk === 'call' ? 'call' : v.worker ? 'other' : '';
   if (after) {
     try {
-      if (after === 'call') await PhasesApi.openCall(res.phase_id);
+      if (after === 'call') await PhasesApi.openCall(res.phase_id, v.callWhen.when, v.callWhen.hour); // Task 60: いつ来てほしいか
       else await PhasesApi.update(res.phase_id, { worker_id: v.worker });
     } catch (e) { fieldSetFlash('案件は登録しましたが、' + (after === 'call' ? '一斉配信' : '作業担当者の変更') + 'ができませんでした: ' + errText(e)); }
     fdNewDraft = null;

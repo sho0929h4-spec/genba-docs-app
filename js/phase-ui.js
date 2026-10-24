@@ -2068,6 +2068,7 @@ function phWorkerBody(p, docs, errId, opts) {
 // Task 51: 表の「担当者」の欄。「特定の担当者を選ぶ」（今までの選択）か「一斉配信（早い者順）」（募集を出す・取り消す）。
 //   募集中に特定の人を選ぶと募集は閉じる（DB のトリガー）。切り替えは押すまで DB を変えない
 const phWkMode = new Map(); // 対応ごとに今見ている決め方（この画面の間だけ）
+const phCallWhen = new Map(); // Task 60: 対応ごとの「いつ来てほしいか」（この画面の間だけ）
 function phWorkerPanel(p, errId) {
   const open = PhaseLogic.isOpenCall(p);
   const mode = phWkMode.get(p.id) || (open ? 'call' : 'pick');
@@ -2081,6 +2082,7 @@ function phWorkerPanel(p, errId) {
   if (open) {
     out.push(mk('div', 'ph-sub oc-status', '募集中（' + PhaseLogic.fmtMDHM(p.open_call_at) + 'から・まだ決まっていません）'));
     out.push(mk('div', 'oc-hint', PhaseLogic.callText(p, currentCase || {}, phSeqOf(p))));
+    if (p.open_call_from) out.push(mk('div', 'oc-hint oc-range', '到着 ' + PhaseLogic.callRangeText(p) + ' の間（押した人が到着の時刻を選びます）')); // Task 60
     const b = dBtn('募集を取り消す', 'btn sm ghost inline ph-call-cancel', btn => phRun(btn, errId, '募集の取り消し', async () => {
       await PhasesApi.cancelOpenCall(p.id);
       phWkMode.delete(p.id);
@@ -2089,12 +2091,24 @@ function phWorkerPanel(p, errId) {
     out.push(mk('div', 'oc-hint', '取り消すと担当者なしに戻ります。特定の人にするときは「特定の担当者を選ぶ」から選んでください'));
     return out;
   }
+  // Task 60: 期限切れ（担当が空のまま）→ 出し直せる
+  if (PhaseLogic.callExpired(p)) out.push(mk('div', 'ph-sub oc-status oc-expired', '前の募集は期限切れになりました（'
+    + (PhaseLogic.callEnd(p) ? PhaseLogic.fmtMDWHM(PhaseLogic.callEnd(p)) + ' までに' : '') + '誰も行けませんでした）。出し直せます'));
   out.push(mk('div', 'oc-hint', OC_HINT + (p.worker_id ? '。今の担当者は外れます' : '')
     + (p.scheduled_at || PhaseLogic.schedOpen(p) ? '' : PhaseLogic.schedOn() ? '。日時が未定なら、先に「日時」で候補か入居者の都合を入れると募集に添えられます'
-      : '。日時が未定のまま出すと、担当が決まった後に「日時」で入れます（先に「日時」で入れると募集に添えられます）')));
+      : '。下の「いつ来てほしいか」で選びます（日時未定で出すと、担当が決まった後に「日時」で入れます）')));
+  // Task 60: いつ来てほしいか（この画面の間だけ覚える）
+  // 選ぶまでは今の対応から初期値を出し直す（日時・日程調整が後から読み込まれても合う）
+  if (!phCallWhen.has(p.id) || !phCallWhen.get(p.id).touched) phCallWhen.set(p.id, ocWhenDefault(p));
+  const v = phCallWhen.get(p.id);
+  out.push(mk('div', 'oc-when-k', 'いつ来てほしいか'));
+  out.push(ocWhenEl(v, { idPrefix: 'ph-wk-when-' + p.id,
+    fixedText: p.scheduled_at ? '今の日時（' + PhaseLogic.schedText(p) + '）で募集します' : '先に「日時」で開始を入れてください（入れると、ここで「日時を決める」を選べます）',
+    clearText: p.scheduled_at ? '今入っている日時（' + PhaseLogic.schedText(p) + '）は消えます' : '', onChange: () => { v.touched = true; } }));
   out.push(dBtn('一斉配信する', 'btn sm inline ph-call-open', btn => phRun(btn, errId, '一斉配信', async () => {
-    await PhasesApi.openCall(p.id);
+    await PhasesApi.openCall(p.id, v.when, v.hour);
     phWkMode.delete(p.id);
+    phCallWhen.delete(p.id);
   })));
   return out;
 }

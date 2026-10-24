@@ -141,7 +141,7 @@ function caseRowEl(r, now) {
 
   const badges = mk('div', 'badges');
   if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '未対応の依頼 ' + r.open_requests));
-  const calls = (r.phases || []).filter(PhaseLogic.isOpenCall).length; // Task 51: 一斉配信の募集中
+  const calls = (r.phases || []).filter(p => PhaseLogic.isOpenCall(p, new Date())).length; // Task 51: 一斉配信の募集中
   if (calls) badges.appendChild(mk('span', 'bdg call', '募集中' + (calls > 1 ? ' ' + calls + '件' : '')));
   badges.appendChild(Icon.prepend(mk('span', 'bdg', (r.timeline_count || 0) + '件'), 'chat', 12));
   el.appendChild(badges);
@@ -320,6 +320,7 @@ async function openCaseModal(row, onSaved, opts) {
   $('cm-client-add').disabled = true; // 元請マスタが揃うまで追加させない（同じ名前の確認ができないため）
 
   caseModalMode = 'pick';
+  caseModalWhen = ocWhenDefault(null); // Task 60
   caseModalModeDraw();
   $('cm-call-kind').value = 'survey';
   $('cm-call-at').value = '';
@@ -368,6 +369,7 @@ async function openCaseModal(row, onSaved, opts) {
 
 // Task 51: 新規案件の作業担当者の決め方（「特定の担当者を選ぶ」= 今までの担当者／「一斉配信（早い者順）」= 担当者なしで対応を1つ作って募集）。編集では出さない
 let caseModalMode = 'pick';
+let caseModalWhen = { when: 'today', hour: null }; // Task 60: いつ来てほしいか（日時を決める = 下の日時の欄）
 function caseModalModeDraw() {
   const host = $('cm-wk-mode');
   const fresh = !caseModalRow;
@@ -375,6 +377,9 @@ function caseModalModeDraw() {
   host.hidden = !fresh;
   $('cm-assignee').hidden = fresh && caseModalMode === 'call';
   $('cm-call').hidden = !(fresh && caseModalMode === 'call');
+  const fixedShow = () => { $('cm-call-fixed').hidden = caseModalWhen.when !== 'fixed'; };
+  $('cm-call-when').replaceChildren(ocWhenEl(caseModalWhen, { idPrefix: 'cm-when', fixedText: '下の欄に日時を入れてください', onChange: () => { setMsg('cm-msg', ''); fixedShow(); } }));
+  fixedShow();
 }
 
 // 元請の選択 → 保存する列。undefined = 元請の列は送らない（今のまま）
@@ -410,8 +415,13 @@ async function saveCaseModal() {
     return;
   }
   const call = !caseModalRow && caseModalMode === 'call';
-  const callAt = call && $('cm-call-at').value ? PhaseLogic.jstInput($('cm-call-at').value) : null;
-  if (call && $('cm-call-at').value && !callAt) { setMsg('cm-msg', '募集の日時の形が正しくありません'); $('cm-call-at').focus(); return; }
+  const when = call ? caseModalWhen.when : null; // Task 60
+  if (call && PhaseLogic.isCallWindow(when)) {
+    const w = PhaseLogic.callWindow(when, caseModalWhen.hour);
+    if (w.error) { setMsg('cm-msg', w.error); return; }
+  }
+  const callAt = when === 'fixed' && $('cm-call-at').value ? PhaseLogic.jstInput($('cm-call-at').value) : null;
+  if (when === 'fixed' && !callAt) { setMsg('cm-msg', $('cm-call-at').value ? '募集の日時の形が正しくありません' : '「日時を決める」は日時（開始）を入れてください'); $('cm-call-at').focus(); return; }
   // Task 58: 終わり（任意。空なら1時間扱い）
   const callEnd = callAt && $('cm-call-end').value ? PhaseLogic.jstInput($('cm-call-end').value) : null;
   if (callAt && $('cm-call-end').value && (!callEnd || callEnd <= callAt)) { setMsg('cm-msg', '終わりは開始より後にしてください'); $('cm-call-end').focus(); return; }
@@ -447,7 +457,7 @@ async function saveCaseModal() {
       const kind = $('cm-call-kind').value;
       const ph = await PhasesApi.create(created.id, kind, created, null);
       if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString(), scheduled_end: callEnd ? callEnd.toISOString() : null });
-      await PhasesApi.openCall(ph.id);
+      await PhasesApi.openCall(ph.id, when, caseModalWhen.hour); // Task 60: いつ来てほしいか
     } catch (e) { callErr = '案件は作りましたが、一斉配信にできませんでした（案件ページの対応の表「担当者」から出し直せます）: ' + (e && e.message ? e.message : e); }
   }
   // 強制クローズ（画面遷移）や別モーダルの表示で世代が変わっていたら、UIにも画面遷移にも一切触れない。

@@ -3,6 +3,7 @@ const CasesApi = (() => {
   const L = () => window.CaseLogic;
   const L2 = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
+  let casesExpireAt = 0; // Task 60: 一斉配信の期限切れを最後に確かめた時刻
   const safeName = n => (n || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
 
   // DBの列権限（migration 007 / 008 / 020）で更新できる列だけ。許可外の列が1つでもあるとPATCH全体が403になるため入口で絞る。
@@ -28,6 +29,11 @@ const CasesApi = (() => {
   return {
     // Task 43: 各フェーズにタスクの削除・差し戻しの記録（task_flags）を付ける。読めなくても一覧は出す（記録なしとして扱う）
     async listSummaries() {
+      // Task 60: 範囲を過ぎた一斉配信を先に期限切れにする（DB の open_call_expire。サーバーの定期実行は無いので読むときに。30秒に1回）
+      if (typeof PhasesApi !== 'undefined' && Date.now() - casesExpireAt > 30000) {
+        casesExpireAt = Date.now();
+        try { await PhasesApi.expireOpenCalls(); } catch (e) { console.warn('一斉配信の期限切れを確かめられませんでした', e); }
+      }
       const [rows, flags] = await Promise.all([
         sb.from('case_summaries').select('*').then(must),
         PhasesApi.listTaskFlags().catch(e => { console.warn('タスクの記録を読み込めませんでした', e); return []; })

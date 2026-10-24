@@ -334,9 +334,13 @@ const PhasesApi = (() => {
     async schedConfirm(phaseId, start, end) { return must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null })); },
     // この案件の対応の日程調整の行を phase.schedule に付ける（案件ページの表。case_summaries には最初から入っている）
     // Task 51: 一斉配信（早い者順。migration 070）。accept は { ok, state } か { ok: false, reason: 'taken'|'closed', worker_name }
-    async openCall(phaseId) { return must(await sb.rpc('phase_open_call', { p_phase: phaseId })); },
+    //   Task 60（migration 076）: when = いつ来てほしいか（today / today_after / tomorrow / tomorrow_after / fixed / none）・hour = ○時以降の時。
+    //   accept は範囲のある募集なら start = 到着の時刻・mins = 所要時間（担当＋日時が決まる）。期限切れは reason 'expired'
+    async openCall(phaseId, when, hour) { return must(await sb.rpc('phase_open_call', { p_phase: phaseId, p_when: when || null, p_hour: hour == null || hour === '' ? null : Number(hour) })); },
     async cancelOpenCall(phaseId) { return must(await sb.rpc('phase_open_call_cancel', { p_phase: phaseId })); },
-    async acceptOpenCall(phaseId, start) { return must(await sb.rpc('phase_open_call_accept', { p_phase: phaseId, p_start: start || null })); },
+    async acceptOpenCall(phaseId, start, mins) { return must(await sb.rpc('phase_open_call_accept', { p_phase: phaseId, p_start: start || null, p_mins: mins || null })); },
+    async expireOpenCalls() { return must(await sb.rpc('open_call_expire')); }, // 範囲を過ぎた募集を期限切れに（案件を読む前に呼ぶ）
+    async openCallList() { return must(await sb.rpc('open_call_list')) || []; }, // 募集の一覧（状態・決まった人・見た人）
     async attachSchedules(phases) {
       const ids = (phases || []).map(p => p.id);
       const rows = ids.length ? must(await sb.from('phase_schedules').select('*').in('phase_id', ids)) || [] : [];
