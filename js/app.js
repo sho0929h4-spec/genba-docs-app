@@ -64,6 +64,8 @@ async function renderSettings() {
   $('invite-btn').disabled = !isOwner;
   $('invite-email').disabled = !isOwner;
   $('card-staff').hidden = !isOwner;
+  $('card-gcal').hidden = !isOwner; // Task 55: 作業担当者の Google カレンダー
+  if (isOwner && typeof CalFeed !== 'undefined') CalFeed.renderMembers($('gcal-list'));
   ['set-name', 'set-address', 'set-tel', 'set-email', 'set-reg', 'set-margin'].forEach(id => { $(id).readOnly = !isOwner; });
   const img = $('set-logo-img');
   if (o.logo_path) {
@@ -309,7 +311,12 @@ async function boot() {
       return;
     }
   }
-  if (ctx) { clearInviteHash(); routeFromHash(); return; }
+  if (ctx) {
+    clearInviteHash(); routeFromHash();
+    // Task 55: 開いたときに自分の Google カレンダーのファイルを作り直す（ほかの人の操作・報告書の提出で変わった分。使い始めていなければ何もしない）
+    if (typeof CalFeed !== 'undefined') CalFeed.touch([ctx.user.id]);
+    return;
+  }
   const token = inviteTokenFromHash();
   if (token) { prepareSignupForInvite(token); showScreen('signup'); return; }
   showScreen('login');

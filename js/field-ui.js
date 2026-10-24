@@ -1632,6 +1632,7 @@ function fdRenderSettings() {
     inp.addEventListener('blur', () => { if (fdSetTimer) save(); });
   });
   nodes.push(me);
+  if (typeof CalFeed !== 'undefined') nodes.push(CalFeed.selfCard()); // Task 55: Google カレンダーに予定を出す
   // Task 46: 日報作成は下のタブから設定の中の項目に移した（中身は今のまま）
   const daily = dBtn('', 'fd-set-daily', () => { location.hash = '#f/daily'; });
   daily.id = 'fd-set-daily';

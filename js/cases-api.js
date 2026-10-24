@@ -3,6 +3,7 @@ const CasesApi = (() => {
   const L = () => window.CaseLogic;
   const L2 = () => window.PhaseLogic;
   const must = ({ data, error }) => { if (error) throw error; return data; };
+  const cal = () => (typeof CalFeed !== 'undefined' ? CalFeed : null); // Task 55: js/cal-feed.js
   let casesExpireAt = 0; // Task 60: 一斉配信の期限切れを最後に確かめた時刻
   const safeName = n => (n || 'file').replace(/[^\w.\-]+/g, '_').slice(-80);
 
@@ -61,7 +62,9 @@ const CasesApi = (() => {
     //   （rpc field_create_case / migration 058。保存件数の上限・管理者への自動の連絡・タイムラインも DB が行う）→ { ok, case_id, phase_id }
     //   args は PhaseLogic.newCaseCheck の args（p_name, p_room, p_address, p_resident_name, p_contact, p_scheduled_at, p_kind, p_label, p_request）
     async fieldCreateCase(args) {
-      return must(await sb.rpc('field_create_case', args));
+      const res = must(await sb.rpc('field_create_case', args));
+      if (cal() && res && res.phase_id) cal().touchPhase(res.phase_id); // Task 55: 作業担当者 = 自分
+      return res;
     },
     // before: 変更前の行（渡すと、依頼元が変わったときタイムラインに記録する）
     async updateCase(id, fields, before) {
@@ -75,6 +78,7 @@ const CasesApi = (() => {
           Object.prototype.hasOwnProperty.call(fields, c) && norm(fields[c]) !== norm(before[c]))).map(([l]) => l);
         if (changed.length) await logSystem(id, `依頼元を変更した（${changed.join('・')}）`);
       }
+      if (cal() && ['name', 'room', 'address'].some(k => k in fields)) cal().touchCase(id); // Task 55: カレンダーの予定の名前・場所
       return row;
     },
     async setStatus(id, status) {
@@ -90,15 +94,19 @@ const CasesApi = (() => {
       const rows = must(await sb.from('cases').update({ deleted_at: new Date().toISOString(), deleted_by: ctx.user.id })
         .eq('id', id).is('deleted_at', null).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした（削除できるのは管理者だけです。すでに削除されている可能性もあります）');
+      if (cal()) cal().touchCase(id);
       await logSystem(id, '案件を削除した');
     },
     // Task 42: 作業担当者が現場用で自分が登録した案件を削除（rpc field_trash_case / migration 062。ゴミ箱・管理者への連絡・タイムラインは DB）
     async fieldTrashCase(id) {
-      return must(await sb.rpc('field_trash_case', { p_case: id }));
+      const res = must(await sb.rpc('field_trash_case', { p_case: id }));
+      if (cal()) cal().touchCase(id);
+      return res;
     },
     async restoreCase(id) {
       const rows = must(await sb.from('cases').update({ deleted_at: null, deleted_by: null }).eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('元に戻せませんでした（戻せるのは管理者だけです）');
+      if (cal()) cal().touchCase(id);
       await logSystem(id, '削除した案件を元に戻した');
     },
     // 削除した案件（新しい順）。設定の「削除した案件」（管理者だけに表示）
@@ -113,7 +121,12 @@ const CasesApi = (() => {
     },
     // → { ok: true, table_name, row_id, changed_cols, before, after } か { ok: false, reason }（EditLogic.reasonText）
     async undoEdit(editId, label) {
-      return must(await sb.rpc('undo_case_edit', { p_edit_id: editId, p_label: label || null }));
+      const res = must(await sb.rpc('undo_case_edit', { p_edit_id: editId, p_label: label || null }));
+      if (cal() && res && res.ok) { // Task 55: 日時・担当者・案件の名前を戻したらカレンダーも
+        if (res.table_name === 'case_phases') cal().touchPhase(res.row_id, [res.before && res.before.worker_id, res.after && res.after.worker_id]);
+        if (res.table_name === 'cases') cal().touchCase(res.row_id);
+      }
+      return res;
     },
 
     /* ===== 依頼内容（cases.request。Task 28 / migration 052） ===== */

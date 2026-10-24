@@ -13,6 +13,9 @@ const PhasesApi = (() => {
     return out;
   };
   const now = () => new Date().toISOString();
+  // Task 55: 予定が変わった作業担当者の Google カレンダーのファイルを作り直す（待たない・失敗しても止めない。js/cal-feed.js）
+  const cal = () => (typeof CalFeed !== 'undefined' ? CalFeed : null);
+  const CAL_COLS = ['scheduled_at', 'scheduled_end', 'worker_id', 'done_at'];
   const chunks = (a, n) => { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; };
 
   async function logSystem(caseId, body) {
@@ -79,6 +82,7 @@ const PhasesApi = (() => {
     return changed;
   }
 
+  const calAfter = (phaseId, res, extra) => { if (cal()) cal().touchPhase(phaseId, extra); return res; };
   const api = {
     withWorker,
     // 社内メンバー（担当者の候補・メール）
@@ -114,6 +118,7 @@ const PhasesApi = (() => {
       if (Object.keys(patch).length === 0) throw new Error('保存する項目がありません');
       const rows = must(await sb.from('case_phases').update(patch).eq('id', id).select());
       if (!rows || rows.length === 0) throw new Error('フェーズが見つかりません（削除された可能性があります）');
+      if (cal() && CAL_COLS.some(k => k in patch)) cal().touch([rows[0].worker_id]);
       return rows[0];
     },
     // 中身（見積書・報告書・工事掲示・送ったメール）があると DB が拒否する（未送信の下書きは一緒に消える）
@@ -124,6 +129,7 @@ const PhasesApi = (() => {
       }
       const rows = must(await sb.from('case_phases').delete().eq('id', phase.id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした');
+      if (cal()) cal().touch([phase.worker_id]);
       await logSystem(phase.case_id, `${title}を削除した`);
     },
     // Task 16: setDone（調査済みにする・完了にする・取り消す）は無くした。done_at は報告書の提出で DB が入れる（migration 034）
@@ -329,16 +335,19 @@ const PhasesApi = (() => {
     // Task 50: 日程調整（migration 069）。権限は DB の関数が確かめる（候補・条件・確定 = 管理者と自分で登録した案件の本人／選ぶ・候補を出す = 作業担当者）
     async schedOffer(phaseId, cands, dur) { return must(await sb.rpc('phase_sched_offer', { p_phase: phaseId, p_cands: cands, p_dur: dur || null })); }, // Task 53: 所要時間
     async schedConditions(phaseId, cond) { return must(await sb.rpc('phase_sched_conditions', { p_phase: phaseId, p_cond: cond })); },
-    async schedPick(phaseId, start) { return must(await sb.rpc('phase_sched_pick', { p_phase: phaseId, p_start: start })); },
+    async schedPick(phaseId, start) { return calAfter(phaseId, must(await sb.rpc('phase_sched_pick', { p_phase: phaseId, p_start: start }))); },
     async schedPropose(phaseId, cands, dur) { return must(await sb.rpc('phase_sched_propose', { p_phase: phaseId, p_cands: cands, p_dur: dur || null })); },
-    async schedConfirm(phaseId, start, end) { return must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null })); },
+    async schedConfirm(phaseId, start, end) { return calAfter(phaseId, must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null }))); },
     // この案件の対応の日程調整の行を phase.schedule に付ける（案件ページの表。case_summaries には最初から入っている）
     // Task 51: 一斉配信（早い者順。migration 070）。accept は { ok, state } か { ok: false, reason: 'taken'|'closed', worker_name }
     //   Task 60（migration 076）: when = いつ来てほしいか（today / today_after / tomorrow / tomorrow_after / fixed / none）・hour = ○時以降の時。
     //   accept は範囲のある募集なら start = 到着の時刻・mins = 所要時間（担当＋日時が決まる）。期限切れは reason 'expired'
-    async openCall(phaseId, when, hour) { return must(await sb.rpc('phase_open_call', { p_phase: phaseId, p_when: when || null, p_hour: hour == null || hour === '' ? null : Number(hour) })); },
+    async openCall(phaseId, when, hour) { // 範囲で出すと担当と日時が消える（076）→ 前の担当者のカレンダーも作り直す
+      const was = cal() ? await cal().workersOf(phaseId) : [];
+      return calAfter(phaseId, must(await sb.rpc('phase_open_call', { p_phase: phaseId, p_when: when || null, p_hour: hour == null || hour === '' ? null : Number(hour) })), was);
+    },
     async cancelOpenCall(phaseId) { return must(await sb.rpc('phase_open_call_cancel', { p_phase: phaseId })); },
-    async acceptOpenCall(phaseId, start, mins) { return must(await sb.rpc('phase_open_call_accept', { p_phase: phaseId, p_start: start || null, p_mins: mins || null })); },
+    async acceptOpenCall(phaseId, start, mins) { return calAfter(phaseId, must(await sb.rpc('phase_open_call_accept', { p_phase: phaseId, p_start: start || null, p_mins: mins || null }))); },
     async expireOpenCalls() { return must(await sb.rpc('open_call_expire')); }, // 範囲を過ぎた募集を期限切れに（案件を読む前に呼ぶ）
     async openCallList() { return must(await sb.rpc('open_call_list')) || []; }, // 募集の一覧（状態・決まった人・見た人）
     async attachSchedules(phases) {
@@ -347,8 +356,8 @@ const PhasesApi = (() => {
       (phases || []).forEach(p => { p.schedule = rows.find(r => r.phase_id === p.id) || null; });
       return phases;
     },
-    async setStage(phaseId, stage) {
-      return must(await sb.rpc('phase_set_stage', { p_phase: phaseId, p_stage: stage }));
+    async setStage(phaseId, stage) { // 失注・完了にする・取り消し
+      return calAfter(phaseId, must(await sb.rpc('phase_set_stage', { p_phase: phaseId, p_stage: stage })));
     },
     // Task 48: 入金予定日を入れる（まだなら請求済みにする）。直せる人は setStage と同じ（DB の phase_set_payment_due が確かめる）
     async setDueStage(phaseId, ymd) {
@@ -375,6 +384,7 @@ const PhasesApi = (() => {
     // 担当者を変える（知らせた・確認したは DB が消す）。未送信の確認依頼・前日のお知らせの下書きは消す（新しい担当者で作り直す）
     async setWorker(phase, workerId, title, members) {
       const row = await api.update(phase.id, { worker_id: workerId || null });
+      if (cal()) cal().touch([phase.worker_id]); // 前の担当者（今の担当者は update が作り直す）
       try {
         must(await sb.from('mail_drafts').delete().eq('phase_id', phase.id).eq('purpose', 'staff_notice').eq('status', 'draft'));
       } catch (e) { console.warn('担当者への下書きを消せませんでした', e); }
