@@ -1,5 +1,50 @@
 // js/icons.js — 線のアイコン（Task 44。絵文字の代わり）。全部同じ書き方: 24 の枠・線は currentColor・太さ 1.75・角は丸・塗りなし。
 // 形は Lucide（ISC ライセンス）の線画に合わせた。SVG は createElementNS で作る（innerHTML は使わない）。
+/*
+ * アイコンの形の出典: Lucide（https://lucide.dev ・ https://github.com/lucide-icons/lucide）。ISC ライセンス。
+ * Lucide の一部のアイコンは Feather（https://github.com/feathericons/feather・MIT ライセンス）から派生している（Lucide の LICENSE に一覧）。
+ * 以下は Lucide の LICENSE の著作権表示と許諾文（そのまま）。
+ *
+ * ISC License
+ *
+ * Copyright (c) 2026 Lucide Icons and Contributors
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * ---
+ *
+ * The MIT License (MIT) (for the icons derived from the Feather project)
+ *
+ * Copyright (c) 2013-present Cole Bemis
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 //   Icon.el(name, { size: 16|20|24, label })  label があれば role=img + aria-label、無ければ飾り（aria-hidden）
 //   Icon.prepend(el, name, size)               el の先頭にアイコン（文字の前の小さな印）。el を返す
 //   Icon.dot(ball, label)                      自社の番（us）・相手待ち（them）の小さな丸（CSS の .dot）

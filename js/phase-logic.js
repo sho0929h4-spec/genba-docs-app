@@ -2129,16 +2129,13 @@
   }
 
   // 案件ページの上部の「今の状態」1行。phases はこの案件のフェーズ（各 estimates / reports 付き。stage と同じ）
-  //   → { us, them, next: caseNext の先頭（無ければ null）, text: '自社の番 2件 ・ 相手待ち 1件 ・ 次: 10/20 9:00 調査に行く' }
+  //   → { us, them, next: caseNext の先頭（無ければ null）, text: '自社の番 2件 ・ 相手待ち 1件' }
+  //   Task 54: 「次: …」は出さない（対応ごとの段は「今のフェーズ」の帯 Task 52 に出る）
   function caseNow(phases, now, opts) {
     const rows = caseNext(phases, now, opts);
     const us = rows.filter(r => r.ball === 'us').length;
     const them = rows.filter(r => r.ball === 'them').length;
-    const next = rows[0] || null;
-    const list = listOf(phases);
-    const tail = next ? `次: ${next.kind === 'survey' ? '' : next.title + ' '}${nextText(next)}`
-      : list.length ? '次: なし（すべて済み）' : '次: 対応フェーズを追加してください';
-    return { us, them, next, text: `自社の番 ${us}件 ・ 相手待ち ${them}件 ・ ${tail}` };
+    return { us, them, next: rows[0] || null, text: `自社の番 ${us}件 ・ 相手待ち ${them}件` };
   }
 
   // 作業員に報告書のURLを渡すときの文面（「送る文面をコピー」。LINE 等に貼る）

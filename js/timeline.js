@@ -361,7 +361,7 @@ async function tlToggleResolved(inst, e) {
 
 async function tlDelete(inst, e) {
   if (inst.busy.has(e.id)) return;
-  if (!confirm('この記録を削除しますか？添付ファイルも削除されます。')) return;
+  if (!(await askPopup('この記録を削除しますか？添付ファイルも削除されます。', { title: '記録の削除', okLabel: '削除する', danger: true })) || inst.busy.has(e.id)) return;
   inst.busy.add(e.id);
   inst.listErr.textContent = '';
   tlRenderList(inst);

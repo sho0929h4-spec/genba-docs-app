@@ -162,7 +162,7 @@ function edRooms(s, g2, o) {
   wrap.append(lbl, list, add);
   g2.appendChild(wrap);
   const sync = () => {
-    d.rooms = rows.map(r => ({ room: r.room, role: r.role }));
+    d.rooms = rows.filter((r, i) => i === 0 || String(r.room).trim()).map(r => ({ room: r.room, role: r.role })); // Task 54: 空の行は保存しない
     s.f.room = rows[0].room;
   };
   const changed = () => { sync(); rfDirty(s); };

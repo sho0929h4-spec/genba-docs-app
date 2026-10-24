@@ -34,6 +34,17 @@
   .v-ask-t{font-size:13px;white-space:pre-line;overflow-wrap:anywhere;}
   .v-ask-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:8px;}
   .v-ask-acts .btn{margin-top:0;min-height:40px;padding:8px 14px;font-size:14px;}
+  /* Task 54: 確認のポップアップ（js/ask.js。confirm() の代わり。× と「キャンセル」でだけ閉じる。見た目は社内の画面のシートと同じ） */
+  .modal-bg{position:fixed;inset:0;background:rgba(10,25,45,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:400;overflow-y:auto;}
+  .modal{background:#fff;border-radius:16px;padding:24px 20px;width:100%;max-width:400px;max-height:100%;overflow-y:auto;}
+  .modal h3{font-size:16px;margin-bottom:14px;}
+  .modal-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+  .modal-x{flex:none;width:40px;height:40px;margin:-10px -8px 0 0;border:0;border-radius:10px;background:transparent;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;font-family:inherit;}
+  .modal-x:hover{background:var(--bg);color:var(--text);}
+  .modal-act{display:flex;gap:8px;margin-top:6px;}
+  .modal-act .btn{flex:1;}
+  .btn.red{background:var(--red);color:#fff;}
+  .ask-pop-t{white-space:pre-wrap;font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin:0 0 14px;}
   .v-reedit .err{color:var(--red);font-size:13px;margin-top:8px;white-space:pre-wrap;}
   .v-reedit .err:empty{display:none;}
   .reedit-tag{display:inline-block;background:#fef3c7;color:#92400e;border-radius:999px;padding:0 8px;font-size:11px;font-weight:700;line-height:1.7;white-space:nowrap;}
@@ -229,17 +240,18 @@
   <button class="btn green" id="v-submit" type="button">提出する</button>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/icons.js?v=998572f"></script>
-<script src="js/crypto-util.js?v=998572f"></script>
-<script src="js/supabase-config.js?v=998572f"></script>
-<script src="js/image.js?v=998572f"></script>
-<script src="js/report-logic.js?v=998572f"></script>
-<script src="js/phase-logic.js?v=998572f"></script>
-<script src="js/request-view.js?v=998572f"></script>
-<script src="js/case-band.js?v=998572f"></script>
-<script src="js/photo-marks.js?v=998572f"></script>
-<script src="js/photo-mark-editor.js?v=998572f"></script>
-<script src="js/report-form.js?v=998572f"></script>
-<script src="js/vendor.js?v=998572f"></script>
+<script src="js/icons.js?v=4f4528a"></script>
+<script src="js/ask.js?v=4f4528a"></script>
+<script src="js/crypto-util.js?v=4f4528a"></script>
+<script src="js/supabase-config.js?v=4f4528a"></script>
+<script src="js/image.js?v=4f4528a"></script>
+<script src="js/report-logic.js?v=4f4528a"></script>
+<script src="js/phase-logic.js?v=4f4528a"></script>
+<script src="js/request-view.js?v=4f4528a"></script>
+<script src="js/case-band.js?v=4f4528a"></script>
+<script src="js/photo-marks.js?v=4f4528a"></script>
+<script src="js/photo-mark-editor.js?v=4f4528a"></script>
+<script src="js/report-form.js?v=4f4528a"></script>
+<script src="js/vendor.js?v=4f4528a"></script>
 </body>
 </html>

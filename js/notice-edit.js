@@ -240,7 +240,7 @@ function nteBuild(s) {
     if (nte !== s) return;
     if (s.dirty) { // 保存失敗・日付エラーが残っている。端末には残してあるので、そのことを伝えてから戻る
       nteLsSet(s);
-      if (!confirm('未保存の変更があります。この端末に残しています。\nこのまま一覧に戻りますか？')) return;
+      if (!(await askPopup('未保存の変更があります。この端末に残しています。\nこのまま一覧に戻りますか？', { title: '保存できていません', okLabel: 'このまま戻る' })) || nte !== s) return;
     }
     location.hash = fb ? fb.hash : '#case/' + s.row.case_id + '/notices';
   });
@@ -521,7 +521,7 @@ async function nteDownload(s) {
   try {
     await nteFlush(s);
     const chk = NoticePdf.check(s.data, s.caseRow);
-    if (chk.overflow && !confirm('1ページに収まらず、下の部分が切れます。このままPDFを作りますか？')) { return; }
+    if (chk.overflow && !(await askPopup('1ページに収まらず、下の部分が切れます。このままPDFを作りますか？', { title: '1ページに収まりません', okLabel: 'このまま作る' }))) { return; }
     blob = await NoticePdf.toBlob(s.data, s.caseRow);
   } catch (e) {
     errMsg = 'PDFを作成できませんでした: ' + errText(e);

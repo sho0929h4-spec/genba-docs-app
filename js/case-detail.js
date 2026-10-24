@@ -474,7 +474,7 @@ function renderHead() {
   }
   card.appendChild(addr);
 
-  // 今の状態 1行（🔴 自社の番 n件・🟡 相手待ち n件・次: …）。中身は対応フェーズの読み込み後に js/phase-ui.js（phSyncNow）が入れる。
+  // 今の状態 1行（自社の番 n件・相手待ち n件。Task 54 で「次: …」は消した）。中身は対応フェーズの読み込み後に js/phase-ui.js（phSyncNow）が入れる。
   // ヘッダを描き直しても同じ要素を使う（中身を失わない）
   let nowLine = $('case-now');
   if (!nowLine) {

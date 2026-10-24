@@ -334,8 +334,8 @@ function edRenderPhotos(s) {
     },
     mark: i => edOpenMarks(s, i),
     move: (i, dir) => edPhotoOp(s, () => ReportsApi.movePhoto(s.report, i, dir)),
-    remove(i) {
-      if (s.photoBusy || !confirm('この写真を削除しますか？')) return;
+    async remove(i) {
+      if (s.photoBusy || !(await askPopup('この写真を削除しますか？', { title: '写真の削除', okLabel: '削除する', danger: true })) || s.photoBusy || ed !== s) return;
       edPhotoOp(s, () => ReportsApi.removePhoto(s.report, i));
     },
     after: () => edSyncPhotoDisabled(s)
@@ -438,7 +438,7 @@ async function edGoPdf(s) {
   edSetBarBusy(s, true);
   try {
     await edFlush(s);
-    if (edPending(s) && !confirm('保存できていない入力があります。このままPDFプレビューへ進みますか？\n（プレビューには保存済みの内容が出ます）')) return;
+    if (edPending(s) && !(await askPopup('保存できていない入力があります。このままPDFプレビューへ進みますか？\n（プレビューには保存済みの内容が出ます）', { title: '保存できていません', okLabel: 'このまま進む' }))) return;
     location.hash = '#report/' + s.id + '/pdf';
   } finally {
     s.submitting = false;
@@ -459,7 +459,7 @@ async function edSubmit(s) {
     if (!cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください');
     edShowVal(s, errors, warnings);
     if (errors.length) return;
-    if (warnings.length && !confirm('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'))) return;
+    if (warnings.length && !(await askPopup('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'), { title: '提出の前に確認', okLabel: '提出する' }))) return;
     // Task 45・48: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を移る前に「タスクに追加されました」（画面全体）で知らせる
     const before = typeof fieldTaskKeys === 'function' ? fieldTaskKeys(s.info && s.info.phases ? s.info : null) : null;
     try {

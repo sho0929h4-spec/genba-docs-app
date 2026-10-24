@@ -209,10 +209,11 @@ function ntlDuplicate(n) {
   return ntlRun('複製', () => NoticesApi.duplicate(n));
 }
 
-function ntlRemove(n) {
+async function ntlRemove(n) {
   if (ntlBusy) return;
   const room = NoticeLogic.normalizeRoom(n.room) || '号室未入力';
-  if (!confirm('この掲示を削除しますか？\n' + room + '　' + (n.work_name || '工事名称未入力') + '\n（元に戻せません）')) return;
+  if (!(await askPopup('この掲示を削除しますか？\n' + room + '　' + (n.work_name || '工事名称未入力') + '\n（元に戻せません）',
+    { title: '掲示の削除', okLabel: '削除する', danger: true })) || ntlBusy) return;
   return ntlRun('削除', async () => {
     await NoticesApi.remove(n.id);
     // 削除に成功してから端末の退避を消す（失敗したときは掲示が残るので、下書きも残す）

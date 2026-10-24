@@ -430,8 +430,8 @@
         saveLocal();
         renderPhotos();
       },
-      remove(i) {
-        if (s.photoBusy || !confirm('この写真を一覧から外しますか？（提出しなければ報告書には入りません）')) return;
+      async remove(i) {
+        if (s.photoBusy || !(await askPopup('この写真を一覧から外しますか？（提出しなければ報告書には入りません）', { title: '写真を外す', okLabel: '外す', danger: true })) || !s || s.photoBusy || s.done) return;
         s.report.photos.splice(i, 1);
         saveLocal();
         renderPhotos();
@@ -493,7 +493,7 @@
     if (errors.length) return;
     const q = (warnings.length ? '次の点を確認してください。\n' + warnings.map(w => '・' + w).join('\n') + '\n\n' : '') +
       '提出すると内容は変更できません（依頼元へ送る前なら、あとから「再編集」で直せます）。このまま提出しますか？';
-    if (!confirm(q)) return;
+    if (!(await askPopup(q, { title: '提出の前に確認', okLabel: '提出する' })) || !s || s.photoBusy || s.submitting || s.done) return;
 
     s.submitting = true;
     const locked = [];

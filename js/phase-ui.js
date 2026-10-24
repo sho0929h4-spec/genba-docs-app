@@ -411,9 +411,7 @@ function phSyncNow(s) {
   el.dataset.them = String(now.them);
   const us = mk('span', 'cn-us' + (now.us ? ' on' : ''), '自社の番 ' + now.us + '件');
   const them = mk('span', 'cn-them' + (now.them ? ' on' : ''), '相手待ち ' + now.them + '件');
-  const tail = now.text.slice(now.text.indexOf('次: '));
-  const next = mk('span', 'cn-next' + (now.next && now.next.late ? ' late' : ''), tail);
-  el.replaceChildren(us, mk('span', 'cn-sep', '・'), them, mk('span', 'cn-sep', '・'), next);
+  el.replaceChildren(us, mk('span', 'cn-sep', '・'), them);
   // Task 23: 現場からの連絡の未読（自分あて）。押すとこの案件の連絡
   const unread = currentCase && currentCase.id === s.caseId ? Number(currentCase.staff_unread) || 0 : 0;
   if (unread > 0) {

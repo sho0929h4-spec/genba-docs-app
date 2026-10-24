@@ -634,9 +634,11 @@
   /* ---- Task 39: 報告書の号室（複数）。data.rooms = [{ room, role }]・report.room は先頭の号室（古い画面・PDF・検索の互換） ---- */
   const ROOMS_MAX = 20;
   const ROOM_ROLE_KEYS = Object.keys(ROOM_ROLE_LABEL);
+  // Task 54: 2行目からの空の号室は入れない（DB の _report_data_check は号室 1〜40文字。1行目は report.room で、提出時は必須）
   function normRooms(v) {
     return arr(v).filter(x => x && typeof x === 'object').slice(0, ROOMS_MAX)
-      .map(x => ({ room: trim(x.room).slice(0, 40), role: ROOM_ROLE_KEYS.includes(x.role) ? x.role : '' }));
+      .map(x => ({ room: trim(x.room).slice(0, 40), role: ROOM_ROLE_KEYS.includes(x.role) ? x.role : '' }))
+      .filter((x, i) => i === 0 || x.room);
   }
   // 号室の行（いつも1行以上）。data.rooms が無い・空の古い報告書は report.room の1行。
   //   1行目の号室はいつも report.room（古い画面・端末の退避で room だけ変わっても食い違わないように）
