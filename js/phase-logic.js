@@ -2746,6 +2746,8 @@
     const d = schedDue(s, nowAt);
     const ex = { due: d.due, late: d.late, sched: s.state };
     const worker = !!o.me && p.worker_id === o.me;
+    // Task 53: 出していた候補が作業担当者のほかの予定で全部埋まった（DB が blocked_at）→ 管理者が出し直す
+    if (s.blocked_at) return worker ? mkStage('schedule', '日程の候補の出し直し待ち', 'them', null, ex) : mkStage('schedule', '候補が埋まりました。出し直してください', 'us', null, ex);
     if (s.state === 'wish') {
       return worker ? mkStage('schedule', '日程の確定待ち', 'them', d.due, ex) : mkStage('schedule', `日程を確定する（期限 ${fmtYmdMD(d.due)}）`, 'us', d.due, ex);
     }
@@ -2763,7 +2765,7 @@
   //   希望あり → 自分で登録した案件（created_by = 自分。現場用の登録）だけ確定する
   function schedTask(phase, caseRow, meId, now) {
     const s = schedOpen(phase);
-    if (!s || !meId || phase.worker_id !== meId) return null;
+    if (!s || !meId || phase.worker_id !== meId || s.blocked_at) return null; // Task 53: 埋まった候補は管理者が出し直す
     if (s.state === 'wish' && !(caseRow && caseRow.created_by === meId)) return null;
     const sched = s.state === 'candidates' ? 'pick' : s.state === 'conditions' ? 'propose' : 'confirm';
     return Object.assign({ sched, name: SCHED_TODO[sched] }, schedDue(s, now));
@@ -2777,9 +2779,109 @@
     if (m.action === 'conditions') return `${k} 入居者の都合（${condText(m.cond)}）`;
     if (m.action === 'wish' || m.action === 'propose') return `${k} 希望 ${at}`;
     if (m.action === 'confirm') return `${k} 日程確定 ${at}`;
+    if (m.action === 'blocked') return `${k} 候補が埋まりました（出し直してください）`; // Task 53
     return '';
   }
   const SCHED_CARD_TITLE = { offer: '日程候補', conditions: '入居者の都合', wish: '希望（作業担当者が選んだ日時）', propose: '日程候補（作業担当者から）', confirm: '日程確定' };
+
+  /* ---------- Task 53: 空いている時間帯＋所要時間・ダブルブッキング（migration 072。DB の _sched_starts / _sched_clash と同じ決まり） ---------- */
+  //   所要時間 dur = { mins: 30〜1440（30分きざみ）} か { days: 1〜31, from: 'HH:MM', to: 'HH:MM' }。候補 {start, end} は「空いている時間帯」
+  const SCHED_STEP_MS = 30 * 60000;
+  const HOUR_MS = 3600000;
+  const isoOf = t => new Date(t).toISOString();
+  const hmOk = v => /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(str(v));
+  const hmShort = v => str(v).replace(/^0(\d)/, '$1'); // 09:00 → 9:00
+  function normDur(d) {
+    const x = d || {};
+    if (Number.isInteger(x.mins) && x.mins >= 30 && x.mins <= 1440 && x.mins % 30 === 0) return { mins: x.mins };
+    if (Number.isInteger(x.days) && x.days >= 1 && x.days <= 31 && hmOk(x.from) && hmOk(x.to) && x.from < x.to) return { days: x.days, from: x.from, to: x.to };
+    return null;
+  }
+  // 「2時間」「1時間30分」「30分」「3日間（毎日 9:00〜17:00）」
+  function durText(d) {
+    const x = normDur(d);
+    if (!x) return '';
+    if (x.days) return `${x.days}日間（毎日 ${hmShort(x.from)}〜${hmShort(x.to)}）`;
+    const h = Math.floor(x.mins / 60), m = x.mins % 60;
+    return (h ? `${h}時間` : '') + (m ? `${m}分` : '');
+  }
+  // 始まり＋所要時間 = 終わり（日数は最後の日の to。日本時間）→ ISO か null
+  function durEnd(start, d) {
+    const x = normDur(d);
+    const t = ms(start);
+    if (!x || t == null) return null;
+    if (x.mins) return isoOf(t + x.mins * 60000);
+    const p = jst(t);
+    return jstAt(p.y, p.m, p.d + x.days - 1, +x.to.slice(0, 2), +x.to.slice(3)).toISOString();
+  }
+  const slotEndMs = s => (ms(s.end) != null && ms(s.end) > ms(s.start) ? ms(s.end) : ms(s.start) + HOUR_MS); // 終わりが無ければ1時間
+  // 時間帯の中で選べる始まり → [{ start, end }]（30分きざみ・日数は日ごとに from。所要時間が無ければ時間帯そのもの = Task 50 の候補）
+  function slotStarts(slot, d) {
+    const s = slot || {};
+    const ws = ms(s.start);
+    if (ws == null) return [];
+    const x = normDur(d);
+    if (!x) return [{ start: isoOf(ws), end: ms(s.end) > ws ? isoOf(ms(s.end)) : null }];
+    const we = slotEndMs(s);
+    const out = [];
+    if (x.mins) {
+      for (let t = ws; t + x.mins * 60000 <= we; t += SCHED_STEP_MS) out.push({ start: isoOf(t), end: isoOf(t + x.mins * 60000) });
+      return out;
+    }
+    const p0 = jst(ws);
+    for (let i = 0; i < 400; i++) {
+      const st = jstAt(p0.y, p0.m, p0.d + i, +x.from.slice(0, 2), +x.from.slice(3)).getTime();
+      if (st > we) break;
+      const en = ms(durEnd(st, x));
+      if (st >= ws && en <= we) out.push({ start: isoOf(st), end: isoOf(en) });
+    }
+    return out;
+  }
+  // 作業担当者の確定した予定（rows = case_summaries の全案件）→ [{ start, end, place, phaseId, caseId }]。
+  //   失注・調査した／完了・完了にした・削除した案件・exceptPhaseId は除く。終わりが無い・開始以前は1時間
+  function busyOf(rows, workerId, exceptPhaseId) {
+    if (!workerId) return [];
+    const out = [];
+    for (const c of listOf(rows)) {
+      if (c.deleted_at) continue;
+      for (const p of listOf(c.phases)) {
+        if (p.worker_id !== workerId || p.id === exceptPhaseId || !toDate(p.scheduled_at) || p.lost_at || p.done_at || p.completed_at) continue;
+        out.push({ start: p.scheduled_at, end: isoOf(slotEndMs({ start: p.scheduled_at, end: p.scheduled_end })), place: placeName(c) || '別の案件', phaseId: p.id, caseId: c.id });
+      }
+    }
+    return out;
+  }
+  // [start, end) と重なる予定（ちょうど終わりの時刻から始まるのは重ならない）か null
+  function clashOf(start, end, busy) {
+    const s = ms(start);
+    if (s == null) return null;
+    const e = slotEndMs({ start, end });
+    return listOf(busy).find(b => ms(b.start) < e && ms(b.end) > s) || null;
+  }
+  const clashText = b => (b ? `${b.place}と重なります` : '');
+  // 始まりの選択肢 → [{ start, end, clash }]・空いている始まりがあるか
+  const startOptions = (slot, d, busy) => slotStarts(slot, d).map(o => Object.assign(o, { clash: clashOf(o.start, o.end, busy) }));
+  const slotFree = (slot, d, busy) => startOptions(slot, d, busy).some(o => !o.clash);
+  // 候補の文: 「10/30（金）9:00〜17:00 のうち 2時間」／「10/30（金）〜11/5（木） のうち 3日間（毎日 9:00〜17:00）」／所要時間なし = slotText
+  function windowText(slot, d) {
+    const s = slot || {};
+    const x = normDur(d);
+    if (!x || !toDate(s.start)) return slotText(s);
+    if (x.days) return `${fmtMDW(s.start)}〜${fmtMDW(isoOf(slotEndMs(s)))} のうち ${durText(x)}`;
+    return `${slotText({ start: s.start, end: isoOf(slotEndMs(s)) })} のうち ${durText(x)}`;
+  }
+  // 所要時間の初期値: 工事の見積書の備考（工期 ○日間・工事時間 9:00〜17:00）から。2日以上 = 日数、それ以外は工事時間の長さ。無ければ null
+  function durDefault(phase) {
+    const c = workConditions(phase);
+    if (!c) return null;
+    const n = parseInt(c.days, 10) || 0;
+    const r = EL() && EL().timeRange ? EL().timeRange(c.time) : null;
+    if (n > 1) return { days: n, from: r ? r.start : '09:00', to: r ? r.end : '17:00' };
+    if (r) return normDur({ mins: Math.round((hmMin(r.end) - hmMin(r.start)) / 30) * 30 });
+    return n === 1 ? { days: 1, from: '09:00', to: '17:00' } : null;
+  }
+  // 日程調整の所要時間（行の dur。カードの meta.dur を先に）
+  const schedDur = (phase, meta) => normDur((meta && meta.dur) || (phase && phase.schedule && phase.schedule.dur));
 
   /* ---------- Task 51: 一斉配信（早い者順） ---------- */
   // 募集中 = open_call_at があり作業担当者が空（失注は除く。DB の check で担当者がいれば open_call_at は空）
@@ -2823,7 +2925,8 @@
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
-    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText };
+    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText,
+    normDur, durText, durEnd, slotStarts, busyOf, clashOf, clashText, startOptions, slotFree, windowText, durDefault, schedDur };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

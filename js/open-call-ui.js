@@ -60,14 +60,26 @@ function ocCardEl(x, o) {
       if (start) b.dataset.start = start;
       return b;
     };
+    // Task 53: 自分の確定した予定と重なる始まりは灰色（DB の phase_open_call_accept も同じ確認で止める）
+    const busy = schBusyFor(o.me, p.id);
     if (s && s.state === 'candidates') {
-      box.appendChild(mk('span', 'talk-cond-note', '行ける日時を1つ押してください。押した人が担当になり、その日時は希望として管理者に届きます'));
-      (s.cands || []).forEach(c => box.appendChild(go(PhaseLogic.slotText(c) + ' で行けます', 'oc-pick', c.start)));
+      box.appendChild(mk('span', 'talk-cond-note', '行ける始まりを選んで押してください。押した人が担当になり、その日時は希望として管理者に届きます'));
+      (s.cands || []).forEach(c => box.appendChild(schPickEl({ slot: c, dur: PhaseLogic.schedDur(p), busy, cls: 'oc-go oc-pick', can: true, err, fullText: '空きなし',
+        label: opt => PhaseLogic.slotText(opt) + ' で行けます', onPick: async opt => { o.onDone(await ocAccept(p, opt.start)); } })));
     } else {
       box.appendChild(mk('span', 'talk-cond-note', p.scheduled_at ? '押した人が担当になります（日時はこのまま決まりです）'
         : s && s.state === 'conditions' ? '押した人が担当になり、入居者の都合を見て日程の候補を出すタスクが付きます'
           : '押した人が担当になります（日時は管理者と決めます）'));
-      box.appendChild(go('行けます', 'oc-yes', null));
+      const yes = go('行けます', 'oc-yes', null);
+      box.appendChild(yes);
+      if (p.scheduled_at) {
+        busy.then(b => {
+          const cl = PhaseLogic.clashOf(p.scheduled_at, p.scheduled_end, b);
+          if (!cl || !yes.isConnected) return;
+          yes.disabled = true;
+          yes.after(mk('div', 'sch-full', '空きなし（' + PhaseLogic.clashText(cl) + '）'));
+        }, () => {});
+      }
     }
   } else {
     const me = !!o.me && x.takerId === o.me;

@@ -66,7 +66,7 @@
     const auto = (p, at, what) => { if (!manual.has(p.id + '|' + ms(at))) log(at, what); };
     // Task 50: 日程調整のカード（staff_messages source schedule）。同じ時刻の「日程決定」は確定のカードと重なるので出さない。
     //   日程調整のある対応の「日程調整中」は、候補／条件を出した時点に出す（発注の時刻には出さない）
-    const schedMsgs = listOf(o.messages).filter(m => m.source === 'schedule' && m.phase_id && m.meta);
+    const schedMsgs = listOf(o.messages).filter(m => m.source === 'schedule' && m.phase_id && m.meta && m.meta.action !== 'blocked'); // Task 53: 埋まった知らせはログだけ（カードの順番に入れない）
     const schedConfirm = new Set(schedMsgs.filter(m => m.meta.action === 'confirm').map(m => m.phase_id + '|' + ms(m.created_at)));
     const schedPhases = new Set(schedMsgs.map(m => m.phase_id));
     // フェーズの記録
@@ -124,6 +124,7 @@
       if (m.source === 'schedule') { // Task 50: 候補・条件・希望・確定のカード（ボタンは今の日程調整のカードだけ押せる）とログ
         if (!hit || !m.meta) continue;
         const meta = m.meta;
+        if (meta.action === 'blocked') { log(m.created_at, PL().schedLogText(meta, k)); continue; } // Task 53: 「… 候補が埋まりました（出し直してください）」
         if (meta.reset) log(m.created_at, `${k} 日程を変える`); // カードより前（同じ時刻は入れた順）
         out.push({ kind: 'sched', id: m.id, at: m.created_at, msg: m, meta, phaseId: hit.p.id, phase: hit.p, text: `${k}の${PL().SCHED_CARD_TITLE[meta.action] || '日程'}`,
           from: m.from_user || null, fromName: nameOf(m.from_user) || '不明', mine: !!me && m.from_user === me,

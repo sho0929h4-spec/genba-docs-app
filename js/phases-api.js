@@ -327,10 +327,10 @@ const PhasesApi = (() => {
     // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
     // Task 47: 段階を手で直す（失注・取り消し・対応待ち・対応済み・請求依頼中・請求済み・入金済み）。管理者か、現場用で自分が登録した案件の本人だけ（DB が確かめる）
     // Task 50: 日程調整（migration 069）。権限は DB の関数が確かめる（候補・条件・確定 = 管理者と自分で登録した案件の本人／選ぶ・候補を出す = 作業担当者）
-    async schedOffer(phaseId, cands) { return must(await sb.rpc('phase_sched_offer', { p_phase: phaseId, p_cands: cands })); },
+    async schedOffer(phaseId, cands, dur) { return must(await sb.rpc('phase_sched_offer', { p_phase: phaseId, p_cands: cands, p_dur: dur || null })); }, // Task 53: 所要時間
     async schedConditions(phaseId, cond) { return must(await sb.rpc('phase_sched_conditions', { p_phase: phaseId, p_cond: cond })); },
     async schedPick(phaseId, start) { return must(await sb.rpc('phase_sched_pick', { p_phase: phaseId, p_start: start })); },
-    async schedPropose(phaseId, cands) { return must(await sb.rpc('phase_sched_propose', { p_phase: phaseId, p_cands: cands })); },
+    async schedPropose(phaseId, cands, dur) { return must(await sb.rpc('phase_sched_propose', { p_phase: phaseId, p_cands: cands, p_dur: dur || null })); },
     async schedConfirm(phaseId, start, end) { return must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null })); },
     // この案件の対応の日程調整の行を phase.schedule に付ける（案件ページの表。case_summaries には最初から入っている）
     // Task 51: 一斉配信（早い者順。migration 070）。accept は { ok, state } か { ok: false, reason: 'taken'|'closed', worker_name }
