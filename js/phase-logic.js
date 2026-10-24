@@ -361,7 +361,7 @@
       if (p.paid_at) return mkStage('done', '済', null, p.paid_at);
       if (p.billed_at) return paymentStage(p, nowAt);
       if (p.bill_requested_at) return mkStage('bill_req', '請求依頼中', 'them', p.bill_requested_at); // Task 47: 手で選ぶ（請求済みの前）
-      if (reportSent) return mkStage('bill', '請求する', 'us', p.done_at || rs.report.sent_at);
+      if (reportSent) return mkStage('bill', '請求する', 'us', p.done_at || (rs.report && rs.report.sent_at) || p.completed_at); // 報告書なしの「完了にする」でも落ちない
       // Task 23: 報告書が未提出（無い・下書き・担当者URL付きの下書き）なら期限（工事日の翌日）を括弧に足す。過ぎたら late
       const workReport = () => {
         const rt = reportTodo(p, nowAt, { reports, estimates });
@@ -2580,6 +2580,99 @@
     }
     return { work, settle, lost, done, manual };
   }
+  /* ---------- Task 52: 矢羽（トークの「フェーズ」・案件ページの「今のフェーズ」） ---------- */
+  // 段の並び。工事の流れ = 原因元工事・復旧工事・その他・再調査、初回の調査は調査の流れ
+  const CHEVRON_STEPS = {
+    work: ['見積書作成必要', '提出', '発注待ち', '発注済み', '日程調整中', '工事待ち', '報告書共有必要', '報告書共有済み', '請求', '入金待ち', '入金確認'],
+    survey: ['日程調整中', '対応中', '対応済み', '報告書作成', '報告書送付済み', '見積書作成', '見積書共有済み', '請求', '入金待ち', '入金確認']
+  };
+  // 対応の呼び名: 調査の2回目から・調査報告から作った調査（source_phase_id）は「再調査」、工事は「原因元工事」（2回目から「原因元工事 2回目」）、その他は名前（点検）
+  function flowName(p, seq) {
+    if (!p) return '';
+    if (p.kind === 'survey') return seq > 1 || p.source_phase_id ? '再調査' : '調査';
+    const name = workName(p.kind, p);
+    return seq > 1 ? `${name} ${seq}回目` : name;
+  }
+  const jstDays = (from, to) => Math.round((Date.parse(jstYmd(to)) - Date.parse(jstYmd(from))) / 86400000);
+  // 1本の矢羽 → { flow, steps, current, label, note, ball, late, lost, openCall }
+  //   段は記録から決める（stage と同じく、請求・入金・報告書の送付の記録があれば前の段は済んだものとする）。
+  //   「…済み」の段は相手を待つ間だけ今の段にする（見積書共有済み = 承諾待ち）。報告書の送付の後は次の「請求」「見積書作成」が今の段。
+  //   調査の報告書の下書き（対応を作ると自動でできる）は「報告書なし」と同じ（提出・確認から「報告書作成」）。
+  //   失注は失注の前の段のまま lost: true（画面は矢羽を灰色にして「失注」の札）。note は「10/25 送付・3日」（今の段になった日と経った日数）
+  function chevron(phase, docs, now, opts) {
+    const p0 = phase || {};
+    const p = p0.lost_at ? Object.assign({}, p0, { lost_at: null }) : p0;
+    const o = opts || {};
+    const nowAt = toDate(now) || new Date();
+    const { estimates, reports } = docsOf(p, docs);
+    const live = liveEstimates(estimates);
+    const rs = reportState(reports, o.me);
+    const reportSent = rs.state === 'sent' || !!p.completed_at;
+    const sentAt = (rs.state === 'sent' && rs.report.sent_at) || p.completed_at || p.done_at || null;
+    const lastAt = (list, key) => list.map(e => e[key]).filter(Boolean).sort((a, b) => ms(b) - ms(a))[0] || null;
+    const accepted = live.filter(isAccepted), sent = live.filter(e => e.status === 'sent'), issued = live.filter(e => e.status === 'issued');
+    const sched = schedOpen(p);
+    const workAt = p.scheduled_end && ms(p.scheduled_end) > ms(p.scheduled_at) ? p.scheduled_end : p.scheduled_at;
+    const survey = p.kind === 'survey' && !(Number(p.seq) > 1 || p.source_phase_id);
+    const steps = survey ? CHEVRON_STEPS.survey : CHEVRON_STEPS.work;
+    const at = (label, when, verb) => ({ label, when: when || null, verb });
+    let x;
+    if (p.paid_at) x = at('入金確認', p.paid_at, '入金');
+    else if (p.billed_at) x = at('入金待ち', p.billed_at, '請求');
+    else if (p.bill_requested_at) x = at('請求', p.bill_requested_at, '請求依頼');
+    else if (survey) {
+      if (reportSent) {
+        x = accepted.length ? at('請求', lastAt(accepted, 'accepted_at'), '承諾')
+          : sent.length ? at('見積書共有済み', lastAt(sent, 'sent_at'), '送付') : at('見積書作成', sentAt, '報告書送付');
+      } else if (rs.state === 'submitted' || rs.state === 'confirmed' || p.done_at) x = at('報告書作成', rs.date || p.done_at, '提出');
+      else if (!p.scheduled_at) x = at('日程調整中', sched && sched.set_at, '調整');
+      else if (ms(p.scheduled_at) > ms(nowAt)) x = at('対応中', p.scheduled_at, '訪問');
+      else x = at('対応済み', p.scheduled_at, '訪問');
+    } else if (reportSent) x = at('請求', sentAt, '報告書共有');
+    else if (p.done_at) x = at('報告書共有必要', p.done_at, '完了');
+    else if (!accepted.length) {
+      x = sent.length ? at('発注待ち', lastAt(sent, 'sent_at'), '送付') : issued.length ? at('提出', lastAt(issued, 'issued_at'), '提出') : at('見積書作成必要', null, '');
+    } else if (!p.scheduled_at) x = sched ? at('日程調整中', sched.set_at, '調整') : at('発注済み', lastAt(accepted, 'accepted_at'), '承諾');
+    else if (isLate(workAt, nowAt)) x = at('報告書共有必要', workAt, '工事');
+    else x = at('工事待ち', p.scheduled_at, '工事');
+    const parts = [];
+    const due = p.payment_due ? String(p.payment_due).slice(0, 10) : '';
+    const est = p.estimate_due ? String(p.estimate_due).slice(0, 10) : '';
+    if (x.label === '入金待ち' && due) parts.push(`期限 ${fmtYmdMD(due)}`);
+    else if (x.label === '見積書作成必要' && est) parts.push(`期日 ${fmtYmdMD(est)}`);
+    else if (x.when && ms(x.when) > ms(nowAt)) parts.push(`${x.label === '対応中' ? fmtMDHM(x.when) : fmtMD(x.when)} ${x.verb}`);
+    else if (x.when) {
+      const d = jstDays(x.when, nowAt);
+      parts.push(`${fmtMD(x.when)} ${x.verb}` + (d >= 1 && x.label !== '入金確認' ? `・${d}日` : ''));
+    }
+    if (isOpenCall(p0)) parts.push('募集中');
+    const st = stage(p0, docs, nowAt, o);
+    return { flow: survey ? 'survey' : 'work', steps, current: steps.indexOf(x.label), label: x.label, note: parts.join('・'),
+      ball: st.ball || null, late: !!st.late, lost: !!p0.lost_at, openCall: isOpenCall(p0) };
+  }
+  // 案件の対応ごとの矢羽。並びは対応の順で、調査から作った対応（source_phase_id）はその調査のすぐ下（child: true = 同時進行）
+  //   docsFn: 対応 → { estimates, reports }（省略時は対応の中の estimates / reports = case_summaries の形）
+  //   → [{ id, kind, name, child, parentId, ...chevron }]
+  function phaseChevrons(phases, now, opts, docsFn) {
+    const list = listOf(phases);
+    const count = {};
+    const rows = list.map(p => {
+      count[p.kind] = (count[p.kind] || 0) + 1;
+      const q = p.seq != null ? p : Object.assign({}, p, { seq: count[p.kind] });
+      return Object.assign({ id: p.id || null, kind: p.kind, name: flowName(q, Number(q.seq)), child: false, parentId: null,
+        src: p.source_phase_id || null }, chevron(q, docsFn ? docsFn(p) : null, now, opts));
+    });
+    const ids = new Set(rows.map(r => r.id));
+    const out = [];
+    const add = r => {
+      if (out.includes(r)) return;
+      out.push(r);
+      rows.filter(c => c.src === r.id && c !== r).forEach(c => { c.child = true; c.parentId = r.id; add(c); });
+    };
+    rows.filter(r => !r.src || !ids.has(r.src)).forEach(add);
+    rows.forEach(add); // 元をたどって輪になったもの（壊れたデータ）も落とさない
+    return out.map(r => { const y = Object.assign({}, r); delete y.src; return y; });
+  }
   // 工事・その他の対応の、提出した見積書（最新の提出）の条件 → EstimateLogic.conditions + { estimateId, at（提出日）} か null
   function workConditions(phase) {
     const p = phase || {};
@@ -2729,7 +2822,7 @@
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
-    SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions,
+    SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
     SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;

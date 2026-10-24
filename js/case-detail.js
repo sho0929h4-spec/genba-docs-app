@@ -123,7 +123,7 @@ async function refreshPart(part) {
     return gen === caseGen && seq === casePartSeq[part] ? errText(e) : '';
   }
   if (gen !== caseGen || seq !== casePartSeq[part]) return '';
-  currentCase = data; renderHead(); renderParties();
+  currentCase = data; renderHead(); renderParties(); renderPhaseBand();
   if (typeof CaseRequest !== 'undefined') CaseRequest.refresh(currentCase); // 入力中は描き直さない
   return '';
 }
@@ -155,6 +155,10 @@ function buildDetail() {
   // 依頼元（元請／物件オーナー／入居者）。編集は案件のポップアップ
   const parties = mk('div', 'taio');
   parties.id = 'case-parties';
+  // Task 52: 今のフェーズ（依頼元の下の小さな帯）
+  const band = mk('div', 'taio pb-box');
+  band.id = 'case-phase-band';
+  pbOpen.clear();
 
   // 依頼内容（Task 28。依頼元の下。js/case-request.js）
   let request = null;
@@ -220,10 +224,11 @@ function buildDetail() {
   // 一番下に小さく「この案件を削除」（管理者だけ。js/case-trash.js）
   const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.section(currentCase) : null;
   ctState = { caseId: currentCase.id, data: null, busy: '', err: '', banner: mailBanner };
-  root.replaceChildren(...[detailBackBtn(), headBox, parties, request, phases, tools, mailList, tl, trash].filter(Boolean));
+  root.replaceChildren(...[detailBackBtn(), headBox, parties, band, request, phases, tools, mailList, tl, trash].filter(Boolean));
 
   renderHead();
   renderParties();
+  renderPhaseBand();
   renderCaseTools();
   if (phases) {
     try { renderPhases(phases); }
@@ -248,6 +253,7 @@ function syncCaseTools(caseId, data) {
   if (!ctState || ctState.caseId !== caseId || caseDetailId !== caseId) return;
   ctState.data = data;
   renderCaseTools();
+  renderPhaseBand();
 }
 
 function ctPhases() {
@@ -592,4 +598,53 @@ function renderParties() {
     partyRow('client', '元請', gc),
     partyRow('owner', '物件オーナー', person(c.owner_name, c.owner_email, c.owner_tel)),
     partyRow('resident', '入居者', person(c.resident_name, c.resident_email, c.resident_tel)), rooms].filter(Boolean));
+}
+
+// ---- Task 52: 今のフェーズ（依頼元の下の小さな帯）----
+// 対応ごとに1行「原因元工事 ｜ 発注待ち（10/25 送付・3日）」と、自社の番 = 赤・相手待ち = 黄の点。押すとその対応の矢羽が開く（初めは閉じる）。
+// データは対応フェーズ欄の読み込み（syncCaseTools）があればそれ、無ければ case_summaries の phases（読み込みは増やさない）
+const pbOpen = new Set(); // 矢羽を開いている対応（案件を開き直すと閉じる）
+function pbData() {
+  const d = ctState && ctState.caseId === currentCase.id ? ctState.data : null;
+  if (!d) return { phases: Array.isArray(currentCase.phases) ? currentCase.phases : [], docs: null };
+  return { phases: d.phases || [], docs: p => ({ estimates: (d.estimates || []).filter(e => e.phase_id === p.id), reports: (d.reports || []).filter(r => r.phase_id === p.id) }) };
+}
+function renderPhaseBand() {
+  const box = $('case-phase-band');
+  if (!box || !currentCase || typeof PhaseLogic === 'undefined') return;
+  const { phases, docs } = pbData();
+  const rows = PhaseLogic.phaseChevrons(phases, new Date(), { me: ctx && ctx.user ? ctx.user.id : null, members: caseMembers }, docs);
+  box.hidden = !rows.length;
+  const kids = [mk('div', 'pb-h', '今のフェーズ')];
+  rows.forEach(r => {
+    const wrap = mk('div', 'pb-row' + (r.child ? ' child' : '') + (r.lost ? ' lost' : ''));
+    wrap.dataset.phaseId = r.id;
+    const line = dBtn('', 'pb-line', () => {
+      const on = !pbOpen.has(r.id);
+      if (on) pbOpen.add(r.id); else pbOpen.delete(r.id);
+      draw(on);
+    });
+    const dot = r.ball ? Icon.dot(r.ball, r.ball === 'them' ? '相手待ち' : '自社の番') : mk('span', 'dot none');
+    if (!r.ball) dot.setAttribute('aria-hidden', 'true');
+    line.append(dot, mk('b', 'pb-name', r.name), mk('span', 'pb-sep', '｜'), mk('span', 'pb-cur', r.label + (r.note ? '（' + r.note + '）' : '')));
+    if (r.lost) line.appendChild(mk('span', 'chv-lost', '失注'));
+    const ic = Icon.el('down', { size: 16 });
+    ic.classList.add('pb-ic');
+    line.appendChild(ic);
+    wrap.appendChild(line);
+    const draw = on => {
+      line.setAttribute('aria-expanded', String(on));
+      const old = wrap.querySelector('.pb-chv');
+      if (old) old.remove();
+      if (!on) return;
+      const pane = mk('div', 'pb-chv');
+      pane.appendChild(chevronEl(r));
+      wrap.appendChild(pane);
+      chevronScroll(pane);
+    };
+    draw(pbOpen.has(r.id));
+    kids.push(wrap);
+  });
+  box.replaceChildren(...kids);
+  if (box.isConnected) chevronScroll(box);
 }

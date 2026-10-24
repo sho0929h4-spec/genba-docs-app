@@ -372,8 +372,34 @@ function talkCondEl(x) {
   return box;
 }
 
-/* ---------- Task 48: 「フェーズ」（トーク画面の右上 → シート。Task 47 のフェーズ管理を作り直し）。対応ごとに（種類）→ 対応 → 精算 ---------- */
-//   段階は報告書・見積書・請求の記録で自動で進む（PhaseLogic.manageStage）。直せるのは管理者と、現場用でこの案件を登録した人（TalkLogic.canManage・DB も同じ）
+/* ---------- Task 52: 矢羽（▶ 形の段。今の段は紺・済んだ段は薄い紺・先の段は灰色の枠。案件ページの「今のフェーズ」も使う） ---------- */
+// row: PhaseLogic.phaseChevrons の1行。横にスクロールする（今の段に寄せるのは chevronScroll。DOM に入れた後に呼ぶ）
+function chevronEl(row) {
+  const wrap = mk('div', 'chv-wrap' + (row.lost ? ' lost' : ''));
+  const bar = mk('div', 'chv');
+  bar.setAttribute('role', 'list');
+  bar.setAttribute('aria-label', row.name + '（今: ' + row.label + (row.lost ? '・失注' : '') + '）');
+  row.steps.forEach((t, i) => {
+    const st = mk('span', 'chv-s' + (i < row.current ? ' done' : i === row.current ? ' cur' : ''));
+    st.setAttribute('role', 'listitem');
+    if (i === row.current) st.setAttribute('aria-current', 'step');
+    st.appendChild(mk('span', null, t));
+    bar.appendChild(st);
+  });
+  wrap.appendChild(bar);
+  if (row.lost) wrap.appendChild(mk('span', 'chv-lost', '失注'));
+  return wrap;
+}
+function chevronScroll(root) {
+  (root || document).querySelectorAll('.chv').forEach(bar => {
+    const cur = bar.querySelector('.chv-s.cur');
+    if (cur && bar.clientWidth) bar.scrollLeft = Math.max(0, cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2);
+  });
+}
+
+/* ---------- Task 48・52: 「フェーズ」（トーク画面の右上 → シート）。対応ごとに矢羽1本（Task 48 の 種類 → 対応 → 精算 の3段は廃止） ---------- */
+//   段は報告書・見積書・請求の記録で自動で進む（PhaseLogic.chevron）。手で直すボタンは矢羽の下に小さく（PhaseLogic.manageStage の manual）。
+//   直せるのは管理者と、現場用でこの案件を登録した人（TalkLogic.canManage・DB も同じ）
 //   直すと DB がトークのログ（source stage）とタイムラインを書く。シートは × だけで閉じる（入金予定日の入力があるので外側・Esc では閉じない）
 function talkStageSheet(s, c, doneMsg) {
   const prev = document.getElementById('talk-stage-sheet');
@@ -397,8 +423,7 @@ function talkStageSheet(s, c, doneMsg) {
   x.setAttribute('aria-label', '閉じる');
   hd.append(h, x);
   dlg.appendChild(hd);
-  dlg.appendChild(mk('div', 'lt-sub', (PhaseLogic.placeName(c) || '（物件名なし）') + '。対応と精算は報告書・請求の記録で自動で進みます。'
-    + (can ? '違うときは下のボタンで直せます' : '直せるのは管理者です（自分で登録した案件は自分で直せます）')));
+  dlg.appendChild(mk('div', 'lt-sub', (PhaseLogic.placeName(c) || '（物件名なし）') + (can ? '' : '。直せるのは管理者です（自分で登録した案件は自分で直せます）')));
   const msg = mk('div', 'ts-msg', doneMsg || '');
   msg.id = 'talk-stage-msg';
   msg.setAttribute('role', 'status');
@@ -410,23 +435,16 @@ function talkStageSheet(s, c, doneMsg) {
   const phases = Array.isArray(c.phases) ? c.phases : [];
   if (!phases.length) dlg.appendChild(mk('div', 'empty', 'まだ対応がありません（案件ページで追加します）'));
   const now = new Date();
-  const cell = (cls, cap, val, key) => {
-    const d = mk('div', 'ts-cell ' + cls);
-    if (key) d.dataset.state = key;
-    if (cap) d.appendChild(mk('span', 'ts-cap', cap));
-    d.appendChild(mk('b', 'ts-val', val));
-    return d;
-  };
-  const arrow = () => { const a = mk('span', 'ts-arrow'); a.setAttribute('aria-hidden', 'true'); a.appendChild(Icon.el('arrow', { size: 14 })); return a; };
-  phases.forEach(p => {
+  PhaseLogic.phaseChevrons(phases, now, { me: talkMe() }).forEach(cv => {
+    const p = phases.find(q => q.id === cv.id);
     const m = PhaseLogic.manageStage(p, now);
-    const row = mk('div', 'ts-row' + (m.lost ? ' lost' : ''));
+    const row = mk('div', 'ts-row' + (cv.lost ? ' lost' : '') + (cv.child ? ' child' : ''));
     row.dataset.phaseId = p.id;
-    const name = TalkLogic.kindName(p, p.seq || 1);
-    const flow = mk('div', 'ts-flow');
-    flow.setAttribute('aria-label', name + ' 対応 ' + m.work.label + ' 精算 ' + m.settle.label);
-    flow.append(cell('ts-kind', '', name), arrow(), cell('ts-work', '対応', m.work.label, m.work.key), arrow(), cell('ts-settle', '精算', m.settle.label, m.settle.key));
-    row.appendChild(flow);
+    const name = cv.name;
+    const nm = mk('div', 'chv-head');
+    nm.appendChild(mk('b', 'chv-name', name));
+    if (cv.child) nm.appendChild(mk('span', 'chv-tag', '同時進行'));
+    row.append(nm, chevronEl(cv));
     if (can) {
       const acts = mk('div', 'ts-acts');
       m.manual.work.concat(m.manual.settle).forEach(o => {
@@ -485,6 +503,7 @@ function talkStageSheet(s, c, doneMsg) {
   }
   bg.appendChild(dlg);
   document.body.appendChild(bg);
+  chevronScroll(dlg);
   window.addEventListener('hashchange', close); // 画面を移ったら閉じる（外側クリック・Esc では閉じない）
   x.focus();
 }

@@ -16,12 +16,7 @@
   const ALL = 'all'; // 「全体」のトークの key
 
   // 対応の呼び名（ログ用）: 調査の2回目から・調査報告から作った調査（source_phase_id。Task 47）は「再調査」、工事は「原因元工事」（2回目から「原因元工事 2回目」）、その他は名前（点検）
-  function kindName(p, seq) {
-    if (!p) return '';
-    if (p.kind === 'survey') return seq > 1 || p.source_phase_id ? '再調査' : '調査';
-    const name = PL().workName(p.kind, p);
-    return seq > 1 ? `${name} ${seq}回目` : name;
-  }
+  const kindName = (p, seq) => PL().flowName(p, seq); // Task 52: 矢羽の名前と同じ（PhaseLogic.flowName）
   const RANK = { card: 0, cond: 1, sched: 1, call: 1, log: 2, msg: 3 };
   // 自動の連絡のうち、ログの行にするもの（report_submit は報告書の受領の行と重なるので出さない）
   const LOG_SOURCES = ['nudge', 'late', 'overdue', 'reedit', 'case_create', 'task_delete'];

@@ -221,6 +221,7 @@ function phDraw() {
   head.appendChild(mk('b', null, '対応フェーズ'));
   head.appendChild(mk('span', 'ph-hint', 'フェーズ名を押すと詳細、各欄を押すとその場で変えられます'));
   const adds = mk('div', 'ph-adds');
+  if (!(ctx && ctx.membership && ctx.membership.role === 'owner')) adds.hidden = true; // migration 071: 対応の追加は管理者だけ（DB も 42501）
   PhaseLogic.KINDS.forEach(k => {
     // Task 37: 「＋ その他」は名前の欄を開く（名前を入れて「追加」）
     const b = dBtn('＋ ' + k.label, 'ph-add k-' + k.key, btn => (k.key === 'other' ? phOtherOpen() : phAdd(btn, k.key)));
