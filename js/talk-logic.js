@@ -2,7 +2,7 @@
 // トーク = 1つの案件（case_id 空 = 「全体」）。中身は既存のデータから作る（DB は migration 065 で見える範囲・元請から・既読の印だけ足した）:
 //   msg  … staff_messages の手動の連絡（現場からの連絡・管理者の返事・日報・日報への返事・差し戻し・元請から）。吹き出し
 //   card … 作業担当者が提出した報告書（submitted_at）・見積書（issued_at）。押すと開く
-//   log  … 中央の小さな灰色の行「10/25 501号室 調査実施」。フェーズの記録（case_summaries.phases）・自動の連絡（催促・遅れ・期限超過・再編集・
+//   log  … 中央の小さな灰色の行「10/25 14:32 501号室 調査実施」（Task 50: 月日と時刻）。フェーズの記録（case_summaries.phases）・自動の連絡（催促・遅れ・期限超過・再編集・
 //          案件登録・タスクの削除）・タイムラインの自動記録の一部（工事掲示・連絡メール・案件の完了）から
 // 並び: 時刻の古い順（同じ時刻はカード → ログの順）。未読 = 自分以外の吹き出し・カードで、最後に読んだ時刻（talk_reads）より新しいもの。
 //   印が無いトークは、自分あての未読の連絡（read_at が空。PhaseLogic.messageForMe）だけを数える
@@ -22,7 +22,7 @@
     const name = PL().workName(p.kind, p);
     return seq > 1 ? `${name} ${seq}回目` : name;
   }
-  const RANK = { card: 0, cond: 1, log: 2, msg: 3 };
+  const RANK = { card: 0, cond: 1, sched: 1, log: 2, msg: 3 };
   // 自動の連絡のうち、ログの行にするもの（report_submit は報告書の受領の行と重なるので出さない）
   const LOG_SOURCES = ['nudge', 'late', 'overdue', 'reedit', 'case_create', 'task_delete'];
   // タイムラインの自動記録のうち、フェーズの記録に無いものだけを短くする（ほかは出さない。重ならないように）
@@ -65,16 +65,21 @@
     const out = [];
     const seqd = c ? withSeq(c.phases) : [];
     const phaseOf = id => seqd.find(x => x.p.id === id) || null;
-    const log = (at, what) => { if (ms(at) != null && what) out.push({ kind: 'log', at, text: [PL().fmtMD(at), room, what].filter(Boolean).join(' ') }); };
+    const log = (at, what) => { if (ms(at) != null && what) out.push({ kind: 'log', at, text: [PL().fmtMDHM(at), room, what].filter(Boolean).join(' ') }); }; // Task 50: 「10/25 14:32 501号室 調査実施」
     // Task 47: 段階を手で直したときは、そのログ（staff_messages source stage）を出して、同じ時刻の完了・請求・入金の自動のログは出さない（重なるので）
     const manual = new Set(listOf(o.messages).filter(m => m.source === 'stage' && m.phase_id).map(m => m.phase_id + '|' + ms(m.created_at)));
     const auto = (p, at, what) => { if (!manual.has(p.id + '|' + ms(at))) log(at, what); };
+    // Task 50: 日程調整のカード（staff_messages source schedule）。同じ時刻の「日程決定」は確定のカードと重なるので出さない。
+    //   日程調整のある対応の「日程調整中」は、候補／条件を出した時点に出す（発注の時刻には出さない）
+    const schedMsgs = listOf(o.messages).filter(m => m.source === 'schedule' && m.phase_id && m.meta);
+    const schedConfirm = new Set(schedMsgs.filter(m => m.meta.action === 'confirm').map(m => m.phase_id + '|' + ms(m.created_at)));
+    const schedPhases = new Set(schedMsgs.map(m => m.phase_id));
     // フェーズの記録
     for (const { p, seq } of seqd) {
       const k = kindName(p, seq);
       const reports = listOf(p.reports);
       const ests = listOf(p.estimates);
-      if (p.schedule_set_at && p.scheduled_at) log(p.schedule_set_at, `${k}日程決定（${PL().fmtMDHM(p.scheduled_at)}）`);
+      if (p.schedule_set_at && p.scheduled_at && !schedConfirm.has(p.id + '|' + ms(p.schedule_set_at))) log(p.schedule_set_at, `${k}日程決定（${PL().fmtMDHM(p.scheduled_at)}）`);
       if (p.done_at) auto(p, p.done_at, k + (p.kind === 'survey' ? '実施' : '完了'));
       for (const r of reports) {
         if (r.submitted_at) {
@@ -106,7 +111,7 @@
         if (e.sent_at) log(e.sent_at, `${k}見積書発注待ち`);
         if (e.accepted_at) {
           log(e.accepted_at, `${k}発注済み`);
-          if (p.kind !== 'survey' && !p.scheduled_at && !p.done_at) log(new Date(ms(e.accepted_at) + 1).toISOString(), `${k}日程調整中`);
+          if (p.kind !== 'survey' && !p.scheduled_at && !p.done_at && !schedPhases.has(p.id)) log(new Date(ms(e.accepted_at) + 1).toISOString(), `${k}日程調整中`);
         }
       }
       if (p.billed_at) auto(p, p.billed_at, `${k}請求済み`);
@@ -121,7 +126,18 @@
       const k = hit ? kindName(hit.p, hit.seq) : '';
       const subj = PL().plainSubject(m.subject);
       if (m.source === 'report_submit' || m.source === 'case_delete') continue;
-      if (m.source === 'stage') { // Task 47: 「10/27 501号室 原因元工事 失注」
+      if (m.source === 'schedule') { // Task 50: 候補・条件・希望・確定のカード（ボタンは今の日程調整のカードだけ押せる）とログ
+        if (!hit || !m.meta) continue;
+        const meta = m.meta;
+        if (meta.reset) log(m.created_at, `${k} 日程を変える`); // カードより前（同じ時刻は入れた順）
+        out.push({ kind: 'sched', id: m.id, at: m.created_at, msg: m, meta, phaseId: hit.p.id, phase: hit.p, text: `${k}の${PL().SCHED_CARD_TITLE[meta.action] || '日程'}`,
+          from: m.from_user || null, fromName: nameOf(m.from_user) || '不明', mine: !!me && m.from_user === me,
+          active: schedActive(m, hit.p, schedMsgs), latest: schedLatest(m, schedMsgs) });
+        log(m.created_at, PL().schedLogText(meta, k));
+        if (meta.action === 'offer' || meta.action === 'conditions') log(new Date(ms(m.created_at) + 1).toISOString(), `${k}日程調整中`);
+        continue;
+      }
+      if (m.source === 'stage') { // Task 47: 「10/27 9:00 501号室 原因元工事 失注」
         const lab = /「(.+?)」/.exec(subj);
         log(m.created_at, [k, lab ? lab[1] : subj].filter(Boolean).join(' '));
         continue;
@@ -144,10 +160,22 @@
     }
     const read = ms(o.readAt);
     out.forEach(x => {
-      x.unread = (x.kind === 'msg' || x.kind === 'card') && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
-        : x.kind === 'msg' && PL().messageForMe(x.msg, me, !!o.isOwner));
+      x.unread = (x.kind === 'msg' || x.kind === 'card' || x.kind === 'sched') && !x.mine && x.from !== me && (read != null ? ms(x.at) > read
+        : (x.kind === 'msg' || x.kind === 'sched') && PL().messageForMe(x.msg, me, !!o.isOwner));
     });
     return out.sort((a, b) => ms(a.at) - ms(b.at) || RANK[a.kind] - RANK[b.kind]);
+  }
+  // Task 50: 日程調整のカードが今も押せるか = その対応の一番新しい日程調整のカードで、今の状態（phase.schedule.state）がそのカードの次の番
+  //   （候補 → candidates・条件 → conditions・希望 → wish）。確定のカードはボタンなし（日程を変えるは別）
+  const SCHED_STATE_OF = { offer: 'candidates', conditions: 'conditions', wish: 'wish', propose: 'wish' };
+  function schedLatest(m, all) {
+    const latest = listOf(all).filter(x => x.phase_id === m.phase_id).sort((a, b) => ms(b.created_at) - ms(a.created_at) || String(b.id).localeCompare(String(a.id)))[0];
+    return !!latest && latest.id === m.id;
+  }
+  function schedActive(m, phase, all) {
+    const s = phase && phase.schedule;
+    if (!s || phase.scheduled_at || phase.lost_at || SCHED_STATE_OF[m.meta.action] !== s.state) return false;
+    return schedLatest(m, all);
   }
   function withSeq(phases) {
     const count = {};
@@ -170,7 +198,7 @@
   function lastLine(x) {
     if (!x) return '';
     if (x.kind === 'card') return x.text + 'が届きました';
-    if (x.kind === 'cond') return x.text;
+    if (x.kind === 'cond' || x.kind === 'sched') return x.text;
     if (x.kind === 'msg') return (x.asClient ? '元請から: ' : '') + String(x.text || '').split('\n')[0];
     return x.text;
   }

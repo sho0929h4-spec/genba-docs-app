@@ -9,7 +9,7 @@ const StaffMessagesApi = (() => {
   //   reedit = 報告書・見積書の再編集と再提出で自動（057。Task 35）／case_create = 現場用の案件登録で自動（058。Task 37・rpc field_create_case）／
   //   case_delete = 現場用で登録した案件の削除で自動（062。Task 42・rpc field_trash_case）／task_delete = タスクの削除で自動・
   //   sendback = タスクの差し戻し（063。Task 43・rpc field_task_dismiss / field_task_sendback。返事をすると差し戻しは済みになる）。画面からは作れない
-  const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source, daily_date, as_client'; // 065: as_client（元請から）
+  const COLS = 'id, org_id, case_id, phase_id, from_user, to_user, subject, body, attachments, read_at, reply_to, created_at, source, daily_date, as_client, meta'; // 065: as_client（元請から）・069: meta（日程調整のカード）
   const SUBJECT_MAX = 100;
   const BODY_MAX = 4000;
   const FILES_MAX = 10;

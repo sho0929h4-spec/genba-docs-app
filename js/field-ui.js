@@ -373,7 +373,7 @@ function fdCalOpts(s) {
     showWho: false,
     fab: false,
     bottom: 56,
-    onEvent: ev => { fdSel.set(ev.caseId, ev.id); location.hash = fdPhaseHash(ev.caseId, ev.id); },
+    onEvent: ev => { const id = ev.phaseId || ev.id; fdSel.set(ev.caseId, id); location.hash = fdPhaseHash(ev.caseId, id); },
     onUndated: () => fdShowGroup('tbd')
   };
 }
@@ -676,6 +676,21 @@ function fdRenderCase() {
     sl.append(stText);
     sl.id = 'fd-stage-line';
     nodes.push(sl);
+  }
+  // Task 50: 日程調整中ならトークのカードへ。現場用で自分が登録した案件は、自分で日程を決める・変える（管理者を兼ねる）
+  const so = PhaseLogic.schedOpen(sel);
+  const own = c.created_by === fdMe() && !sel.lost_at;
+  if (so || own) {
+    const sc = mk('div', 'fd-sched');
+    sc.id = 'fd-sched';
+    if (so) sc.appendChild(dBtn('メッセージで日程を見る ›', 'linkbtn fd-sched-talk', () => { location.hash = '#f/msg/' + c.id; }));
+    if (own) {
+      sc.appendChild(dBtn(sel.scheduled_at ? '日程を変える' : '日程を決める', 'linkbtn fd-sched-change', () => schSheet(sel, c, text => {
+        fieldRowsInvalidate();
+        if (fdAlive(s)) { s.msg = text; fdReloadCase(s); }
+      })));
+    }
+    nodes.push(sc);
   }
   const msg = mk('div', 'ob-msg', s.msg || '');
   msg.id = 'fd-msg';

@@ -187,6 +187,7 @@ function talkRenderThread(s) {
   if (!items.length) body.appendChild(mk('div', 'talk-log talk-empty', 'まだやり取りはありません。下の欄から送れます'));
   TalkLogic.withDays(items).forEach(x => body.appendChild(talkItemEl(s, x)));
   nodes.push(body);
+  if (s.flash) { const f = mk('div', 'ob-msg talk-flash', s.flash); f.id = 'talk-flash'; f.setAttribute('role', 'status'); nodes.push(f); } // Task 50: 日程のボタンの結果
   nodes.push(talkBar(s, c));
   s.root.replaceChildren(...nodes);
 }
@@ -195,6 +196,15 @@ function talkItemEl(s, x) {
   if (x.day) { const d = mk('div', 'talk-day'); d.appendChild(mk('span', null, x.day)); return d; }
   if (x.kind === 'log') { const l = mk('div', 'talk-log'); l.appendChild(mk('span', null, x.text)); return l; }
   if (x.kind === 'cond') return talkCondEl(x);
+  if (x.kind === 'sched') { // Task 50: 日程調整のカード（js/schedule-ui.js）
+    const c = talkCase(s);
+    const ownerRole = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+    return schCardEl(x, { me: talkMe(), canManage: TalkLogic.canManage(c, talkMe(), ownerRole, s.msgs), caseRow: c, onDone: async text => {
+      if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+      s.flash = text || '';
+      if (talkAlive(s)) await talkLoad(s);
+    } });
+  }
   const row = mk('div', 'talk-m ' + (x.mine ? 'mine' : 'theirs') + (x.asClient ? ' client' : ''));
   row.dataset.kind = x.kind;
   if (x.id) row.dataset.id = x.id;
@@ -229,7 +239,7 @@ function talkItemEl(s, x) {
     }
     col.appendChild(bub);
   }
-  col.appendChild(mk('span', 'talk-at', PhaseLogic.fmtMDHM(x.at).split(' ')[1] || ''));
+  col.appendChild(mk('span', 'talk-at', PhaseLogic.fmtMDWHM(x.at))); // Task 50: 「10/25（土）14:32」
   row.appendChild(col);
   return row;
 }
@@ -343,6 +353,7 @@ function talkCondEl(x) {
   box.dataset.kind = 'cond';
   if (x.phaseId) box.dataset.phaseId = x.phaseId;
   box.appendChild(Icon.prepend(mk('b', 'talk-cond-h', x.text), 'calendar', 16));
+  box.appendChild(mk('span', 'talk-at', PhaseLogic.fmtMDWHM(x.at))); // Task 50
   const dl = mk('dl', 'talk-cond-dl');
   [['日数', c.days || ''], ['時間帯', c.time || ''], ['断水', c.water ? 'あり' : 'なし'], ['排水制限', c.drain ? 'あり' : 'なし'],
     ['ホテル移動', c.hotel || ''], ['荷物の片付け', c.katazuke || '']] // Task 48 E: 必要／不要（どちらも選んでいなければ「未記入」）

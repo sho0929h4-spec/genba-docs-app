@@ -336,7 +336,7 @@
         if (rs.state === 'confirmed') return mkStage('report', '報告書を送る', 'us', p.done_at || rs.date);
         if (rs.state === 'submitted') return mkStage('check', '報告書を確認する', 'us', rs.date || p.done_at);
         if (p.done_at) return mkStage('report', '報告書を送る', 'us', p.done_at); // 旧データ（報告書なしで調査済み）
-        if (!p.scheduled_at) return mkStage('schedule', '調査日を決める', 'us', null);
+        if (!p.scheduled_at) return schedStage(p, '調査日を決める', nowAt, o); // Task 50: 日程調整中は誰の番か・期限
         // Task 23・25: 調査日時を過ぎて報告書が未提出（下書き・担当者URL付きも）→ 作業担当者が自分以外なら 🟡 報告待ち（名前）、
         //   自分か未設定なら 🔴 報告書を書いて提出（期限 翌日。🔔 と同じ期限）
         const rt = reportTodo(p, nowAt, { reports });
@@ -381,7 +381,7 @@
         }
         return mkStage('estimate', due ? `見積書作成必要（期日 ${fmtYmdMD(due)}）` : '見積書作成必要', 'us', due || null, dueExtra);
       }
-      if (!p.scheduled_at) return mkStage('schedule', '受注後日程調整必要', 'us', null);
+      if (!p.scheduled_at) return schedStage(p, '受注後日程調整必要', nowAt, o); // Task 50
       // 工事日（終わりの日があればその日）の当日までは 工事待ち、過ぎたら 完了報告必要
       if (isLate(p.scheduled_end && ms(p.scheduled_end) > ms(p.scheduled_at) ? p.scheduled_end : p.scheduled_at, nowAt)) return workReport();
       return mkStage('work', `工事待ち（${fmtMD(p.scheduled_at)}）`, 'them', p.scheduled_at);
@@ -1332,28 +1332,29 @@
   //   due: 報告書・見積書は「10/22（木）まで」（調査の報告書は時刻つき「10/21（水）15:00まで」）・超過は「…まで・超過」（late）、
   //        確認依頼・翌日の予定は「10/22（木）13:00〜」（日時未定）、管理者からの連絡は届いた時刻「10/21（水）14:05」
   const TASK_TODO = { report: '報告書作成', estimate: '見積書作成', notice: '確認依頼', tomorrow: '翌日の予定', conditions: '工事の条件を確認' };
+  const DUE_TYPES = ['report', 'estimate', 'schedule']; // 期限のあるタスク（Task 50: 日程調整も）
   function fieldTaskRow(it) {
     const x = it || {};
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
-    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : (x.type === 'estimate' && x.name) || TASK_TODO[x.type] || str(x.label);
+    const todo = x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
-    if (x.type === 'report' || x.type === 'estimate') {
+    if (DUE_TYPES.includes(x.type)) {
       const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(x.due));
       const at = x.type === 'report' && kind === 'survey' && x.dueAt ? fmtMDWHM(x.dueAt) : ymd ? fmtMDW(jstAt(+ymd[1], +ymd[2], +ymd[3], 12, 0)) : '';
       if (at) due = at + 'まで' + (x.late ? '・超過' : '');
     } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
     else if (x.type === 'conditions') due = listOf(x.missing).join('・') + 'が未記入'; // Task 47
     else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
-    return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && (x.type === 'report' || x.type === 'estimate'), sendback: !!x.sendback };
+    return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && DUE_TYPES.includes(x.type), sendback: !!x.sendback };
   }
   // Task 45: タスクの数（下のタブの丸い数字・タスク画面の上の帯）。items = staffInbox の結果
   //   → { n, late: 期限超過の数, today: 本日期限の数（超過は除く）, tone: 'late'（赤）| 'today'（黄）| ''（紺）}
   function taskBadge(items, now) {
     const today = jstYmd(toDate(now) || new Date());
     const list = listOf(items);
-    const dueOnes = list.filter(x => x.type === 'report' || x.type === 'estimate');
+    const dueOnes = list.filter(x => DUE_TYPES.includes(x.type));
     const late = dueOnes.filter(x => x.late).length;
     const tod = dueOnes.filter(x => !x.late && str(x.due).slice(0, 10) === today).length;
     return { n: list.length, late, today: tod, tone: late ? 'late' : tod ? 'today' : '' };
@@ -1367,7 +1368,7 @@
     const today = jstYmd(toDate(now) || new Date());
     const groups = new Map();
     for (const x of listOf(items)) {
-      const ymd = (x.type === 'report' || x.type === 'estimate') && x.due ? (x.dueAt ? jstYmd(x.dueAt) : str(x.due).slice(0, 10)) : '';
+      const ymd = DUE_TYPES.includes(x.type) && x.due ? (x.dueAt ? jstYmd(x.dueAt) : str(x.due).slice(0, 10)) : '';
       const key = x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(x);
@@ -1612,7 +1613,8 @@
     const tomorrow = jstYmd(nowMs + 86400000);
     const out = [];
     const caseById = new Map(listOf(caseRows).filter(c => (!c.status || c.status === 'open') && !c.deleted_at).map(c => [c.id, c]));
-    listOf(opts && opts.messages).filter(m => messageForMe(m, meId, false) && (!m.case_id || caseById.has(m.case_id))).forEach(m => {
+    // Task 50: 日程調整のお知らせ（source schedule）は下の「日程候補から選ぶ」などのタスクとトークのカードで出す（重ねない）
+    listOf(opts && opts.messages).filter(m => m.source !== 'schedule' && messageForMe(m, meId, false) && (!m.case_id || caseById.has(m.case_id))).forEach(m => {
       const c = m.case_id ? caseById.get(m.case_id) : null;
       const ws = c ? withSeq(c.phases) : [];
       const hit = ws.find(x => x.p.id === m.phase_id);
@@ -1636,6 +1638,12 @@
           const name = estimateTaskName(p, todo);
           out.push({ type: 'estimate', caseRow: c, phase: p, title, name,
             label: `${name}（期限 ${fmtYmdMD(todo.due)}）`, due: todo.due, dueAt: null, late: todo.late, from: '', fromAt: null, tomorrow: false, brief: '' });
+        }
+        // Task 50: 日程調整（候補から選ぶ・候補を出す = 出した翌日、確定する = 希望の翌日が期限）
+        const sc = schedTask(p, c, meId, now);
+        if (sc) {
+          out.push({ type: 'schedule', sched: sc.sched, name: sc.name, caseRow: c, phase: p, title,
+            label: `${sc.name}（期限 ${fmtYmdMD(sc.due)}）`, due: sc.due, dueAt: null, late: sc.late, from: '', fromAt: null, tomorrow: false, brief: '' });
         }
         // Task 23・29: 調査日・工事日を過ぎて報告書が未提出 → 「報告書を書いて提出（期限 …）」（stage の期限と同じ）
         const st = stage(p, null, now, { me: meId });
@@ -1669,7 +1677,7 @@
       x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : '';
       x.sendback = x.type === 'message' ? null : taskFlag(x.phase, x.type, 'sendback');
     });
-    const rank = { nudge: 0, message: 1, report: 2, estimate: 3, conditions: 4, notice: 5, tomorrow: 6 };
+    const rank = { nudge: 0, message: 1, report: 2, estimate: 3, schedule: 3.5, conditions: 4, notice: 5, tomorrow: 6 };
     const dueMs = x => (x.dueAt ? ms(x.dueAt) : ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0)));
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? dueMs(x) : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
     const rk = x => (x.nudge ? rank.nudge : rank[x.type]);
@@ -2071,7 +2079,7 @@
       : p.billed_at && due ? { state: isOverdue(p, nowAt) ? 'overdue' : 'due', text: `期限 ${fmtYmdMD(due)}` }
         : { state: 'none', text: '—' };
     return { id: p.id || null, kind: p.kind, title: phaseTitle(p, seq),
-      when: { at: p.scheduled_at || null, end: p.scheduled_end || null, text: p.scheduled_at ? fmtMDHM(p.scheduled_at) : '未定' },
+      when: { at: p.scheduled_at || null, end: p.scheduled_end || null, text: p.scheduled_at ? fmtMDHM(p.scheduled_at) : schedOpen(p) ? (schedOpen(p).state === 'wish' ? '希望あり' : '日程調整中') : '未定' }, // Task 50
       stage: st, short, report, estimate, bill, payment, worker: workerState(p), brief: hasBrief(p.plan) };
   }
 
@@ -2571,6 +2579,105 @@
     return e ? Object.assign(EL().conditions(e), { estimateId: e.id || null, at: e.issued_at }) : null;
   }
 
+  /* ---------- Task 50: 日程調整（phase.schedule = phase_schedules の行。case_summaries の phases[].schedule・migration 069） ---------- */
+  //   state: candidates（管理者が候補 → 作業担当者が選ぶ）／conditions（入居者の都合 → 作業担当者が候補を出す）／wish（希望 → 管理者が確定）／confirmed／none
+  const SCHED_OPEN = ['candidates', 'conditions', 'wish'];
+  const SCHED_TODO = { pick: '日程候補から選ぶ', propose: '日程候補を出す', confirm: '日程を確定する' };
+  const SCHED_DAYS = [{ key: 'weekday', label: '平日' }, { key: 'weekend', label: '土日' }, { key: 'all', label: '毎日' },
+    { key: 'mon', label: '月' }, { key: 'tue', label: '火' }, { key: 'wed', label: '水' }, { key: 'thu', label: '木' }, { key: 'fri', label: '金' },
+    { key: 'sat', label: '土' }, { key: 'sun', label: '日' }];
+  const SCHED_DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  // 今の日程調整（候補あり・条件あり・希望あり）。日時が入っている・失注・確定・未定は null
+  function schedOpen(phase) {
+    const p = phase || {};
+    const s = p.schedule;
+    return s && SCHED_OPEN.includes(s.state) && !p.scheduled_at && !p.lost_at ? s : null;
+  }
+  // 期限（日本時間の日）: 候補から選ぶ・候補を出す = 出した日の翌日、確定する = 希望の翌日 → { due: 'YYYY-MM-DD', late }
+  function schedDue(sched, now) {
+    const s = sched || {};
+    const at = s.state === 'wish' ? s.wish_at : s.set_at;
+    const due = at ? ymdAdd(jstYmd(at), 1) : '';
+    return { due, late: !!due && due < jstYmd(toDate(now) || new Date()) };
+  }
+  // 曜日と時間帯の1つ → 「平日 18:00以降」「土日 終日」「月 10:00〜12:00」
+  function bandText(b) {
+    const x = b || {};
+    const d = (SCHED_DAYS.find(k => k.key === x.days) || {}).label || '';
+    const t = x.from && x.to ? `${x.from}〜${x.to}` : x.from ? `${x.from}以降` : x.to ? `${x.to}まで` : '終日';
+    return `${d} ${t}`.trim();
+  }
+  // 入居者の都合の文: 「いつでもよい」／「平日 18:00以降・土日 終日」（自由記載は「／」の後ろ）
+  function condText(cond) {
+    const c = cond || {};
+    if (c.any) return 'いつでもよい';
+    return [listOf(c.bands).map(bandText).join('・'), str(c.note)].filter(Boolean).join('／');
+  }
+  const hmMin = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(str(v)); return m ? +m[1] * 60 + +m[2] : null; };
+  // 候補の日時が入居者の都合（曜日と時間帯）の外か → '' か注意の文。いつでもよい・曜日と時間帯が無い（自由記載だけ）は判定しない
+  //   shortcut: 祝日は平日として扱う。祝日を外したくなったら祝日の表を足す
+  function schedOutside(cond, start, end) {
+    const c = cond || {};
+    const bands = listOf(c.bands);
+    const p = jst(start);
+    if (c.any || !bands.length || !p) return '';
+    const dow = WEEK.indexOf(p.w);
+    const from = p.h * 60 + p.min;
+    const e = jst(end);
+    const to = e && jstYmd(end) === jstYmd(start) && ms(end) > ms(start) ? e.h * 60 + e.min : from;
+    const dayOk = k => k === 'all' || (k === 'weekday' && dow >= 1 && dow <= 5) || (k === 'weekend' && (dow === 0 || dow === 6)) || SCHED_DOW[k] === dow;
+    const ok = bands.some(b => dayOk(b.days) && (hmMin(b.from) == null || from >= hmMin(b.from)) && (hmMin(b.to) == null || to <= hmMin(b.to)));
+    return ok ? '' : `入居者の都合（${condText(c)}）の外です`;
+  }
+  // 候補の1つの文: 10/30（木）10:00〜12:00
+  function slotText(x) {
+    const s = x || {};
+    if (!toDate(s.start)) return '';
+    const e = jst(s.end);
+    return fmtMDWHM(s.start) + (e && ms(s.end) > ms(s.start) ? (jstYmd(s.end) === jstYmd(s.start) ? `〜${fmtHM(e)}` : `〜${fmtMDHM(s.end)}`) : '');
+  }
+  // 対応の段階（stage）の日程の段: 日程調整中なら 誰の番か・期限。base = 日程調整が無いときの文（調査日を決める・受注後日程調整必要）
+  function schedStage(p, base, nowAt, o) {
+    const s = schedOpen(p);
+    if (!s) return mkStage('schedule', base, 'us', null);
+    const d = schedDue(s, nowAt);
+    const ex = { due: d.due, late: d.late, sched: s.state };
+    const worker = !!o.me && p.worker_id === o.me;
+    if (s.state === 'wish') {
+      return worker ? mkStage('schedule', '日程の確定待ち', 'them', d.due, ex) : mkStage('schedule', `日程を確定する（期限 ${fmtYmdMD(d.due)}）`, 'us', d.due, ex);
+    }
+    const todo = s.state === 'candidates' ? SCHED_TODO.pick : SCHED_TODO.propose;
+    if (worker) return mkStage('schedule', `${todo}（期限 ${fmtYmdMD(d.due)}）`, 'us', d.due, ex);
+    return mkStage('schedule', s.state === 'candidates' ? '日程調整中（作業担当者が候補から選ぶ）' : '日程調整中（作業担当者が候補を出す）', 'them', d.due, ex);
+  }
+  // カレンダーの「候補」: 候補あり → 管理者が出した候補、希望あり → 希望。日時が入った対応・条件だけのときは無い → [{ start, end, wish }]
+  function schedSlots(phase) {
+    const s = schedOpen(phase);
+    if (!s || s.state === 'conditions') return [];
+    return listOf(s.state === 'wish' ? s.wish : s.cands).filter(x => toDate(x && x.start)).map(x => ({ start: x.start, end: x.end || null, wish: s.state === 'wish' }));
+  }
+  // 作業担当者のタスク（staffInbox）: 自分が作業担当者の対応で 候補あり → 選ぶ・条件あり → 候補を出す、
+  //   希望あり → 自分で登録した案件（created_by = 自分。現場用の登録）だけ確定する
+  function schedTask(phase, caseRow, meId, now) {
+    const s = schedOpen(phase);
+    if (!s || !meId || phase.worker_id !== meId) return null;
+    if (s.state === 'wish' && !(caseRow && caseRow.created_by === meId)) return null;
+    const sched = s.state === 'candidates' ? 'pick' : s.state === 'conditions' ? 'propose' : 'confirm';
+    return Object.assign({ sched, name: SCHED_TODO[sched] }, schedDue(s, now));
+  }
+  // トークのカード（staff_messages の source schedule・meta）の見出しとログの文。k = 対応の呼び名（原因元工事）
+  function schedLogText(meta, k) {
+    const m = meta || {};
+    const list = listOf(m.cands);
+    const at = list.map(x => fmtMDHM(x.start)).filter(Boolean).join('・');
+    if (m.action === 'offer') return `${k} 日程候補 ${list.length}件`;
+    if (m.action === 'conditions') return `${k} 入居者の都合（${condText(m.cond)}）`;
+    if (m.action === 'wish' || m.action === 'propose') return `${k} 希望 ${at}`;
+    if (m.action === 'confirm') return `${k} 日程確定 ${at}`;
+    return '';
+  }
+  const SCHED_CARD_TITLE = { offer: '日程候補', conditions: '入居者の都合', wish: '希望（作業担当者が選んだ日時）', propose: '日程候補（作業担当者から）', confirm: '日程確定' };
+
   // Task 44: 件名の先頭の絵文字（migration 052 / 058 の催促は「⚠️ 催促: …」で保存される）を表示では外す
   function plainSubject(s) { return str(s).replace(/^[\u26a0\u2600-\u27bf\ufe0f\s]+/u, ''); }
 
@@ -2593,7 +2700,8 @@
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
-    SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions };
+    SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions,
+    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PhaseLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

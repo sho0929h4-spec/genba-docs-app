@@ -184,7 +184,8 @@ function tkActionBtn(it) {
       return it.estimateId ? btn('見積の続きを書く', () => { location.hash = '#estimate/' + it.estimateId; })
         : btn('見積を作る', b => tkRun(it, b, '見積書を作れませんでした', () => tkMakeEstimate(it)));
     case 'send_estimate': return it.estimateId ? btn('送るメールへ', b => tkRun(it, b, '送付メールの下書きを作れませんでした', () => tkSendEstimate(it))) : null;
-    case 'schedule': return btn(it.kind === 'survey' ? '調査日を決める' : '工事日を決める', () => tkOpenWhen(it));
+    case 'schedule': return btn(it.phase && it.phase.schedule && PhaseLogic.schedOpen(it.phase) && it.phase.schedule.state === 'wish' ? '日程を確定する' // Task 50
+      : it.kind === 'survey' ? '調査日を決める' : '工事日を決める', () => tkOpenWhen(it));
     case 'open_report':
       // Task 23: 調査日時を過ぎて報告書がまだ無い（報告書を書く・期限あり）→ その場で作る
       return it.reportId ? btn('報告書を開く', () => { location.hash = '#report/' + it.reportId; })

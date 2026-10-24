@@ -171,15 +171,17 @@ function calAvail(el) {
 }
 
 function calBar(ev, cls) {
-  const b = calBtn('', 'cal-ev k-' + ev.kind + (ev.done ? ' done' : '') + (cls ? ' ' + cls : ''), e => { e.stopPropagation(); if (cal.opts.onEvent) cal.opts.onEvent(ev); });
-  b.dataset.phaseId = ev.id;
+  const b = calBtn('', 'cal-ev k-' + ev.kind + (ev.done ? ' done' : '') + (ev.cand ? ' cand' : '') + (cls ? ' ' + cls : ''), e => { e.stopPropagation(); if (cal.opts.onEvent) cal.opts.onEvent(ev); });
+  b.dataset.phaseId = ev.phaseId || ev.id;
+  if (ev.cand) b.dataset.cand = ev.wish ? 'wish' : 'offer'; // Task 50: 候補・希望（まだ決まっていない）
   b.dataset.caseId = ev.caseId;
   const label = ev.title || '（物件名なし）';
   b.appendChild(mk('span', 'cal-ev-t', label));
   if (cal.opts.showWho && ev.who) b.appendChild(mk('span', 'cal-ev-who', ev.who));
   const md = ymd => `${+ymd.slice(5, 7)}/${+ymd.slice(8, 10)}`;
   const when = ev.multi ? `${md(ev.startYmd)} ${calHM(ev.startMin)}〜${md(ev.endYmd)}` : calHM(ev.startMin) + (ev.hasEnd ? '〜' + calHM(ev.endMin) : '');
-  const tip = [label, PhaseLogic.kindLabel(ev.kind), when, cal.opts.showWho ? '担当 ' + (ev.who || 'なし') : ''].filter(Boolean).join(' ・ ');
+  const tip = [label, PhaseLogic.kindLabel(ev.kind), when, cal.opts.showWho ? '担当 ' + (ev.who || 'なし') : '',
+    ev.cand ? (ev.wish ? '希望（まだ確定していません）' : '候補（まだ決まっていません）') : ''].filter(Boolean).join(' ・ ');
   b.title = tip;
   b.setAttribute('aria-label', tip);
   return b;
@@ -403,7 +405,7 @@ async function openCalendar() {
     showWho: true,
     fab: true,
     addLabel: '新規案件',
-    onEvent: ev => { location.hash = '#case/' + ev.caseId + '/phase/' + ev.id; },
+    onEvent: ev => { location.hash = '#case/' + ev.caseId + '/phase/' + (ev.phaseId || ev.id); },
     onAdd: () => openCaseModal(null),
     onUndated: list => calUndatedSheet(list)
   });

@@ -95,6 +95,8 @@ async function phLoad() {
   }
   if (!phAlive(s) || seq !== phSeq) return '';
   const [phases, series, reports] = res;
+  try { await PhasesApi.attachSchedules(phases || []); } catch (e) { console.warn('日程調整を読み込めませんでした', e); } // Task 50
+  if (!phAlive(s) || seq !== phSeq) return '';
   const notices = res[3];
   let drafts = res[4];
   PhasesApi.attachTaskFlags(phases || [], res[5]);
@@ -869,6 +871,7 @@ function phScheduleBody(p, docs, errId) {
       });
     line.appendChild(eb);
     out.push(line);
+    if (PhaseLogic.schedOpen(p)) out.push(mk('div', 'ph-sub sch-status', schStatusText(p))); // Task 50
   }
   if (!p.scheduled_at) return out;
 
@@ -923,46 +926,51 @@ function phScheduleBody(p, docs, errId) {
   return out;
 }
 
+// 日時の欄（Task 50: 日程調整）。1つなら「この日時で確定」（今まで通り。連絡メールの下書き）、候補を足すと「候補を送る」（作業担当者が選ぶ）、
+//   「入居者の都合を伝える」（作業担当者が候補を出す）。日程調整中なら今の状態と、希望の「で確定」のボタン
 function phScheduleForm(p, errId) {
+  const s = ph;
   const isSurvey = p.kind === 'survey';
-  const form = mk('div', 'ph-form');
-  const start = document.createElement('input');
-  start.type = 'datetime-local';
-  start.className = 'ph-sched-start';
-  start.value = phToInput(p.scheduled_at);
-  start.step = 300;
-  const l1 = mk('label', null, isSurvey ? '調査日時（日本時間）' : '工事の開始（日本時間）');
-  l1.appendChild(start);
-  form.appendChild(l1);
-  let end = null;
-  if (!isSurvey) {
-    end = document.createElement('input');
-    end.type = 'datetime-local';
-    end.className = 'ph-sched-end';
-    end.value = phToInput(p.scheduled_end);
-    end.step = 300;
-    const l2 = mk('label', null, '終わり（任意）');
-    l2.appendChild(end);
-    form.appendChild(l2);
-  }
-  form.appendChild(mk('div', 'ph-sub', '保存すると、依頼元への連絡メールの下書きができます（送るのは「確認して送る」から）'));
-  const acts = mk('div', 'ph-acts');
-  acts.appendChild(dBtn('キャンセル', 'btn sm ghost inline', () => { ph.editing.delete(p.id); phMsg(errId, ''); phDraw(); }));
-  if (p.scheduled_at) {
-    acts.appendChild(dBtn('未定に戻す', 'btn sm ghost inline ph-sched-clear', b => phSaveSchedule(b, p, null, null, errId)));
-  }
-  acts.appendChild(dBtn('保存', 'btn sm inline ph-sched-save', b => {
-    const s = phFromInput(start.value);
-    if (!s) { phMsg(errId, (isSurvey ? '調査日時' : '工事の開始') + 'を入力してください'); start.focus(); return; }
-    let e = null;
-    if (end && end.value) {
-      e = phFromInput(end.value);
-      if (!e || Date.parse(e) < Date.parse(s)) { phMsg(errId, '終わりは開始より後にしてください'); end.focus(); return; }
+  const wrap = mk('div', 'ph-sched-wrap');
+  const open = PhaseLogic.schedOpen(p);
+  if (open) {
+    wrap.appendChild(mk('div', 'ph-sub sch-status', schStatusText(p)));
+    if (open.state === 'wish') {
+      const acts = mk('div', 'ph-acts sch-wish');
+      (open.wish || []).forEach(c => {
+        const warn = open.cond ? PhaseLogic.schedOutside(open.cond, c.start, c.end) : '';
+        if (warn) wrap.appendChild(mk('div', 'sch-warn', PhaseLogic.slotText(c) + ': ' + warn));
+        const b = dBtn(PhaseLogic.slotText(c) + ' で確定', 'btn sm inline sch-confirm', btn => phSchedRun(btn, p, errId, '日程の確定', () => PhasesApi.schedConfirm(p.id, c.start, c.end)));
+        b.dataset.start = c.start;
+        acts.appendChild(b);
+      });
+      wrap.appendChild(acts);
     }
-    return phSaveSchedule(b, p, s, e, errId);
-  }));
-  form.appendChild(acts);
-  return form;
+  }
+  const cancel = () => { s.editing.delete(p.id); if (s.condForm) s.condForm.delete(p.id); phMsg(errId, ''); phDraw(); };
+  if (s.condForm && s.condForm.has(p.id)) {
+    wrap.appendChild(schCondForm({ onCancel: () => { s.condForm.delete(p.id); phDraw(); },
+      onSend: (cond, b) => phSchedRun(b, p, errId, '入居者の都合の送信', () => PhasesApi.schedConditions(p.id, cond)) }));
+    return wrap;
+  }
+  const extra = [];
+  if (p.scheduled_at) extra.push(dBtn('未定に戻す', 'btn sm ghost inline ph-sched-clear', b => phSaveSchedule(b, p, null, null, errId)));
+  extra.push(dBtn('入居者の都合を伝える', 'btn sm ghost inline sch-cond-open', () => { (s.condForm || (s.condForm = new Set())).add(p.id); phDraw(); }));
+  wrap.appendChild(schOfferForm({ survey: isSurvey, start: p.scheduled_at, end: p.scheduled_end, firstCls: ['ph-sched-start', 'ph-sched-end'], saveCls: 'ph-sched-save',
+    hint: '1つなら「この日時で確定」（依頼元への連絡メールの下書きができます）。「＋ 候補を足す」で2つ以上にすると、作業担当者が選びます'
+      + (p.scheduled_at ? '（今の日時は取り消され、候補からやり直します）' : ''),
+    onCancel: cancel, extra,
+    onConfirm: (st, en, b) => phSaveSchedule(b, p, st, en, errId),
+    onOffer: (slots, b) => phSchedRun(b, p, errId, '日程候補の送信', () => PhasesApi.schedOffer(p.id, slots)) }));
+  return wrap;
+}
+// 日程調整の関数を呼ぶ（phRun と同じ。日時が決まった・消えたら連絡メールの下書きをそろえる）→ 欄を閉じる
+function phSchedRun(btn, p, errId, label, fn) {
+  const s = ph;
+  return phRun(btn, errId, label, async () => {
+    try { await schRun(fn, p, currentCase); }
+    finally { if (phAlive(s)) { s.editing.delete(p.id); if (s.condForm) s.condForm.delete(p.id); } }
+  });
 }
 
 function phSaveSchedule(btn, p, startIso, endIso, errId) {

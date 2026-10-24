@@ -105,6 +105,7 @@
     return out;
   }
   const caseOpen = c => !c.status || c.status === 'open';
+  const SCHED_LIST = { candidates: 'cands', wish: 'wish' }; // Task 50: phase.schedule の状態 → 候補の配列
   const phaseOpen = p => !p.done_at && !p.billed_at && !p.paid_at;
   // case_summaries の行 → { events（開始の早い順）, undated（日時未定: 進行中の案件の済んでいないフェーズ [{ caseRow, phase }]）}
   //   opts.include(caseRow, phase) で絞る（作業担当者は自分の分だけ）。opts.titleOf(caseRow, phase) で帯の文（既定「物件名 号室」）。
@@ -119,9 +120,17 @@
         if (!p || p.lost_at || (o.include && !o.include(c, p))) continue; // Task 47: 失注はカレンダーに出さない
         if (toMs(p.scheduled_at) == null) {
           if (caseOpen(c) && phaseOpen(p)) undated.push({ caseRow: c, phase: p });
+          // Task 50: 日程調整中の候補（管理者が出した候補・作業担当者の希望）は「候補」の帯（薄い点線）。日時未定の数にも入れたまま
+          const sc = p.schedule;
+          const list = sc && SCHED_LIST[sc.state] && caseOpen(c) ? sc[SCHED_LIST[sc.state]] : null;
+          (Array.isArray(list) ? list : []).forEach((x, i) => {
+            const ev = x && eventOf({ id: p.id + ':c' + i, phaseId: p.id, caseId: c.id, kind: p.kind, title: '候補 ' + titleOf(c, p), who: str(p.worker_name),
+              workerId: p.worker_id || null, done: false, cand: true, wish: sc.state === 'wish', start: x.start, end: x.end });
+            if (ev) events.push(ev);
+          });
           continue;
         }
-        events.push(eventOf({ id: p.id, caseId: c.id, kind: p.kind, title: titleOf(c, p), who: str(p.worker_name), workerId: p.worker_id || null, done: !!(p.done_at || p.paid_at),
+        events.push(eventOf({ id: p.id, phaseId: p.id, caseId: c.id, kind: p.kind, title: titleOf(c, p), who: str(p.worker_name), workerId: p.worker_id || null, done: !!(p.done_at || p.paid_at),
           start: p.scheduled_at, end: p.scheduled_end }));
       }
     }

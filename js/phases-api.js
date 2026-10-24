@@ -326,6 +326,19 @@ const PhasesApi = (() => {
     },
     // 作業担当者への催促（Task 28 / migration 052）: 担当者の 🔔 の一番上に「⚠️ 催促: {text}」・nudged_at / nudge_count・タイムライン
     // Task 47: 段階を手で直す（失注・取り消し・対応待ち・対応済み・請求依頼中・請求済み・入金済み）。管理者か、現場用で自分が登録した案件の本人だけ（DB が確かめる）
+    // Task 50: 日程調整（migration 069）。権限は DB の関数が確かめる（候補・条件・確定 = 管理者と自分で登録した案件の本人／選ぶ・候補を出す = 作業担当者）
+    async schedOffer(phaseId, cands) { return must(await sb.rpc('phase_sched_offer', { p_phase: phaseId, p_cands: cands })); },
+    async schedConditions(phaseId, cond) { return must(await sb.rpc('phase_sched_conditions', { p_phase: phaseId, p_cond: cond })); },
+    async schedPick(phaseId, start) { return must(await sb.rpc('phase_sched_pick', { p_phase: phaseId, p_start: start })); },
+    async schedPropose(phaseId, cands) { return must(await sb.rpc('phase_sched_propose', { p_phase: phaseId, p_cands: cands })); },
+    async schedConfirm(phaseId, start, end) { return must(await sb.rpc('phase_sched_confirm', { p_phase: phaseId, p_start: start, p_end: end || null })); },
+    // この案件の対応の日程調整の行を phase.schedule に付ける（案件ページの表。case_summaries には最初から入っている）
+    async attachSchedules(phases) {
+      const ids = (phases || []).map(p => p.id);
+      const rows = ids.length ? must(await sb.from('phase_schedules').select('*').in('phase_id', ids)) || [] : [];
+      (phases || []).forEach(p => { p.schedule = rows.find(r => r.phase_id === p.id) || null; });
+      return phases;
+    },
     async setStage(phaseId, stage) {
       return must(await sb.rpc('phase_set_stage', { p_phase: phaseId, p_stage: stage }));
     },
