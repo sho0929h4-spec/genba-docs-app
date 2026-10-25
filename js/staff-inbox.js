@@ -150,7 +150,20 @@ function siFieldItemEl(it) {
   row.appendChild(main);
   row.appendChild(mk('span', 'si-chev', '›'));
   row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due && (dueItem ? '期限 ' + r.due : r.due), r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
-  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || it.type === 'call' || !p) return row; // Task 51: 募集も削除・差し戻しの対象外 // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
+  if (it.type === 'call') { // Task 63: 押すと行の下に いつ・どこ・詳細（もう一度押すと閉じる）→「全体のトークで返事する」（カードの「行けます」・到着の時刻）
+    const open = si.menu === key;
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) return row;
+    const wrap = mk('div', 'si-fwrap');
+    const d = mk('div', 'si-call-detail');
+    d.id = 'si-call-' + p.id;
+    row.setAttribute('aria-controls', d.id);
+    d.appendChild(ocInfoEl(p, it.caseRow, d.id));
+    d.appendChild(dBtn('全体のトークで返事する', 'btn sm inline si-call-go', () => { location.hash = '#f/msg/all'; }));
+    wrap.append(row, d);
+    return wrap;
+  }
+  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || !p) return row; // Task 51: 募集も削除・差し戻しの対象外（上） // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
   // Task 43: 小さな「…」→ 行の下にメニュー（もう一度押すと閉じる）
   //   「…」は行の右端（「›」の場所）に重ねる（行の幅を減らさない＝4項目が1行に収まる）
   const wrap = mk('div', 'si-fwrap');
@@ -266,7 +279,7 @@ async function siFieldOpen(it) {
   if (it.type === 'estimate') return siMakeEstimate(it);
   if (it.type === 'report') return siMakeReport(it);
   if (it.type === 'message') return siOpenMessage(it);
-  if (it.type === 'call') { location.hash = '#f/msg/all'; return; } // Task 51: 全体のトークの募集のカードで「行けます」
+  if (it.type === 'call') { const k = siKey(it); si.menu = si.menu === k ? null : k; siRender(); return; } // Task 63: 行の下に詳細（返事は全体のトークのカード）
   if (it.type === 'conditions' || it.type === 'schedule') { location.hash = '#f/msg/' + it.caseRow.id; return; } // Task 47: トークの条件のカード・Task 50: 日程のカード（ボタンで選ぶ・候補を出す）
   location.hash = '#f/case/' + it.caseRow.id + '/phase/' + it.phase.id;
 }

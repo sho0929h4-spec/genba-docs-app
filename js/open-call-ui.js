@@ -101,6 +101,59 @@ function ocList() {
 }
 const ocListInvalidate = () => { ocListCache = null; };
 
+// Task 63: 募集の「いつ・どこ・詳細」（全体のトークのカードとタスクの詳細で共通）。p = 対応、c = 案件（case_summaries の行か open_call_cases の行）
+//   いつ = 募集の日時の文（範囲があれば到着の範囲）／どこ = 物件名 号室・住所・「地図を開く」（Google マップ。CaseLogic.mapUrls）／
+//   詳細 = 号室ごとの1行（RequestView.visitRows）＋依頼内容（RequestView.build の plain: 写真なし）。4行ほどで折りたたみ「続きを見る」
+//   住所・依頼内容は DB（081）が募集中の間だけ返す
+function ocInfoEl(p, c, idp) {
+  const box = mk('div', 'oc-info');
+  box.id = idp + '-info';
+  const row = (k, label) => {
+    const r = mk('div', 'oc-i-row');
+    r.dataset.k = k;
+    r.appendChild(mk('span', 'oc-i-k', label));
+    const v = mk('div', 'oc-i-v');
+    r.appendChild(v);
+    box.appendChild(r);
+    return v;
+  };
+  const range = PhaseLogic.callRangeText(p);
+  row('when', 'いつ').textContent = PhaseLogic.callWhen(p) + (range ? '（' + range + ' に到着）' : '');
+  const where = row('where', 'どこ');
+  where.appendChild(mk('div', 'oc-i-place', PhaseLogic.placeName(c) || '（物件名なし）'));
+  const map = CaseLogic.mapUrls(c.address);
+  if (map) {
+    where.appendChild(mk('div', 'oc-i-addr', c.address));
+    const a = Icon.prepend(mk('a', 'oc-i-map', '地図を開く'), 'pin', 14);
+    a.href = map.google;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    where.appendChild(a);
+  } else where.appendChild(mk('div', 'oc-i-addr none', '住所の登録はありません'));
+  const det = row('detail', '詳細');
+  const body = mk('div', 'oc-i-body clamp');
+  body.id = idp + '-detail';
+  body.appendChild(RequestView.visitRows(p.plan, c, p.kind));
+  const req = RequestView.build(c.request, { plain: true });
+  if (req) body.appendChild(req);
+  det.appendChild(body);
+  const more = dBtn('続きを見る', 'rq-more oc-i-more', b => {
+    const open = body.classList.toggle('clamp') === false;
+    b.textContent = open ? '閉じる' : '続きを見る';
+    b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-controls', body.id);
+  more.hidden = true;
+  det.appendChild(more);
+  // 折りたたむのは収まらないときだけ（画面に出た後に高さを測る。測れない＝隠れているときは全部出す）
+  requestAnimationFrame(() => {
+    if (body.isConnected && body.scrollHeight > body.clientHeight + 1) more.hidden = false;
+    else body.classList.remove('clamp');
+  });
+  return box;
+}
+
 // 全体のトークの募集のカード。x = TalkLogic の kind 'call'（phase, caseRow, state, takerName, takerId, mine）。o: { me, isOwner, onDone(text) }
 function ocCardEl(x, o) {
   const p = x.phase || {};
@@ -114,6 +167,7 @@ function ocCardEl(x, o) {
   const t = mk('div', 'oc-text', x.text);
   t.id = 'oc-text-' + x.id;
   box.appendChild(t);
+  if (x.state === 'open' && x.caseRow) box.appendChild(ocInfoEl(p, x.caseRow, 'oc-' + x.id)); // Task 63: いつ・どこ・詳細
   const err = schErr();
   const done = async text => { ocListInvalidate(); o.onDone(text); };
   if (x.state === 'open' && x.mine) {

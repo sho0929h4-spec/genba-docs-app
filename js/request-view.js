@@ -60,11 +60,12 @@ const RequestView = (() => {
   }
 
   // 依頼内容の区画（読むだけ）。空なら null
-  //   o: { photoUrl(path) → Promise<url>, title（見出し。空なら出さない）, id, cls }
+  //   o: { photoUrl(path) → Promise<url>, title（見出し。空なら出さない）, id, cls,
+  //        plain（Task 63: 項目ごとの折りたたみ・写真を出さない。募集のカード・タスクの詳細） }
   function build(raw, o) {
     const opt = o || {};
     const PL = L();
-    if (!PL.hasRequest(raw)) return null;
+    if (opt.plain ? !PL.requestItems(raw).length : !PL.hasRequest(raw)) return null;
     const r = PL.normalizeRequest(raw);
     const box = el('div', 'rq-view' + (opt.cls ? ' ' + opt.cls : ''));
     if (opt.id) box.id = opt.id;
@@ -79,10 +80,10 @@ const RequestView = (() => {
           chips.appendChild(el('span', 'rq-chip', x.key === 'other' && String(r.symptomOther).trim() ? 'その他（' + String(r.symptomOther).trim() + '）' : x.label));
         });
         row.appendChild(chips);
-      } else row.appendChild(foldText(it.text, it.key === 'text' ? 'main' : ''));
+      } else row.appendChild(opt.plain ? el('div', 'rq-t' + (it.key === 'text' ? ' main' : ''), it.text) : foldText(it.text, it.key === 'text' ? 'main' : ''));
       box.appendChild(row);
     });
-    if (r.photos.length) {
+    if (r.photos.length && !opt.plain) {
       const row = el('div', 'rq-row');
       row.dataset.key = 'photos';
       row.appendChild(el('div', 'rq-k', '事前に共有された写真（' + r.photos.length + '枚・押すと拡大）'));
