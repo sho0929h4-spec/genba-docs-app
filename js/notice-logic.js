@@ -38,7 +38,7 @@
     { id: 'workName',     label: '工事名称' }
   ];
 
-  const DEFAULT_WORK_NAME = '復旧工事';
+  const DEFAULT_WORK_NAME = '工事';
 
   const defaultWorkTypes = () => {
     const o = {};

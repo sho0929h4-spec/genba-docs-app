@@ -191,7 +191,7 @@ function openField(fm) {
   if (fm.view === 'cases') { fd.msg = fdFlash; fdFlash = ''; fdBar('現場ドキュメント'); fdRenderCases(); return fdLoadCases(seq); }
   if (fm.view === 'case') { fdBar('案件', '‹ 案件', '#f'); fdRenderCase(); return fdLoadCase(seq); }
   if (fm.view === 'history') { fdBar('過去の対応履歴', '‹ 案件', '#f'); fdRenderHistory(); return fdLoadCase(seq); }
-  if (fm.view === 'survey') { fdBar('調査の内容', ...fdSurveyBack(fd)); fdRenderSurvey(); return fdLoadSurvey(seq); }
+  if (fm.view === 'survey') { fdBar('現地確認の内容', ...fdSurveyBack(fd)); fdRenderSurvey(); return fdLoadSurvey(seq); }
   if (fm.view === 'tasks') {
     if (location.hash === '#f/inbox') fdReplace('#f/tasks');
     fdBar('タスク');
@@ -478,6 +478,45 @@ function fdRenderCases() {
   if (calHost) calMount(calHost, fdCalOpts(s));
 }
 
+// Task 64: 表題・名前を直す（リンク → 画面内の欄。閉じるのは「キャンセル」と保存だけ）
+function fdLabelEl(s, p) {
+  const other = p.kind === 'other';
+  const box = mk('div', 'fd-label-edit');
+  box.id = 'fd-label-edit';
+  if (s.labelEdit !== p.id) {
+    box.appendChild(dBtn(other ? '名前を変える' : p.label ? '表題を変える' : '表題を付ける', 'linkbtn', () => {
+      s.labelEdit = p.id; s.labelText = p.label || ''; fdRenderCase();
+      const i = $('fd-label-input'); if (i) i.focus();
+    }));
+    return box;
+  }
+  const lb = mk('label', 'fd-new-k', other ? 'その他の名前' : '工事の表題（任意・空なら「工事」）');
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.id = 'fd-label-input';
+  inp.maxLength = PhaseLogic.LABEL_MAX;
+  inp.placeholder = other ? '例: 点検・清掃' : '例: 給水管交換工事';
+  inp.value = s.labelText || '';
+  inp.addEventListener('input', () => { s.labelText = inp.value; });
+  lb.htmlFor = inp.id;
+  const err = mk('div', 'err', '');
+  err.setAttribute('role', 'alert');
+  const save = dBtn('保存', 'btn sm', btn => withBusy(btn, async () => {
+    try { await PhasesApi.setLabel(p, inp.value); }
+    catch (e) { err.textContent = '保存できませんでした: ' + errText(e); return; }
+    s.labelEdit = null; s.labelText = '';
+    fieldRowsInvalidate();
+    if (fdAlive(s)) fdReloadCase(s);
+  }));
+  save.id = 'fd-label-save';
+  const cancel = dBtn('キャンセル', 'btn sm ghost', () => { s.labelEdit = null; s.labelText = ''; fdRenderCase(); });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); save.click(); } });
+  const row = mk('div', 'fd-label-row');
+  row.append(inp, save, cancel);
+  box.append(lb, row, err);
+  return box;
+}
+
 function fdKindBadge(kind) {
   return mk('span', 'ph-kind k-' + kind, PhaseLogic.kindLabel(kind));
 }
@@ -499,7 +538,7 @@ function fdCaseCard(it) {
   const when = it.group === 'today' || it.group === 'tomorrow' ? it.time : it.group === 'none' ? '対応なし' : it.when;
   top.appendChild(mk('b', 'fd-when', when));
   if (p) top.appendChild(fdKindBadge(p.kind));
-  if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', p.kind === 'other' ? String(p.label || '').trim() : it.title.replace(PhaseLogic.kindLabel(p.kind), '').trim()));
+  if (p) top.appendChild(mk('span', 'fd-tiny fd-ph-title', PhaseLogic.titleNote(p, it.seq, it.seq > 1))); // Task 64: 「2回目」・表題・（原因元）・その他の名前
   main.appendChild(top);
   main.appendChild(mk('span', 'fd-place', PhaseLogic.placeName(c) || '（物件名なし）'));
   if (it.visit) main.appendChild(Icon.prepend(mk('span', 'fd-visit-short', it.visit), 'door', 14)); // Task 31: 今回行く部屋「101・201号室」
@@ -666,6 +705,8 @@ function fdRenderCase() {
   ph.appendChild(mk('b', null, fdTitleOf(c, sel)));
   ph.appendChild(mk('span', 'fd-tiny', PhaseLogic.fieldWhen(sel.scheduled_at, new Date())));
   nodes.push(ph);
+  // Task 64: 自分で登録した案件は工事の表題・その他の名前を直せる（管理者の案件は管理者が直す。DB も 42501）
+  if (c.created_by === fdMe() && PhaseLogic.isWork(sel.kind)) nodes.push(fdLabelEl(s, sel));
   const st = PhaseLogic.stage(sel, null, new Date(), { me: fdMe() });
   // Task 40: 自分が提出した報告書は「🔴 報告書を送る」（管理者の仕事）でなく「報告書 提出済み 10/22（管理者の確認待ち）」
   const sub = sel.worker_id === fdMe() ? PhaseLogic.fieldSubmitted(sel) : null;
@@ -740,7 +781,7 @@ function fdRenderHistory() {
   const wrap = mk('div', 'fd-list');
   wrap.id = 'fd-history';
   if (!list.length) {
-    const e = mk('div', 'empty', 'この案件にはまだ対応（調査・工事）がありません。管理者に登録してもらってください');
+    const e = mk('div', 'empty', 'この案件にはまだ対応（現地確認・工事）がありません。管理者に登録してもらってください');
     e.id = 'fd-no-phase';
     wrap.appendChild(e);
   }
@@ -781,7 +822,7 @@ async function fdLoadSurvey(seq) {
       ReportsApi.listByCase(s.caseId),
       s.estId ? EstimatesApi.get(s.estId) : null
     ]);
-  } catch (e) { err = '調査の内容を読み込めませんでした: ' + errText(e); }
+  } catch (e) { err = '現地確認の内容を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
   s.loading = false;
   s.err = err;
@@ -808,15 +849,15 @@ function fdRenderSurvey() {
   const c = s.data.caseRow;
   const place = PhaseLogic.placeName(c) || '（物件名なし）';
   fdBar(place, back[0], back[1]);
-  document.title = '調査の内容 ' + place + ' - 現場ドキュメント';
+  document.title = '現地確認の内容 ' + place + ' - 現場ドキュメント';
   const phases = Array.isArray(c.phases) ? c.phases : [];
   const ph = phases.find(p => p.id === s.phaseId && p.kind === 'survey');
   const nodes = [];
-  const h = mk('div', 'fd-h', '調査の内容（見るだけ）');
+  const h = mk('div', 'fd-h', '現地確認の内容（見るだけ）');
   h.id = 'fd-survey-h';
   nodes.push(h);
   if (!ph) {
-    const e = mk('div', 'empty', 'この調査は見つかりません（消された可能性があります）。管理者に確かめてください');
+    const e = mk('div', 'empty', 'この現地確認は見つかりません（消された可能性があります）。管理者に確かめてください');
     e.id = 'fd-survey-none';
     nodes.push(e);
   } else {
@@ -1385,7 +1426,7 @@ function fdPhoneNorm(v) {
 /* ---------- #f/new 案件の登録（Task 37） ---------- */
 let fdNewDraft = null; // 入力中の値（画面を離れても残す。登録したら消す）
 const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', end: '', kind: '', label: '', request: '', wk: 'pick', worker: '' }); // Task 51: 作業担当者の決め方（worker 空 = 自分）
-const FD_NEW_KINDS = () => PhaseLogic.KINDS.map(k => ({ key: k.key, label: k.label }));
+const FD_NEW_KINDS = () => PhaseLogic.CHOICE_KINDS.map(k => ({ key: k.key, label: k.label })); // Task 64: 現地確認／工事／その他
 function fdRenderNew() {
   const s = fd;
   const host = $('field-root');
@@ -1442,7 +1483,7 @@ function fdRenderNew() {
   endBox.id = 'fd-new-f-end';
   card.appendChild(atBox);
   card.appendChild(endBox);
-  // フェーズ（4つから1つ。押して選ぶ）
+  // フェーズ（3つから1つ。押して選ぶ。Task 64）
   const kb = mk('div', 'fd-set-f fd-new-f');
   kb.id = 'fd-new-f-kind';
   kb.appendChild(head('フェーズ', true));
@@ -1451,13 +1492,21 @@ function fdRenderNew() {
   chips.setAttribute('aria-label', 'フェーズ');
   const labelBox = field('label', 'その他の名前', { req: true, ph: '例: 点検・清掃', max: PhaseLogic.LABEL_MAX });
   labelBox.classList.add('fd-new-label');
+  // Task 64: 工事は表題（任意）、その他は名前（必須）。同じ欄の見出しと例を入れ替える
+  let labelHead = labelBox.firstChild;
+  const labelInp = labelBox.querySelector('input');
   const paint = () => {
     chips.querySelectorAll('button').forEach(b => {
       const on = b.dataset.kind === v.kind;
       b.classList.toggle('on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     });
-    labelBox.hidden = v.kind !== 'other';
+    labelBox.hidden = v.kind !== 'other' && v.kind !== 'repair';
+    const work = v.kind === 'repair';
+    labelHead.replaceWith(head(work ? '工事の表題（任意）' : 'その他の名前', !work));
+    labelHead = labelBox.firstChild;
+    labelInp.placeholder = work ? '例: 給水管交換工事' : '例: 点検・清掃';
+    if (work) labelInp.removeAttribute('aria-required'); else labelInp.setAttribute('aria-required', 'true');
   };
   FD_NEW_KINDS().forEach(k => {
     const b = dBtn(k.label, 'fd-new-kind k-' + k.key, () => {

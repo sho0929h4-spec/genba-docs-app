@@ -160,7 +160,7 @@ async function refreshShares(noRender) {
 }
 const shrPhases = () => (shrSummary && Array.isArray(shrSummary.phases) ? shrSummary.phases : []);
 function shrTitle(p) {
-  const same = shrPhases().filter(x => x.kind === p.kind);
+  const same = shrPhases().filter(x => PhaseLogic.kindGroup(x.kind) === PhaseLogic.kindGroup(p.kind)); // Task 64: 工事はまとめて数える
   return PhaseLogic.phaseTitle(p, p.seq != null ? p.seq : same.indexOf(p) + 1);
 }
 
@@ -174,7 +174,7 @@ function buildShare() {
     '対応フェーズを作ると、そのフェーズの報告書と担当者URLが自動でできます（報告書1件につき1本・期限なし）。' +
     'このURLを開いた人ができること: この報告書の入力と写真の追加、提出だけ。ログイン不要。' +
     '他の案件・金額・タイムライン・依頼元の連絡先は見えません。提出するとURLは使えなくなります。社内でも同じ報告書を開いて編集できます。'));
-  if (!shrPhases().length) card.appendChild(mk('div', 'empty', '対応フェーズがまだありません。案件ページで「＋ 調査」などを押すと、担当者URLができます'));
+  if (!shrPhases().length) card.appendChild(mk('div', 'empty', '対応フェーズがまだありません。案件ページで「＋ 現地確認」などを押すと、担当者URLができます'));
   const listErr = mk('div', 'err');
   listErr.id = 'shr-list-err';
   const list = mk('div');

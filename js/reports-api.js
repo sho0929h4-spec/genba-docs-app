@@ -235,7 +235,7 @@ const ReportsApi = (() => {
         if (!next && !promise) return null;
         const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
         return await PhasesApi.saveResult(ph, next || ph.result, caseRow, window.PhaseLogic.phaseTitle(ph, seq), { next: d.nextAction });
-      } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
+      } catch (e) { console.warn('現地確認結果への反映に失敗', e); return null; }
     },
     // Task 27: 担当者URLから提出された調査の報告書（ログインなしの提出は下書きを作れない）→ 管理画面を開いたときに「調査結果のご報告」を作り直す。
     //   rows: case_summaries の行。提出から30日以内・このフェーズの「調査結果のご報告」が提出の後に作られた／更新されたものが無いときだけ
@@ -265,7 +265,7 @@ const ReportsApi = (() => {
         try {
           const full = await api.get(report.id);
           if (full && full.status !== 'draft' && await api.syncSurveyResult(full)) n += 1;
-        } catch (e) { console.warn('調査結果のご報告の作り直しに失敗', e); }
+        } catch (e) { console.warn('現地確認結果のご報告の作り直しに失敗', e); }
       }
       return n;
     },

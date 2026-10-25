@@ -325,9 +325,9 @@ function siItemEl(it) {
     row.appendChild(mk('div', 'rep-sub', [it.from ? it.from + 'さんから' : '', PhaseLogic.fmtMDHM(it.fromAt)].filter(Boolean).join(' ') +
       (it.tomorrow ? ' ・ 前日のお知らせ' : '')));
   } else if (it.type === 'estimate') {
-    row.appendChild(mk('div', 'rep-sub', (it.name === '調査の見積書作成' ? '調査の報告書を提出した翌日が期限です' : '調査報告の「次の対応方針」で決まった期限です') + '。見積書を提出するまで残ります')); // Task 45
+    row.appendChild(mk('div', 'rep-sub', (it.name === '現地確認の見積書作成' ? '現地確認の報告書を提出した翌日が期限です' : '現地確認報告の「次の対応方針」で決まった期限です') + '。見積書を提出するまで残ります')); // Task 45
   } else if (it.type === 'report') {
-    row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '作業が終わってから1時間以内が期限です（作業終了時間が無ければ、調査日時の3時間後を作業の終わりとみなします）'
+    row.appendChild(mk('div', 'rep-sub', (p.kind === 'survey' ? '作業が終わってから1時間以内が期限です（作業終了時間が無ければ、現地確認日時の3時間後を作業の終わりとみなします）'
       : '工事日の翌日が期限です') + '。報告書を提出するまで残ります' + (it.late ? '（管理者にも知らせています）' : '')));
   } else if (it.caseRow.address) {
     row.appendChild(Icon.prepend(mk('div', 'rep-sub', it.caseRow.address), 'pin', 14));

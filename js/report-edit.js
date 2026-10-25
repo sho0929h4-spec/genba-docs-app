@@ -593,12 +593,15 @@ async function openReport(id) {
   else if (restored) edFlush(s);
 }
 
-// フェーズ付きの報告書 → { type: 作業区分, title: '調査 1回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）
+// フェーズ付きの報告書 → { type: 作業区分, title: '現地確認 2回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）
 function edFixedOf(r, info) {
   if (!r.phase_id) return null;
   const phases = info && Array.isArray(info.phases) ? info.phases : [];
   const p = phases.find(x => x.id === r.phase_id) || null;
-  const type = (p && ReportLogic.WORK_TYPE_OF_PHASE[p.kind]) || (ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate');
+  const want = p && ReportLogic.WORK_TYPE_OF_PHASE[p.kind];
+  // Task 64: 工事は設備修繕の書式にそろえたが、082 より前に作った復旧工事の書式（restore）の報告書はそのまま（入力を失わない）
+  const keep = !!want && PhaseLogic.isWork(p.kind) && r.work_type === 'restore';
+  const type = keep ? r.work_type : want || (ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate');
   const title = p && typeof PhaseLogic !== 'undefined' ? PhaseLogic.phaseTitle(p, p.seq) : '';
   return { type, title };
 }

@@ -135,7 +135,7 @@ function caseRowEl(r, now) {
   const all = PhaseLogic.caseNext(r.phases, now || new Date(), { me: ctx && ctx.user ? ctx.user.id : null }); // Task 25: 見ている人で段階が変わる
   const next = r.status === 'done' ? all.filter(x => x.key === 'payment') : all;
   const kindCount = {};
-  (r.phases || []).forEach(p => { kindCount[p.kind] = (kindCount[p.kind] || 0) + 1; });
+  (r.phases || []).forEach(p => { const g = PhaseLogic.kindGroup(p.kind); kindCount[g] = (kindCount[g] || 0) + 1; }); // Task 64: 工事は cause・repair をまとめて
   next.slice(0, NEXT_MAX).forEach(x => el.appendChild(nextLineEl(r, x, kindCount)));
   if (next.length > NEXT_MAX) el.appendChild(mk('div', 'nx-more', 'ほか ' + (next.length - NEXT_MAX) + '件'));
 
@@ -149,13 +149,16 @@ function caseRowEl(r, now) {
   return el;
 }
 
-// 「[調査] 次: ● 10/20 9:00 調査に行く」（● は自社の番＝赤・相手待ち＝琥珀の小さな丸）。同じ種類が複数あれば何回目、作業担当者が案件の担当者と違えば名前を添える
+// 「[現地確認] 次: ● 10/20 9:00 現地確認に行く」（● は自社の番＝赤・相手待ち＝琥珀の小さな丸）。同じ種類が複数あれば何回目、作業担当者が案件の担当者と違えば名前を添える
 function nextLineEl(r, x, kindCount) {
   const nx = mk('div', 'nx-line' + (x.late ? ' late' : ''));
   nx.dataset.phase = x.phaseId || '';
   nx.dataset.ball = x.ball;
   const k = PhaseLogic.KINDS.find(z => z.key === x.kind);
-  nx.appendChild(mk('span', 'ph-kind k-' + x.kind, (k ? k.short : '') + (kindCount[x.kind] > 1 ? ' ' + x.seq + '回目' : '')));
+  // Task 64: 工事は表題（長ければ10字で切る）・（原因元）（復旧）、ほかは2つ以上なら「N回目」
+  const ph = (r.phases || []).find(p => p.id === x.phaseId) || { kind: x.kind };
+  const note = Array.from(PhaseLogic.titleNote(ph, x.seq, kindCount[PhaseLogic.kindGroup(x.kind)] > 1));
+  nx.appendChild(mk('span', 'ph-kind k-' + x.kind, (k ? k.short : '') + (note.length ? (note[0] === '（' ? '' : ' ') + (note.length > 10 ? note.slice(0, 10).join('') + '…' : note.join('')) : '')));
   const nt = mk('span', 'nx-text', '次: ');
   nt.append(Icon.dot(x.ball, x.ball === 'them' ? '相手待ち' : '自社の番'), PhaseLogic.nextText(x));
   nx.appendChild(nt);
@@ -323,6 +326,8 @@ async function openCaseModal(row, onSaved, opts) {
   caseModalWhen = ocWhenDefault(null); // Task 60
   caseModalModeDraw();
   $('cm-call-kind').value = 'survey';
+  $('cm-call-label').value = '';
+  cmCallKindDraw();
   $('cm-call-at').value = '';
   $('cm-call-end').value = '';
   const sel = $('cm-assignee');
@@ -420,6 +425,11 @@ async function saveCaseModal() {
     const w = PhaseLogic.callWindow(when, caseModalWhen.hour);
     if (w.error) { setMsg('cm-msg', w.error); return; }
   }
+  // Task 64: 募集する対応 = 現地確認／工事（表題は任意）／その他（名前は必須）
+  const callKind = call ? $('cm-call-kind').value : '';
+  const callLabel = call && callKind !== 'survey' ? $('cm-call-label').value.trim() : '';
+  if (call && callKind === 'other' && !callLabel) { setMsg('cm-msg', '「その他」の名前を入れてください（例: 点検・清掃）'); $('cm-call-label').focus(); return; }
+  if (Array.from(callLabel).length > PhaseLogic.LABEL_MAX) { setMsg('cm-msg', (callKind === 'other' ? '「その他」の名前' : '工事の表題') + 'は' + PhaseLogic.LABEL_MAX + '文字までです'); $('cm-call-label').focus(); return; }
   const callAt = when === 'fixed' && $('cm-call-at').value ? PhaseLogic.jstInput($('cm-call-at').value) : null;
   if (when === 'fixed' && !callAt) { setMsg('cm-msg', $('cm-call-at').value ? '募集の日時の形が正しくありません' : '「日時を決める」は日時（開始）を入れてください'); $('cm-call-at').focus(); return; }
   // Task 58: 終わり（任意。空なら1時間扱い）
@@ -455,7 +465,7 @@ async function saveCaseModal() {
   if (created && call) {
     try {
       const kind = $('cm-call-kind').value;
-      const ph = await PhasesApi.create(created.id, kind, created, null);
+      const ph = await PhasesApi.create(created.id, kind, created, null, callLabel); // Task 64: 工事の表題・その他の名前
       if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString(), scheduled_end: callEnd ? callEnd.toISOString() : null });
       await PhasesApi.openCall(ph.id, when, caseModalWhen.hour); // Task 60: いつ来てほしいか
     } catch (e) { callErr = '案件は作りましたが、一斉配信にできませんでした（案件ページの対応の表「担当者」から出し直せます）: ' + (e && e.message ? e.message : e); }
@@ -484,7 +494,17 @@ async function saveCaseModal() {
   } catch (e) { console.warn('保存後の処理に失敗', e); }
 }
 
+// Task 64: 一斉配信の「募集する対応」の下の欄（工事 = 表題（任意）・その他 = 名前・現地確認 = 出さない）
+function cmCallKindDraw() {
+  const k = $('cm-call-kind').value;
+  $('cm-call-label-box').hidden = k === 'survey';
+  $('cm-call-label-lb').firstChild.textContent = k === 'other' ? 'その他の名前 ' : '工事の表題 ';
+  $('cm-call-label-opt').textContent = k === 'other' ? '必須' : '任意';
+  $('cm-call-label').placeholder = k === 'other' ? '例: 点検・清掃' : '例: 給水管交換工事';
+}
+
 function bindCaseList() {
+  $('cm-call-kind').addEventListener('change', () => { setMsg('cm-msg', ''); cmCallKindDraw(); });
   $('case-search').addEventListener('input', renderCaseList);
   $('cm-assignee').addEventListener('change', () => { caseModalAssigneeTouched = true; });
   $('cm-client').addEventListener('change', () => { caseModalClientTouched = true; setMsg('cm-msg', ''); renderClientInfo(); });

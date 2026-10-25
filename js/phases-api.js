@@ -6,7 +6,7 @@ const PhasesApi = (() => {
   const must = ({ data, error }) => { if (error) throw error; return data; };
   const UPDATE_COLS = ['scheduled_at', 'scheduled_end', 'done_at', 'bill_to_type', 'bill_to_name', 'billing_mode',
     'billing_month', 'billed_at', 'paid_at', 'amount_override', 'note', 'result', 'payment_due', 'plan', // result: 調査結果（023）・payment_due: 入金期限（024）・plan: 現場担当への指示（025・028 で用途変更）
-    'worker_id', 'notified_at', 'ack_at']; // 026: 作業担当者・知らせた・確認した（時刻と「誰が」は DB のトリガーが入れ直す）
+    'worker_id', 'notified_at', 'ack_at', 'label']; // 082: 工事の表題・その他の名前（直せるのは管理者と自分で登録した案件の作業担当者。DB のトリガーが確かめる）。026: 作業担当者・知らせた・確認した（時刻と「誰が」は DB のトリガーが入れ直す）
   const pick = (obj, cols) => {
     const out = {};
     for (const k of cols) if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
@@ -95,22 +95,38 @@ const PhasesApi = (() => {
     // 請求のしかたは元請マスタから写す（請求先は元請が既定。月ごとの元請なら monthly）
     // Task 25: 作ったら、そのフェーズの報告書（下書き・作業区分はフェーズで固定）と担当者URL（期限なし・1本）も自動で作る
     //   （失敗してもフェーズは作れたことにする。画面を開いたときに無ければ作り直す: ReportsApi.ensurePhaseReport）
-    //   title: 「調査 2回目」など（タイムラインの記録用。省略すると種類の名前）
-    //   Task 37: その他（kind 'other'）は label（名前・1〜40字）が必須。ほかの種類には付けない
-    async create(caseId, kind, caseRow, title, label) {
+    //   title: 「現地確認 2回目」など（タイムラインの記録用。省略すると種類の名前）
+    //   Task 37: その他（kind 'other'）は label（名前・1〜40字）が必須。Task 64: 工事は label（表題）が任意。現地確認には付けない
+    //   Task 64: 新しく作る工事は repair（cause を渡しても repair で作る）
+    async create(caseId, kind0, caseRow, title, label) {
+      const kind = kind0 === 'cause' ? 'repair' : kind0;
       if (!PL().KIND_KEYS.includes(kind)) throw new Error('フェーズの種類が正しくありません');
-      const name = kind === 'other' ? String(label == null ? '' : label).trim() : '';
+      const name = kind === 'survey' ? '' : String(label == null ? '' : label).trim();
       if (kind === 'other' && !name) throw new Error('「その他」の名前を入れてください（例: 点検・清掃）');
+      if (Array.from(name).length > PL().LABEL_MAX) throw new Error((kind === 'other' ? '「その他」の名前' : '工事の表題') + 'は' + PL().LABEL_MAX + '文字までです');
       const monthly = !!(caseRow && caseRow.client_id && caseRow.client_billing_mode === 'monthly');
       const ins = { case_id: caseId, kind, billing_mode: monthly ? 'monthly' : 'single' };
-      if (kind === 'other') ins.label = name;
+      if (name) ins.label = name;
       const row = must(await sb.from('case_phases').insert(ins).select().single());
-      const what = kind === 'other' ? PL().phaseTitle({ kind, label: name }) : PL().kindLabel(kind);
+      const what = PL().phaseTitle({ kind, label: name });
       await logSystem(caseId, () => `${what}を追加した`);
       if (typeof ReportsApi !== 'undefined') {
         try { row.autoReport = await ReportsApi.ensurePhaseReport(row, caseRow, { reports: [], title: title || what }); }
         catch (e) { console.warn('報告書と担当者URLを自動で作れませんでした（画面を開いたときに作り直します）', e); }
       }
+      return row;
+    },
+    // Task 64: 工事の表題・その他の名前を直す（空 = 表題なし。その他は空にできない）。タイムラインに「前の呼び名 → 新しい呼び名」
+    async setLabel(phase, label) {
+      const name = String(label == null ? '' : label).trim();
+      const other = phase.kind === 'other';
+      if (!PL().isWork(phase.kind)) throw new Error('現地確認には表題を付けられません');
+      if (other && !name) throw new Error('「その他」の名前を入れてください（例: 点検・清掃）');
+      if (Array.from(name).length > PL().LABEL_MAX) throw new Error((other ? '「その他」の名前' : '工事の表題') + 'は' + PL().LABEL_MAX + '文字までです');
+      const before = PL().phaseTitle(phase);
+      const row = await this.update(phase.id, { label: name || null });
+      const after = PL().phaseTitle(Object.assign({}, phase, row));
+      if (before !== after) await logSystem(phase.case_id, `${before}の${other ? '名前' : '表題'}を「${after}」にした`);
       return row;
     },
     async update(id, fields) {
@@ -148,7 +164,7 @@ const PhasesApi = (() => {
         throw err;
       } finally {
         const after = row.scheduled_at || null;
-        const what = phase.kind === 'survey' ? '調査日時' : '工事日';
+        const what = phase.kind === 'survey' ? '現地確認日時' : '工事日';
         const t = v => (v ? Date.parse(v) : null);
         if (t(before) !== t(after)) {
           await logSystem(phase.case_id, () => after
@@ -251,11 +267,11 @@ const PhasesApi = (() => {
           }).select().single());
         }
       } catch (e) {
-        const err = new Error('調査結果は保存しましたが、「調査結果のご報告」の下書きを作れませんでした: ' + (e && e.message ? e.message : e));
+        const err = new Error('現地確認結果は保存しましたが、「現地確認結果のご報告」の下書きを作れませんでした: ' + (e && e.message ? e.message : e));
         err.phase = row;
         throw err;
       } finally {
-        if (first) await logSystem(phase.case_id, `${title}の調査結果を記録した`);
+        if (first) await logSystem(phase.case_id, `${title}の現地確認結果を記録した`);
       }
       // Task 25: 報告書はフェーズを作ったときにできている → まだ触っていない下書きの初期値（原因はその報告書の号室の区画）を入れ直す
       if (phase.kind === 'survey' || row.kind === 'survey') {

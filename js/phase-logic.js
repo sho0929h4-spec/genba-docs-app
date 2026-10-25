@@ -1,4 +1,4 @@
-// js/phase-logic.js — 対応フェーズ（調査・原因元工事・復旧工事）の純粋関数（ブラウザ: window.PhaseLogic / node: module.exports）
+// js/phase-logic.js — 対応フェーズ（現地確認・工事・その他）の純粋関数（ブラウザ: window.PhaseLogic / node: module.exports）
 // 社内画面のフェーズカード・案件一覧の「次:」・連絡メール／リマインド・請求の一覧で使う。
 // 時刻はすべて日本時間（UTC+9 固定。日本に夏時間は無い）で判定・表示する。実行環境のタイムゾーンには依存しない
 // （getHours 等のローカル関数は使わず、+9時間ずらした値を getUTC* で読む）。
@@ -11,20 +11,29 @@
 // 段階は見ている人（opts.me = user_id）で変わる（Task 25）: 作業担当者が自分以外 → 🟡 報告待ち、別の人が提出 → 🔴 報告書を確認する
 // 見積・報告書は estimates / reports 表の行そのもの（全版）を渡してもよい（superseded を除いて同じ判定になる）。
 (function (root) {
+  // Task 64: 表示は 現地確認／工事／その他 の3つ。DB の kind は互換のため4つのまま（cause は既存データの読み取りだけ。新しい工事は repair）
   const KINDS = [
-    { key: 'survey', label: '調査', short: '調査', color: 'blue' },
-    { key: 'cause', label: '原因元工事', short: '原因元', color: 'orange' },
-    { key: 'repair', label: '復旧工事', short: '復旧', color: 'green' },
+    { key: 'survey', label: '現地確認', short: '現地確認', color: 'blue' },
+    { key: 'cause', label: '工事', short: '工事', color: 'orange' },
+    { key: 'repair', label: '工事', short: '工事', color: 'orange' },
     // Task 37 / migration 058: その他（名前は自由。case_phases.label・40字まで）。段階・報告書・見積書・工事掲示・請求は工事と同じ流れ
     { key: 'other', label: 'その他', short: 'その他', color: 'gray' }
   ];
   const KIND_KEYS = KINDS.map(k => k.key);
+  // 選ぶ所（案件登録・新規案件・対応の表の「＋」・一斉配信）に出す3つ
+  const CHOICE_KINDS = KINDS.filter(k => k.key !== 'cause');
   const kindOf = key => KINDS.find(k => k.key === key) || null;
   const kindLabel = key => (kindOf(key) || {}).label || '';
   const isWork = key => key === 'cause' || key === 'repair' || key === 'other';
-  const LABEL_MAX = 40; // その他の名前（DB の case_phases_label_check と同じ）
-  // 作業の名前: その他はフェーズの名前（点検）、ほかは種類の名前（原因元工事）。名前の無いその他は「その他」
-  const workName = (kind, phase) => (kind === 'other' ? str(phase && phase.label) || kindLabel('other') : kindLabel(kind));
+  const isConstruction = key => key === 'cause' || key === 'repair';
+  // 何回目を数えるまとまり（cause と repair は同じ「工事」。case_summaries.seq も migration 082 から同じ数え方）
+  const kindGroup = key => (isConstruction(key) ? 'work' : key);
+  const LABEL_MAX = 40; // その他の名前・工事の表題（DB の case_phases_label_check と同じ）
+  // migration 082 より前の工事（legacy_kind）で表題が無いものは、元の種類が分かるように括弧で出す
+  const LEGACY_NOTE = { cause: '原因元', repair: '復旧' };
+  // 作業の名前: その他はフェーズの名前（点検）、工事は表題（給水管交換工事）か「工事」、現地確認は「現地確認」
+  const workName = (kind, phase) => (kind === 'other' ? str(phase && phase.label) || kindLabel('other')
+    : isConstruction(kind) ? str(phase && phase.label) || kindLabel(kind) : kindLabel(kind));
 
   // 段階の並び（カードのステップ表示用）。stage().key はこのどれか
   const STEPS = {
@@ -32,8 +41,8 @@
     // Task 25: 報告書と担当者URLはフェーズを作ったときに自動でできる。調査日時を過ぎたら、作業担当者が自分以外なら 🟡 報告待ち（名前）、
     //   自分か未設定なら 🔴 報告書を書いて提出（期限 翌日）
     survey: [
-      { key: 'schedule', label: '調査日を決める' },
-      { key: 'visit', label: '調査に行く' },
+      { key: 'schedule', label: '現地確認日を決める' },
+      { key: 'visit', label: '現地確認に行く' },
       { key: 'waiting', label: '報告待ち' },
       { key: 'write', label: '報告書を書いて提出' },
       { key: 'check', label: '報告書を確認する' },
@@ -129,13 +138,29 @@
   }
 
   /* ---------- 表示名 ---------- */
-  // 「調査 1回目」。sameKindIndex 省略時は phase.seq（case_summaries の何回目）
+  // 表示名（Task 64）: 「現地確認」「現地確認 2回目」／工事は表題（給水管交換工事）か「工事」「工事 2回目」。
+  //   082 より前の表題の無い工事は「工事（原因元）」「工事（復旧）」（回目は付けない）。sameKindIndex 省略時は phase.seq（case_summaries の何回目）
   //   Task 37: その他は「その他（点検）」（何回目は付けない。名前が無ければ「その他」）
   function phaseTitle(phase, sameKindIndex) {
-    if (phase && phase.kind === 'other') return str(phase.label) ? `その他（${str(phase.label)}）` : kindLabel('other');
-    const label = kindLabel(phase && phase.kind);
-    const n = Number(sameKindIndex != null ? sameKindIndex : phase && phase.seq);
-    return Number.isInteger(n) && n > 0 ? `${label} ${n}回目` : label;
+    const p = phase || {};
+    if (p.kind === 'other') return str(p.label) ? `その他（${str(p.label)}）` : kindLabel('other');
+    if (isConstruction(p.kind)) {
+      if (str(p.label)) return str(p.label);
+      if (p.kind === 'cause' || p.legacy_kind) return `${kindLabel(p.kind)}（${LEGACY_NOTE[p.kind]}）`;
+    }
+    const label = kindLabel(p.kind);
+    const n = Number(sameKindIndex != null ? sameKindIndex : p.seq);
+    return Number.isInteger(n) && n > 1 ? `${label} ${n}回目` : label;
+  }
+
+  // Task 64: 種類のバッジ（現地確認／工事／その他）の横に出す文。その他の名前・工事の表題 → その名前、
+  //   表題の無い 082 より前の工事 → 「（原因元）」「（復旧）」、ほかは numbered のとき「N回目」（でなければ ''）
+  function titleNote(phase, seq, numbered) {
+    const p = phase || {};
+    if (p.kind === 'other' || (isConstruction(p.kind) && str(p.label))) return str(p.label);
+    if (isConstruction(p.kind) && (p.kind === 'cause' || p.legacy_kind)) return `（${LEGACY_NOTE[p.kind]}）`;
+    const n = Number(seq != null ? seq : p.seq);
+    return numbered && Number.isInteger(n) && n > 0 ? `${n}回目` : '';
   }
 
   /* ---------- 書類の判定 ---------- */
@@ -209,8 +234,8 @@
   // Task 45: 見積書のタスクの名前（調査の見積書作成／再調査の見積書作成／原因元工事の見積書作成）
   function estimateTaskName(phase, todo) {
     const p = phase || {};
-    if (todo && todo.survey) return '調査の見積書作成';
-    return (p.kind === 'survey' ? '再調査' : kindLabel(p.kind) || '工事') + 'の見積書作成';
+    if (todo && todo.survey) return '現地確認の見積書作成';
+    return (p.kind === 'survey' ? '再確認' : workName(p.kind, p) || '工事') + 'の見積書作成';
   }
   // 'YYYY-MM-DD' の n 日後（日付だけで計算。タイムゾーンに依存しない）
   function ymdAdd(ymd, n) {
@@ -336,7 +361,7 @@
         if (rs.state === 'confirmed') return mkStage('report', '報告書を送る', 'us', p.done_at || rs.date);
         if (rs.state === 'submitted') return mkStage('check', '報告書を確認する', 'us', rs.date || p.done_at);
         if (p.done_at) return mkStage('report', '報告書を送る', 'us', p.done_at); // 旧データ（報告書なしで調査済み）
-        if (!p.scheduled_at) return schedStage(p, '調査日を決める', nowAt, o); // Task 50: 日程調整中は誰の番か・期限
+        if (!p.scheduled_at) return schedStage(p, '現地確認日を決める', nowAt, o); // Task 50: 日程調整中は誰の番か・期限
         // Task 23・25: 調査日時を過ぎて報告書が未提出（下書き・担当者URL付きも）→ 作業担当者が自分以外なら 🟡 報告待ち（名前）、
         //   自分か未設定なら 🔴 報告書を書いて提出（期限 翌日。🔔 と同じ期限）
         const rt = reportTodo(p, nowAt, { reports });
@@ -347,7 +372,7 @@
           }
           return mkStage('write', `報告書を書いて提出（期限 ${reportDueText('survey', rt)}）`, 'us', rt.due, { due: rt.due, dueAt: rt.dueAt, late: rt.late });
         }
-        return mkStage('visit', `${fmtMDHM(p.scheduled_at)} 調査に行く`, 'us', p.scheduled_at,
+        return mkStage('visit', `${fmtMDHM(p.scheduled_at)} 現地確認に行く`, 'us', p.scheduled_at,
           { late: isLate(p.scheduled_at, nowAt) });
       }
       const pend = pendingApproval(estimates);
@@ -405,10 +430,10 @@
     const count = {};
     const rows = [];
     list.forEach((p, i) => {
-      count[p.kind] = (count[p.kind] || 0) + 1;
+      count[kindGroup(p.kind)] = (count[kindGroup(p.kind)] || 0) + 1;
       const st = o.byWorker ? workerStage(p, now, o) : stage(p, null, now, o);
-      const base = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
-        seq: p.seq != null ? p.seq : count[p.kind], workerId: p.worker_id || null, workerName: str(p.worker_name) || null };
+      const base = { phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[kindGroup(p.kind)]),
+        seq: p.seq != null ? p.seq : count[kindGroup(p.kind)], workerId: p.worker_id || null, workerName: str(p.worker_name) || null };
       rows.push({ i, row: Object.assign({}, base, { key: st.key, label: st.label, ball: st.ball, date: st.date,
         late: !!st.late, due: st.due || null, dueAt: st.dueAt || null }) });
       // Task 23: 再調査の調査の見積書の期限も1行（やること・🔔 と同じ件数にする）
@@ -431,7 +456,7 @@
     if (row.key === 'check' && row.date) return `${row.label}（提出 ${fmtMD(row.date)}）`;
     if (row.key === 'report' && row.kind !== 'survey') return row.label; // 工事の「完了報告必要」は括弧の補足だけ
     if ((row.key === 'report' || row.key === 'bill') && row.date) {
-      return `${row.label}（${row.kind === 'survey' ? '調査' : '完了'} ${fmtMD(row.date)}）`;
+      return `${row.label}（${row.kind === 'survey' ? '現地確認' : '完了'} ${fmtMD(row.date)}）`;
     }
     return row.label;
   }
@@ -497,7 +522,7 @@
     { key: 'estimate', label: '見積書作成必要', action: 'make_estimate' },
     { key: 'send_estimate', label: '見積書を送付', action: 'send_estimate' },
     { key: 'schedule', label: '日程調整必要', action: 'schedule' },
-    { key: 'visit', label: '調査に行く', action: null },
+    { key: 'visit', label: '現地確認に行く', action: null },
     { key: 'write', label: '報告書を書いて提出', action: 'open_report' },
     { key: 'check', label: '報告書を確認する', action: 'open_report' },
     { key: 'send_report', label: '報告書を送る', action: 'send_report' },
@@ -540,14 +565,14 @@
       if (c.status !== 'open' || c.deleted_at) continue;
       const count = {};
       for (const p of listOf(c.phases)) {
-        count[p.kind] = (count[p.kind] || 0) + 1;
+        count[kindGroup(p.kind)] = (count[kindGroup(p.kind)] || 0) + 1;
         // Task 25: 作業担当者が別の人の「報告書を書いて提出」はその人の分（自分の分には入れない。全員の分には出す）
         const own = stage(p, null, now, { me, members: o.members });
         const st = own.key === 'waiting' ? workerStage(p, now, { me, members: o.members }) : own;
         const othersWrite = own.key === 'waiting' && st.key === 'write';
         const todo = p.kind === 'survey' ? estimateTodo(p, now) : null;
         if (todo) {
-          const seq0 = p.seq != null ? p.seq : count[p.kind];
+          const seq0 = p.seq != null ? p.seq : count[kindGroup(p.kind)];
           const w0 = p.worker_id || null, who0 = w0 || c.assignee_id || null;
           const label0 = `見積書作成必要（期日 ${fmtYmdMD(todo.due)}）`;
           all.push({
@@ -562,7 +587,7 @@
         if (st.ball !== 'us') continue;
         const group = taskGroupOf(p.kind, st.key);
         const def = TASK_GROUPS.find(g => g.key === group);
-        const seq = p.seq != null ? p.seq : count[p.kind];
+        const seq = p.seq != null ? p.seq : count[kindGroup(p.kind)];
         const workerId = p.worker_id || null;
         const who = workerId || c.assignee_id || null;
         const whoName = !who ? '' : nameOf.get(who) || (who === workerId ? str(p.worker_name) : str(c.assignee_name)) || '不明';
@@ -697,13 +722,14 @@
     const d = draft || {};
     const k = phase && phase.kind;
     if (d.purpose === 'schedule' || d.purpose === 'reminder') {
-      const head = k === 'survey' ? '調査日' : isWork(k) ? '工事日' : '日程';
-      if (d.purpose === 'schedule') return `${head}のご連絡${isWork(k) ? `（${workName(k, phase)}）` : ''}`;
+      const head = k === 'survey' ? '現地確認日' : isWork(k) ? '工事日' : '日程';
+      const wn = isWork(k) && workName(k, phase) !== kindLabel(k) ? workName(k, phase) : ''; // Task 64: 表題の無い工事は「工事日のご連絡」だけ
+      if (d.purpose === 'schedule') return `${head}のご連絡${wn ? `（${wn}）` : ''}`;
       const sl = (SLOTS.find(x => x.slot === d.remind_slot) || {}).label;
-      const tail = [sl, isWork(k) ? workName(k, phase) : ''].filter(Boolean).join('・');
+      const tail = [sl, wn].filter(Boolean).join('・');
       return `${head}のお知らせ${tail ? `（${tail}）` : ''}`;
     }
-    if (d.purpose === 'survey_result') return '調査結果のご報告';
+    if (d.purpose === 'survey_result') return '現地確認結果のご報告';
     if (d.purpose === 'staff_notice') return d.remind_slot ? '担当者への前日のお知らせ' : '担当者への確認依頼';
     if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
     return '報告書の送付';
@@ -840,7 +866,8 @@
   }
   function subjectOf(head, kind, caseRow, phase) {
     const name = placeName(caseRow || {});
-    return `【${head}】${name}${isWork(kind) ? `（${workName(kind, phase)}）` : ''}`;
+    const wn = isWork(kind) && workName(kind, phase) !== kindLabel(kind) ? workName(kind, phase) : ''; // Task 64: 表題の無い工事は括弧なし
+    return `【${head}】${name}${wn ? `（${wn}）` : ''}`;
   }
   // 宛名の1行。元請 =「{会社名} {担当者名}様」（担当者名が無ければ「{会社名} 御中」）／
   // 物件オーナー・入居者 =「{物件名} {号室} {名前}様」（名前が無ければ「物件オーナー様」「入居者様」）／
@@ -1270,7 +1297,7 @@
   function scheduleBody(k, phase, caseRow, org, me, recipients, leadLine) {
     const p = phase || {};
     const lines = [leadLine, ''];
-    lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    lines.push(`${k === 'survey' ? '現地確認日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
     lines.push(...placeLines(caseRow || {}));
     return wrapMail(caseRow, recipients, org, me, lines);
   }
@@ -1309,9 +1336,9 @@
     const survey = k === 'survey';
     const rc = rcptOf(recipients, caseRow, 'schedule');
     return {
-      subject: subjectOf(survey ? '調査日のご連絡' : '工事日のご連絡', k, caseRow, phase),
+      subject: subjectOf(survey ? '現地確認日のご連絡' : '工事日のご連絡', k, caseRow, phase),
       body: scheduleForm(k, rc) === 'resident' ? residentBody(k, phase, caseRow, org, me, rc)
-        : scheduleBody(k, phase, caseRow, org, me, rc, survey ? '下記の日程で調査に伺います。' : `下記の日程で${workName(k, phase)}を行います。`)
+        : scheduleBody(k, phase, caseRow, org, me, rc, survey ? '下記の日程で現地確認に伺います。' : `下記の日程で${workName(k, phase)}を行います。`)
     };
   }
   // リマインド（purpose reminder。slot 'd3'|'d1'）→ { subject, body }
@@ -1319,9 +1346,9 @@
     const k = kindFrom(kind, phase);
     const survey = k === 'survey';
     const sl = (SLOTS.find(x => x.slot === slot) || SLOTS[0]).label;
-    const what = survey ? '調査' : workName(k, phase);
+    const what = survey ? '現地確認' : workName(k, phase);
     return {
-      subject: subjectOf(`${survey ? '調査日' : '工事日'}のお知らせ（${sl}）`, k, caseRow, phase),
+      subject: subjectOf(`${survey ? '現地確認日' : '工事日'}のお知らせ（${sl}）`, k, caseRow, phase),
       body: scheduleBody(k, phase, caseRow, org, me, rcptOf(recipients, caseRow, 'reminder'),
         `${what}の日が近づいてまいりましたので、改めてご案内いたします。`)
     };
@@ -1333,13 +1360,19 @@
   //        確認依頼・翌日の予定は「10/22（木）13:00〜」（日時未定）、管理者からの連絡は届いた時刻「10/21（水）14:05」
   const TASK_TODO = { report: '報告書作成', estimate: '見積書作成', notice: '確認依頼', tomorrow: '翌日の予定', conditions: '工事の条件を確認' };
   const DUE_TYPES = ['report', 'estimate', 'schedule']; // 期限のあるタスク（Task 50: 日程調整も）
+  // Task 60・64: 一斉配信の知らせの件名「現地確認 佐藤が 10/24 15:30 に行きます」から先頭の対応の名前を除く（名前は行の種類のバッジで分かる）
+  function callMsgText(x) {
+    const lb = str(x.label), t = str(x.title);
+    if (t && lb.startsWith(t + ' ')) return lb.slice(t.length + 1);
+    return lb.replace(/^.*?\d+回目 /, '');
+  }
   function fieldTaskRow(it) {
     const x = it || {};
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
     const todo = x.type === 'call' ? `募集 ${callWhen(p, x.now)} — 行けますか？`
-      : x.callMsg ? ((x.message && x.message.meta && x.message.meta.action) === 'expired' ? '募集が期限切れ（出し直せます）' : str(x.label).replace(/^.*?\d+回目 /, '')) // Task 60
+      : x.callMsg ? ((x.message && x.message.meta && x.message.meta.action) === 'expired' ? '募集が期限切れ（出し直せます）' : callMsgText(x)) // Task 60
       : x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule') && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
     if (DUE_TYPES.includes(x.type)) {
@@ -1492,7 +1525,7 @@
     const p = estimatePromise(next);
     if (!p) return ESTIMATE_LATER;
     const t = `お見積書は${fmtYmdLong(p.sendBy)}までにお送りいたします。`;
-    return p.type === 'resurvey' ? '再調査のうえ、' + t : t;
+    return p.type === 'resurvey' ? '再確認のうえ、' + t : t;
   }
   // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない。宛名・書き出し・署名は日程連絡と同じ形
   //   Task 27: next（提出された調査の報告書の次の対応方針）で末尾の文が変わる（estimatePromiseText）
@@ -1501,7 +1534,7 @@
     const r = normalizeResult(p.result);
     const lines = [];
     const day = jst(p.done_at || p.scheduled_at);
-    lines.push(day ? `${day.m}月${day.d}日に実施した調査の結果をご報告いたします。` : '調査の結果をご報告いたします。');
+    lines.push(day ? `${day.m}月${day.d}日に実施した現地確認の結果をご報告いたします。` : '現地確認の結果をご報告いたします。');
     const section = (head, body) => { if (str(body)) lines.push('', `■ ${head}`, str(body)); };
     // Task 25: 号室ごとに ■ 402号室（加害部屋） 原因: … 被害箇所: …（号室未設定の区画 = 旧い形は ■ 原因）
     r.rooms.filter(resultRoomHas).forEach(b => {
@@ -1515,7 +1548,7 @@
       if (str(b.damage)) lines.push(`被害箇所: ${str(b.damage)}`);
     });
     section('経緯', r.why);
-    section('復旧工事の範囲', r.scope);
+    section('工事の範囲', r.scope);
     const sentences = cautionSentences(r);
     if (sentences.length) {
       lines.push('', '■ 工事の際のお願い・ご注意');
@@ -1527,7 +1560,7 @@
       });
     }
     lines.push('', estimatePromiseText(next));
-    return { subject: subjectOf('調査結果のご報告', 'survey', caseRow),
+    return { subject: subjectOf('現地確認結果のご報告', 'survey', caseRow),
       body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines) };
   }
   /* ---- 作業担当者への確認依頼（Task 6b） ---- */
@@ -1537,13 +1570,13 @@
     // Task 31: 現場用はそのフェーズのツールページ #f/case/{id}/phase/{phaseId}
     return opts && opts.field ? `${b}#f/case/${caseId}/phase/${phaseId}` : `${b}#case/${caseId}/phase/${phaseId}`;
   }
-  const whatOf = (k, p) => (k === 'survey' ? '調査' : workName(k, p));
+  const whatOf = (k, p) => (k === 'survey' ? '現地確認' : workName(k, p));
   // 担当者へのメールの結びの前の行（指示の段落はこの前に入る: setBriefSection）
   const STAFF_TAILS = ['内容を確認したら、下のリンクから開いて「確認した」を押してください。', '詳しくは下のリンクから確認してください。'];
   // 担当者へのメール（社内）の本文。現場担当への指示（Task 9）があれば ■ 怪しい箇所 ■ 優先して調べる ■ 指示 ■ 当日の注意 の段落
   function staffBody(k, p, caseRow, org, me, link, lead, tail, shareUrl) {
     const lines = [lead, ''];
-    lines.push(`${k === 'survey' ? '調査日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    lines.push(`${k === 'survey' ? '現地確認日時' : '工事日時'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
     lines.push(...placeLines(caseRow || {}));
     // Task 28: ■ 依頼内容（案件の依頼内容）→ ■ 号室ごとの指示 → ■ 当日の注意
     const brief = staffSectionLines(caseRow, p.plan);
@@ -1637,15 +1670,15 @@
       if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       const count = {};
       for (const p of listOf(c.phases)) {
-        count[p.kind] = (count[p.kind] || 0) + 1;
+        count[kindGroup(p.kind)] = (count[kindGroup(p.kind)] || 0) + 1;
         // Task 51: 一斉配信の募集（会社の全員。Task 60 で出した本人も）。決まる・取り消す・期限切れで消える
         if (meId && isOpenCall(p, now)) { // Task 60: 募集した本人にも出す
-          const seq = p.seq != null ? p.seq : count[p.kind];
+          const seq = p.seq != null ? p.seq : count[kindGroup(p.kind)];
           out.push({ type: 'call', caseRow: c, phase: p, title: phaseTitle(p, seq), label: callText(p, c, seq, now), now, due: null, dueAt: null, late: false,
             from: '', fromAt: p.open_call_at, tomorrow: false, brief: '' });
         }
         if (!meId || p.worker_id !== meId || p.lost_at) continue; // Task 47: 失注はタスクから外す
-        const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
+        const title = phaseTitle(p, p.seq != null ? p.seq : count[kindGroup(p.kind)]);
         // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない（下書きでは消えない）
         // Task 45: 名前は「原因元工事の見積書作成（期限 M/D）」など。調査の報告書を出したら「調査の見積書作成」（期限 = 提出の翌日）
         const todo = estimateTodo(p, now) || surveyEstimateTodo(p, now);
@@ -1680,8 +1713,8 @@
         const what = whatOf(p.kind, p);
         const when = p.scheduled_at ? `${fmtMDWHM(p.scheduled_at)}〜` : '日時未定';
         // Task 31: 「明日」は使わず具体の日付（翌日の予定は「10/22（水）10:00〜 調査です」）
-        const label = isTomorrow ? `${when} ${what}です` : `${when} ${p.kind === 'survey' ? '調査に行ってください' : what + 'をお願いします'}`;
-        out.push({ type: notice ? 'notice' : 'tomorrow', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]),
+        const label = isTomorrow ? `${when} ${what}です` : `${when} ${p.kind === 'survey' ? '現地確認に行ってください' : what + 'をお願いします'}`;
+        out.push({ type: notice ? 'notice' : 'tomorrow', caseRow: c, phase: p, title: phaseTitle(p, p.seq != null ? p.seq : count[kindGroup(p.kind)]),
           label, due: null, dueAt: null, late: false, from: str(p.notified_by_name), fromAt: p.notified_at || null, tomorrow: isTomorrow, brief: briefSummary(p.plan),
           request: requestSummary(c.request) }); // Task 28: 案件の依頼内容の要約（指示の前に出す）
       }
@@ -1701,7 +1734,7 @@
 
   /* ---------- 現場からの連絡（staff_messages。Task 23） ---------- */
   // 件名の候補（現場用の「＋ 連絡する」）
-  const MESSAGE_SUBJECTS = ['調査が終わりました', '見積を提出しました', '質問があります', '日程を変えたい'];
+  const MESSAGE_SUBJECTS = ['現地確認が終わりました', '見積を提出しました', '質問があります', '日程を変えたい'];
   // 自分あての未読か（宛先が自分。宛先が空 = 管理者全員あてなので管理者なら自分あて。自分が送ったものは除く）
   function messageForMe(m, meId, isOwner) {
     // Task 60: 一斉配信の期限切れの知らせは、開いた人（DB の from_user）が募集した本人でも本人あて
@@ -1747,7 +1780,7 @@
   //   o: { meId, title, now, workerName（協力業者URLのとき。worker_id は入れない） }
   function reportFields(phase, caseRow, o) {
     const p = phase || {}, c = caseRow || {}, opt = o || {};
-    const WT = { survey: 'investigate', cause: 'repair', repair: 'restore', other: 'repair' }; // Task 37: その他は設備修繕の書式
+    const WT = { survey: 'investigate', cause: 'repair', repair: 'repair', other: 'repair' }; // Task 37: その他は設備修繕の書式・Task 64: 工事も
     const f = { work_type: WT[p.kind] || 'repair', phase_id: p.id || null };
     if (str(opt.workerName)) f.worker_name = str(opt.workerName);
     else f.worker_id = p.worker_id || opt.meId || null;
@@ -2043,7 +2076,7 @@
     const mails = listOf(d.mails);
     const st = stage(p, { estimates, reports }, nowAt, o);
     const days = st.date ? Math.max(0, Math.round((ms(jstYmd(nowAt)) - ms(jstYmd(st.date))) / 86400000)) : 0;
-    const shortLabel = st.key === 'visit' ? '調査に行く' : st.key === 'issued' ? '見積書提出済み' :
+    const shortLabel = st.key === 'visit' ? '現地確認に行く' : st.key === 'issued' ? '見積書提出済み' :
       st.key === 'report' && isWork(p.kind) ? '完了報告必要' :
       st.key === 'approval' ? `発注待ち${st.date && days ? ` ${days}日` : ''}` : st.label;
     const short = st.ball ? shortLabel : `✓ ${st.label}`;
@@ -2152,7 +2185,7 @@
     const p = phase || {}, c = caseRow || {};
     const place = placeName(c);
     const lines = [`${str(org && org.name) ? str(org.name) + 'です。' : ''}${place ? place + 'の' : ''}${workName(p.kind, p) || '作業'}の報告書の入力をお願いします。`];
-    if (p.scheduled_at) lines.push(`${p.kind === 'survey' ? '調査日時' : '工事日'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
+    if (p.scheduled_at) lines.push(`${p.kind === 'survey' ? '現地確認日時' : '工事日'}: ${fmtRange(p.scheduled_at, p.scheduled_end)}`);
     lines.push('下のURLを開くと、ログインなしで報告書の入力・写真の追加・提出ができます（提出するとURLは使えなくなります）。');
     lines.push(String(url || ''));
     return lines.join('\n');
@@ -2172,7 +2205,7 @@
   // 同じ種類の何回目を付けたフェーズの一覧（case_summaries の seq が無ければ並び順で数える）
   function withSeq(phases) {
     const count = {};
-    return listOf(phases).map(p => { count[p.kind] = (count[p.kind] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[p.kind] }; });
+    return listOf(phases).map(p => { count[kindGroup(p.kind)] = (count[kindGroup(p.kind)] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[kindGroup(p.kind)] }; });
   }
   // ツールページで最初に選ぶ対応: 今日の予定がある対応（早い順の先頭）。無ければ最新（並びの最後）。無ければ null
   function fieldDefaultPhase(phases, now) {
@@ -2195,7 +2228,7 @@
   // 段階の短い文（カード・チップ向け。日付は別に出すので外す）
   function fieldStageLabel(st) {
     if (!st || !st.ball) return '';
-    const label = st.key === 'visit' ? '調査に行く' : st.key === 'work' ? '工事待ち' : st.key === 'issued' ? '見積書提出済み' : st.label;
+    const label = st.key === 'visit' ? '現地確認に行く' : st.key === 'work' ? '工事待ち' : st.key === 'issued' ? '見積書提出済み' : st.label;
     return label;
   }
   // 現場用の「自分の案件一覧」: 進行中で自分の担当の案件だけ（全部の切替は無い＝Ruling）。
@@ -2212,7 +2245,7 @@
       const p = fieldFocus(c.phases, nowAt);
       const seq = p ? (seqd.find(x => x.p === p) || {}).seq : null;
       const st = p ? stage(p, null, nowAt, { me: meId }) : null;
-      out.push({ caseRow: c, phase: p, title: p ? phaseTitle(p, seq) : '', at: p && p.scheduled_at ? p.scheduled_at : null,
+      out.push({ caseRow: c, phase: p, seq, title: p ? phaseTitle(p, seq) : '', at: p && p.scheduled_at ? p.scheduled_at : null,
         when: p ? fieldWhen(p.scheduled_at, nowAt) : '対応なし', stage: st, stageText: fieldStageLabel(st),
         today: !!p && isToday(p.scheduled_at, nowAt) });
     }
@@ -2513,7 +2546,7 @@
     const ep = estPhase || {};
     const due = /^\d{4}-\d{2}-\d{2}/.test(str(ep.estimate_due)) ? `見積書の期限 ${fmtYmdMDW(ep.estimate_due)}${estimateDueReasonText(ep)}` : '';
     return {
-      title: s.title || phaseTitle(p), date: day ? `調査日 ${day}` : '',
+      title: s.title || phaseTitle(p), date: day ? `現地確認日 ${day}` : '',
       rooms,
       reason: str(d.reason) || str(res.why),
       workItems: R.chipsForPdf({ work_type: r.work_type || 'investigate', data: r.data }),
@@ -2553,6 +2586,7 @@
     if (!x.noAt && str(x.end) && !end) errors.end = '終わりの日時の形が正しくありません';
     else if (end && at && end <= at) errors.end = '終わりは訪問日時より後にしてください';
     if (!KIND_KEYS.includes(f.kind)) errors.kind = 'フェーズを選んでください';
+    if (f.kind === 'repair' && Array.from(f.label).length > LABEL_MAX) errors.label = `工事の表題は${LABEL_MAX}文字までです`; // Task 64: 任意
     if (f.kind === 'other') {
       if (!f.label) errors.label = '「その他」の名前を入れてください（例: 点検・清掃）';
       else if (Array.from(f.label).length > LABEL_MAX) errors.label = `「その他」の名前は${LABEL_MAX}文字までです`;
@@ -2560,7 +2594,7 @@
     if (Array.from(f.request).length > NEW_CASE_MAX.request) errors.request = '依頼内容詳細は2000文字までです';
     const ok = Object.keys(errors).length === 0;
     return { ok, errors, end: ok && end ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
-      p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
+      p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' || (f.kind === 'repair' && f.label) ? f.label : null, p_request: f.request } : null };
   }
 
   /* ---------- Task 48: トーク画面の右上の「フェーズ」（Task 47 のフェーズ管理を作り直し）・工事の日程の条件 ---------- */
@@ -2599,7 +2633,8 @@
   // 対応の呼び名: 調査の2回目から・調査報告から作った調査（source_phase_id）は「再調査」、工事は「原因元工事」（2回目から「原因元工事 2回目」）、その他は名前（点検）
   function flowName(p, seq) {
     if (!p) return '';
-    if (p.kind === 'survey') return seq > 1 || p.source_phase_id ? '再調査' : '調査';
+    if (p.kind === 'survey') return seq > 1 || p.source_phase_id ? '再確認' : '現地確認';
+    if (isConstruction(p.kind)) return phaseTitle(p, seq); // Task 64: 表題・「工事（原因元）」・「工事 2回目」
     const name = workName(p.kind, p);
     return seq > 1 ? `${name} ${seq}回目` : name;
   }
@@ -2667,8 +2702,8 @@
     const list = listOf(phases);
     const count = {};
     const rows = list.map(p => {
-      count[p.kind] = (count[p.kind] || 0) + 1;
-      const q = p.seq != null ? p : Object.assign({}, p, { seq: count[p.kind] });
+      count[kindGroup(p.kind)] = (count[kindGroup(p.kind)] || 0) + 1;
+      const q = p.seq != null ? p : Object.assign({}, p, { seq: count[kindGroup(p.kind)] });
       return Object.assign({ id: p.id || null, kind: p.kind, name: flowName(q, Number(q.seq)), child: false, parentId: null,
         src: p.source_phase_id || null }, chevron(q, docsFn ? docsFn(p) : null, now, opts));
     });
@@ -2963,10 +2998,10 @@
     if (s && s.state === 'conditions') return `日程は入居者の都合（${condText(s.cond)}）を見て決める`;
     return '日時未定';
   }
-  // 「募集: メゾン青葉 501号室 調査 今日中 — 行けますか？」（1回目は「1回目」を付けない）
+  // 「募集: メゾン青葉 501号室 現地確認 今日中 — 行けますか？」（1回目は「1回目」を付けない）
   function callText(phase, caseRow, seq, now) {
     const p = phase || {};
-    const name = p.kind === 'other' || seq > 1 ? phaseTitle(p, seq) : kindLabel(p.kind);
+    const name = phaseTitle(p, seq); // Task 64: 1回目は回目なし・工事は表題
     return `募集: ${[placeName(caseRow || {}), name, callWhen(p, now)].filter(Boolean).join(' ')} — 行けますか？`;
   }
   // 範囲の文「10/24（土）13:30〜22:00」（範囲の無い募集は ''）
@@ -2992,7 +3027,7 @@
   // Task 44: 件名の先頭の絵文字（migration 052 / 058 の催促は「⚠️ 催促: …」で保存される）を表示では外す
   function plainSubject(s) { return str(s).replace(/^[\u26a0\u2600-\u27bf\ufe0f\s]+/u, ''); }
 
-  const api = { plainSubject, KINDS, KIND_KEYS, STEPS, LABEL_MAX, isWork, workName, NEW_CASE_MAX, jstInput, newCaseCheck, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
+  const api = { plainSubject, KINDS, KIND_KEYS, CHOICE_KINDS, STEPS, LABEL_MAX, isWork, isConstruction, kindGroup, titleNote, workName, NEW_CASE_MAX, jstInput, newCaseCheck, SLOTS, RECIPIENTS, BILL_TO, kindLabel, steps,
     ROOM_ROLES, roomKey, isRoomKey, roomRoleLabel, roomsOf, roomTitle, recipientOrder, roomChoices, contactTitle, hasResident,
     toDate, jstYmd, jstYm, jstAt, fmtMD, fmtMDHM, fmtMDWHM, fmtRange,
     phaseTitle, stage, workerStage, isBlankReport, estimateTodo, reportTodo, ymdAdd, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,

@@ -18,9 +18,9 @@
     resident_name: '入居者の名前', resident_email: '入居者のメール', resident_tel: '入居者の電話'
   };
   const PHASE_COLS = {
-    scheduled_at: '日時', scheduled_end: '終わりの時刻', done_at: '調査済み', bill_to_type: '請求先', bill_to_name: '請求先の名前',
+    scheduled_at: '日時', scheduled_end: '終わりの時刻', done_at: '現地確認済み', bill_to_type: '請求先', bill_to_name: '請求先の名前',
     billing_mode: '請求のしかた', billing_month: '請求月', billed_at: '請求', paid_at: '入金', amount_override: '請求額',
-    note: 'メモ', result: '調査結果', payment_due: '入金期限', plan: '作業担当者への指示', worker_id: '作業担当者'
+    note: 'メモ', result: '現地確認結果', payment_due: '入金期限', plan: '作業担当者への指示', worker_id: '作業担当者'
   };
   const ROOM_COLS = { role: '役割', room: '号室', resident_name: '居住者名', email: 'メール', tel: '電話', note: 'メモ', sort: '並び' };
   // 1つの変更として見せる列の組（元請は client_id で代表。client_name / client_email は一緒に戻る）
@@ -29,7 +29,8 @@
   function colLabel(table, col, kind) {
     if (table === 'case_phases') {
       if (col === 'scheduled_at') return kind === 'survey' ? '日時' : '工事日';
-      if (col === 'done_at') return kind === 'survey' ? '調査済み' : '完了';
+      if (col === 'done_at') return kind === 'survey' ? '現地確認済み' : '完了';
+      if (col === 'label') return kind === 'other' ? '名前' : '表題'; // Task 64
       return PHASE_COLS[col] || col;
     }
     if (table === 'case_rooms') return ROOM_COLS[col] || col;

@@ -589,7 +589,11 @@ function edNextPicker(s, parent) {
     edField(T.estimateDueByLabel + ' *', els.nextWhyBy, T.estimateDueWhyHint, 'rep-ff-sub'));
   els.nextDueWrap.appendChild(els.nextWhyWrap);
   els.nextWrap.appendChild(els.nextDueWrap);
-  els.nextFields.cause = sub('cause');
+  // Task 64: 工事の表題（任意・40字まで）
+  els.nextLabel = edInput('rp-next-label', 'text', n.label, v => { n.label = v; rfDirty(s); });
+  els.nextLabel.maxLength = 40;
+  els.nextLabel.placeholder = T.nextLabelPlaceholder;
+  els.nextFields.cause = sub('cause', edField(T.nextLabelLabel, els.nextLabel, T.nextLabelHint, 'rep-ff-sub'));
   els.nextFields.cause.hidden = true;
   els.nextReason = ta('rp-next-reason', 'reason', '例：天井裏まで確認できなかった');
   els.nextDetail = ta('rp-next-detail', 'detail', '例：点検口を開けて給水管の継手を確認する');
@@ -620,14 +624,14 @@ function edApplyUnknown(s, on) {
 function edApplyNext(s) {
   const T = ReportLogic.TEXT, e = s.els;
   const t = s.f.data.nextAction.type;
-  Object.keys(e.nextFields).forEach(k => { e.nextFields[k].hidden = k !== t || k === 'cause'; });
+  Object.keys(e.nextFields).forEach(k => { e.nextFields[k].hidden = k !== t; });
   const due = t === 'cause' || t === 'resurvey';
   e.nextDueWrap.hidden = !due;
   if (due) e.nextDueHint.textContent = t === 'cause' ? T.estimateDueHint : T.resurveyDueHint;
   if (e.nextWhyWrap) e.nextWhyWrap.hidden = !(due && ReportLogic.estimateDueNeedsReason(s.f.data.nextAction.estimateDue));
-  // 再調査は 期日 → 理由・内容 の順（期日の欄を再調査の欄の上に）
+  // 再確認は 期日 → 理由・内容、工事は 表題 → 期日 の順（期日の欄はどちらも再確認の欄のすぐ上）
   if (due) {
-    const ref = t === 'resurvey' ? e.nextFields.resurvey : e.nextFields.cause;
+    const ref = e.nextFields.resurvey;
     if (e.nextDueWrap.nextSibling !== ref) e.nextWrap.insertBefore(e.nextDueWrap, ref); // 入力中の欄を動かさない（フォーカスが外れる）
   }
 }

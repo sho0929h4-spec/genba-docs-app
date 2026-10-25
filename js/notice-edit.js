@@ -319,7 +319,7 @@ function nteBuild(s) {
   const card2 = mk('div', 'rep-card');
   card2.appendChild(mk('h3', null, '工事'));
   els.room = nteInput('nt-room', 'text', d.roomNo, v => set(x => { x.roomNo = v; }), { placeholder: '例：502（「号室」は自動で付きます）', maxLength: NTE_MAX_LEN });
-  els.work = nteInput('nt-workname', 'text', d.workName, v => set(x => { x.workName = v; }), { placeholder: '例：復旧工事', maxLength: NTE_MAX_LEN });
+  els.work = nteInput('nt-workname', 'text', d.workName, v => set(x => { x.workName = v; }), { placeholder: '例：給水管交換工事', maxLength: NTE_MAX_LEN });
   const g2 = mk('div', 'rep-g2');
   g2.append(nteField('号室 *', els.room), nteField('工事名称 *', els.work));
   card2.appendChild(g2);

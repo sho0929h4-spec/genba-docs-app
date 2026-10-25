@@ -102,8 +102,8 @@
       caseById.set(c.id, c);
       const count = {};
       for (const p of listOf(c.phases)) {
-        count[p.kind] = (count[p.kind] || 0) + 1;
-        phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[p.kind]) });
+        count[L.kindGroup(p.kind)] = (count[L.kindGroup(p.kind)] || 0) + 1;
+        phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[L.kindGroup(p.kind)]) });
       }
     }
     const placeOf = c => L.placeName(c) || '（物件名なし）';

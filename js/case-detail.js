@@ -295,7 +295,7 @@ function renderCaseTools() {
       chips.appendChild(b);
     });
   } else {
-    chips.appendChild(mk('span', 'ctools-none', '対応（調査・工事）がまだ無いので、案件全体の書類として作ります'));
+    chips.appendChild(mk('span', 'ctools-none', '対応（現地確認・工事）がまだ無いので、案件全体の書類として作ります'));
   }
   head.appendChild(chips);
   // 「✉ 送信待ちの下書き n件」は見出しの行の右に（PC。スマホは折り返す）
@@ -317,7 +317,7 @@ function renderCaseTools() {
   // 調査に付いた工事掲示（前のデータ）はカードを出さないので、一覧への入口だけ残す（消さない）
   const old = sel && sel.kind === 'survey' && s.data ? (s.data.notices || []).filter(n => n.phase_id === sel.id).length : 0;
   if (old) {
-    const ln = dBtn('この調査に付いている工事掲示 ' + old + '件（前のデータ）を一覧で見る ›', 'linkbtn ctools-old-notice', () => { location.hash = '#case/' + c.id + '/notices'; });
+    const ln = dBtn('この現地確認に付いている工事掲示 ' + old + '件（前のデータ）を一覧で見る ›', 'linkbtn ctools-old-notice', () => { location.hash = '#case/' + c.id + '/notices'; });
     ln.id = 'case-tool-old-notices';
     nodes.push(ln);
   }

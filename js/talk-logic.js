@@ -207,7 +207,7 @@
   }
   function withSeq(phases) {
     const count = {};
-    return listOf(phases).map(p => { count[p.kind] = (count[p.kind] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[p.kind] }; });
+    return listOf(phases).map(p => { count[PL().kindGroup(p.kind)] = (count[PL().kindGroup(p.kind)] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[PL().kindGroup(p.kind)] }; });
   }
 
   // 日付の区切りをはさむ → [{ day: '10/25（土）' } | item]

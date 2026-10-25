@@ -67,7 +67,7 @@ const EstimatePresets = (() => {
     sel.className = 'eu-pr-kind';
     sel.id = id || ('eu-pr-f' + (++uid));
     EL().PRESET_KINDS.forEach(k => sel.appendChild(new Option(KL(k), k)));
-    sel.value = EL().PRESET_KINDS.includes(value) ? value : 'common';
+    sel.value = EL().PRESET_KINDS.includes(value) ? value : value === 'cause' ? 'repair' : 'common'; // Task 64: 工事は repair
     return sel;
   }
   // 行の短い説明「給水管補修 ・ 1 式 ・ ¥35,000」
