@@ -390,7 +390,8 @@ function fdAddClick() {
   const sel = fieldCalOn() && typeof calSelection === 'function' ? calSelection() : null;
   if (sel) {
     if (!fdNewDraft) fdNewDraft = fdNewBlank();
-    fdNewDraft.at = CalendarLogic.prefillAt(sel.ymd, sel.hour == null ? undefined : sel.hour);
+    const at = CalendarLogic.prefillAt(sel.ymd, sel.hour == null ? undefined : sel.hour);
+    fdNewDraft.at = at && at.slice(0, 11) + DtInput.snap(at.slice(11, 16)); // Task 67: 時刻は30分きざみ（終了予定は入れない）
   }
   location.hash = '#f/new';
 }
@@ -1436,10 +1437,26 @@ function fdRenderNew() {
   card.appendChild(field('address', '住所', { req: true, ph: '例: 東京都新宿区西新宿2-8-1', max: M.address }));
   card.appendChild(field('resident', '入居者の名前', { req: true, ph: '例: 山本 花子', max: M.resident }));
   card.appendChild(field('contact', '連絡先（任意）', { ph: '電話番号かメールアドレス', max: M.contact }));
-  const atBox = field('at', '訪問日時', { req: true, type: 'datetime-local' });
-  const endBox = field('end', '終わり（任意・空なら1時間）', { type: 'datetime-local' }); // Task 58
-  atBox.id = 'fd-new-f-at';
-  endBox.id = 'fd-new-f-end';
+  // Task 67: 訪問日時・終了予定は日付と時刻（30分きざみ）を別の欄に。終了予定は空のまま（自動で入れない・空なら1時間）。
+  //   終了予定の日が空で時刻だけなら訪問日時の日。下書き（v.at / v.end）は今までどおり 'YYYY-MM-DDTHH:MM'（日本時間）
+  const dtField = (key, label, req) => {
+    const box = mk('div', 'fd-set-f fd-new-f');
+    box.id = 'fd-new-f-' + key;
+    box.appendChild(head(label, req));
+    const c = DtInput.el({ id: 'fd-new-' + key, label, iso: v[key] ? phFromInput(v[key]) : null, onChange: () => {
+      const a = at.get(), e = end.get(at.date.value);
+      v.at = a ? phToInput(a) : '';
+      v.end = e ? phToInput(e) : '';
+      errEls.at.textContent = errEls.end.textContent = '';
+      const all = $('fd-new-err');
+      if (all && Object.values(errEls).every(x => !x.textContent)) all.textContent = '';
+    } });
+    if (req) c.date.setAttribute('aria-required', 'true');
+    box.append(c.el, errOf(key));
+    return [box, c];
+  };
+  const [atBox, at] = dtField('at', '訪問日時', true);
+  const [endBox, end] = dtField('end', '終了予定（任意）');
   card.appendChild(atBox);
   card.appendChild(endBox);
   // フェーズ（4つから1つ。押して選ぶ）
@@ -1535,7 +1552,7 @@ async function fdNewSubmit(s, btn, errEls, err) {
   if (!chk.ok) {
     err.textContent = '入っていない欄があります（赤い字の所）';
     const first = ['name', 'room', 'address', 'resident', 'contact', 'at', 'end', 'kind', 'label', 'request'].find(k => chk.errors[k]);
-    const el = first && (first === 'kind' ? document.querySelector('#fd-new-f-kind button') : $('fd-new-' + first));
+    const el = first && (first === 'kind' ? document.querySelector('#fd-new-f-kind button') : $('fd-new-' + first + '-d') || $('fd-new-' + first)); // Task 67: 日時は日付の欄
     if (el) { el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'center' }); }
     return;
   }

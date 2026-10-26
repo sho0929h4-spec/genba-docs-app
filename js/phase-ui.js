@@ -151,7 +151,7 @@ async function phLoad() {
   phDraw();
   if (s.focusWhen) {
     s.focusWhen = false;
-    const i = s.root.querySelector('.ph-sched-start');
+    const i = s.root.querySelector('.ph-sched-start .dt-date, input.ph-sched-start'); // Task 67: 手入力は日付の欄
     if (i) { if (i.scrollIntoView) i.scrollIntoView({ block: 'center' }); i.focus({ preventScroll: true }); }
   }
   if (typeof syncCaseMailBanner === 'function') syncCaseMailBanner(s.caseId, s.data.drafts);
@@ -874,7 +874,7 @@ function phScheduleBody(p, docs, errId) {
       p.scheduled_at ? 'linkbtn ph-sched-edit' : 'btn sm inline ph-sched-edit', () => {
         ph.editing.add(p.id);
         phDraw();
-        const i = ph.root.querySelector('[data-phase-id="' + p.id + '"] .ph-sched-start');
+        const i = ph.root.querySelector('[data-phase-id="' + p.id + '"] .ph-sched-start .dt-date, [data-phase-id="' + p.id + '"] input.ph-sched-start');
         if (i) i.focus();
       });
     line.appendChild(eb);
@@ -971,7 +971,7 @@ function phScheduleForm(p, errId) {
   // Task 53: 所要時間の初期値は見積書の備考（case_summaries の phases[].estimates）・作業担当者の予定と重なる日時は注意
   const sp = Object.assign({}, ((currentCase && currentCase.phases) || []).find(x => x.id === p.id) || {}, p);
   wrap.appendChild(schOfferForm({ phase: sp, start: p.scheduled_at, end: p.scheduled_end, firstCls: ['ph-sched-start', 'ph-sched-end'], saveCls: 'ph-sched-save',
-    hint: !on ? '開始の日時を入れて「この日時で確定」（依頼元への連絡メールの下書きができます）。終わりは空でもかまいません（1時間として扱います）。作業担当者のほかの予定と重なると保存できません'
+    hint: !on ? '開始の日付と時刻を選んで「この日時で確定」（依頼元への連絡メールの下書きができます）。終了予定は空でもかまいません（1時間として扱います）。作業担当者のほかの予定と重なると保存できません'
       : '1つなら「この日時で確定」（依頼元への連絡メールの下書きができます）か「候補として送る」。候補は空いている時間（いつから〜いつまで）と所要時間で、作業担当者が始まりを選びます'
       + (p.scheduled_at ? '（候補を送ると今の日時は取り消され、候補からやり直します）' : ''),
     onCancel: cancel, extra,

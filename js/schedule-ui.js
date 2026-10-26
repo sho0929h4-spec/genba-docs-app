@@ -89,11 +89,13 @@ function schSlotRows(o) {
   const ymdAt = (v, hm) => (/^\d{4}-\d{2}-\d{2}$/.test(v) && /^\d{2}:\d{2}$/.test(hm || '') ? phFromInput(v + 'T' + hm) : null);
   // 行の値 → { start, end }（日数のときは 最初の日の from 〜 最後の日の to）
   const valOf = it => {
+    if (o.plain) return { start: it.st.get(), end: it.en.get(it.st.date.value) }; // Task 67: 終了予定の日が空なら開始の日
     const d = dur();
     if (days()) return { start: ymdAt(it.st.value, d ? d.from : ''), end: it.en.value ? ymdAt(it.en.value, d ? d.to : '') : null };
     return { start: phFromInput(it.st.value), end: it.en.value ? phFromInput(it.en.value) : null };
   };
   const setType = it => {
+    if (o.plain) return;
     const want = days() ? 'date' : 'datetime-local';
     [it.st, it.en].forEach(i => {
       if (i.type === want) return;
@@ -122,18 +124,21 @@ function schSlotRows(o) {
     const r = mk('div', 'sch-row');
     const n = rows.length + 1;
     const mkIn = (cls, iso) => { const i = document.createElement('input'); i.type = 'datetime-local'; i.step = 1800; i.className = cls; i.value = phToInput(iso); return i; };
-    const st = mkIn('sch-start' + (rows.length === 0 && o.firstCls ? ' ' + o.firstCls[0] : ''), startIso);
-    const en = mkIn('sch-end' + (rows.length === 0 && o.firstCls ? ' ' + o.firstCls[1] : ''), endIso);
-    // Task 58: スイッチ false（1つだけ・手で入れる）は「開始」「終わり（任意）」
-    const l1 = mk('label', null, o.max > 1 ? '候補' + n + ' いつから' : o.plain ? '開始' : 'いつから');
-    l1.appendChild(st);
-    const l2 = mk('label', null, o.plain ? '終わり（任意・空なら1時間）' : 'いつまで');
-    l2.appendChild(en);
+    // Task 67: スイッチ false は日付と時刻（30分きざみ）を別の欄に（DtInput）。終了予定は空のまま（自動で入れない）
+    const mkDt = (cls, iso, label) => DtInput.el({ cls, iso, label });
+    const cls = (c, i) => c + (rows.length === 0 && o.firstCls ? ' ' + o.firstCls[i] : '');
+    const st = o.plain ? mkDt(cls('sch-start', 0), startIso, '開始') : mkIn(cls('sch-start', 0), startIso);
+    const en = o.plain ? mkDt(cls('sch-end', 1), endIso, '終了予定') : mkIn(cls('sch-end', 1), endIso);
+    // Task 58: スイッチ false（1つだけ・手で入れる）は「開始」「終了予定（任意）」。日付と時刻の2つの欄なので label ではなく div
+    const l1 = mk(o.plain ? 'div' : 'label', null, o.max > 1 ? '候補' + n + ' いつから' : o.plain ? '開始' : 'いつから');
+    l1.appendChild(o.plain ? st.el : st);
+    const l2 = mk(o.plain ? 'div' : 'label', null, o.plain ? '終了予定（任意）' : 'いつまで');
+    l2.appendChild(o.plain ? en.el : en);
     const warn = mk('div', 'sch-warn');
     warn.setAttribute('role', 'status');
     r.append(l1, l2, warn);
     const item = { r, st, en, warn };
-    [st, en].forEach(i => i.addEventListener('input', () => { checkRow(item); if (o.onChange) o.onChange(); }));
+    [st, en].forEach(i => (i.el || i).addEventListener('input', () => { checkRow(item); if (o.onChange) o.onChange(); }));
     if (rows.length > 0) {
       r.appendChild(dBtn('この候補を消す', 'linkbtn sch-del', () => { rows.splice(rows.indexOf(item), 1); r.remove(); sync(); if (o.onChange) o.onChange(); }));
     }
@@ -159,9 +164,9 @@ function schSlotRows(o) {
       for (const it of rows) {
         const v = valOf(it);
         const n = rows.indexOf(it) + 1;
-        if (!v.start) { it.st.focus(); return { err: o.plain ? '開始の日時を入れてください' : '候補の日時を入れてください（使わない欄は「この候補を消す」）' }; }
+        if (!v.start) { it.st.focus(); return { err: o.plain ? '開始の日付と時刻を選んでください' : '候補の日時を入れてください（使わない欄は「この候補を消す」）' }; }
         if (need === 'offer' && !v.end) { it.en.focus(); return { err: (rows.length > 1 ? '候補' + n + 'の' : '') + '「いつまで」を入れてください（空いている時間の終わり）' }; }
-        if (v.end && Date.parse(v.end) <= Date.parse(v.start)) { it.en.focus(); return { err: o.plain ? '終わりは開始より後にしてください' : '「いつまで」は「いつから」より後にしてください' }; }
+        if (v.end && Date.parse(v.end) <= Date.parse(v.start)) { it.en.focus(); return { err: o.plain ? '終了予定は開始より後にしてください' : '「いつまで」は「いつから」より後にしてください' }; }
         if (need === 'offer' && dur() && !PhaseLogic.slotStarts(v, dur()).length) {
           it.en.focus();
           return { err: (rows.length > 1 ? '候補' + n + 'の' : '') + '空いている時間が所要時間（' + PhaseLogic.durText(dur()) + '）より短いです' };
@@ -473,7 +478,7 @@ function schChangeBtns(p, o, holder, run) {
   const row = mk('div', 'ph-acts sch-change');
   row.appendChild(dBtn('日程を変える', 'btn sm ghost inline sch-change-open', () => {
     holder.replaceChildren(schOfferForm({ phase: p, start: on ? null : p.scheduled_at, end: on ? null : p.scheduled_end, onCancel: () => holder.replaceChildren(),
-      hint: !on ? '開始の日時を入れて「この日時で確定」。終わりは空でもかまいません（1時間として扱います）。ほかの予定と重なると保存できません'
+      hint: !on ? '開始の日付と時刻を選んで「この日時で確定」。終了予定は空でもかまいません（1時間として扱います）。ほかの予定と重なると保存できません'
         : '候補は空いている時間（いつから〜いつまで）と所要時間。作業担当者がその中で始まりを選びます。今の日時は取り消されます（記録はトークに残ります）',
       onConfirm: (st, en) => run(() => PhasesApi.schedConfirm(p.id, st, en), '日程を確定しました'),
       onOffer: (slots, d) => run(() => PhasesApi.schedOffer(p.id, slots, d), '候補を送りました') }));

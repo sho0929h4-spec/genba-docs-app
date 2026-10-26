@@ -2669,8 +2669,8 @@
     if (!at && !x.noAt) errors.at = '訪問日時を入れてください';
     // Task 58: 終わり（任意。空なら1時間扱い）。rpc は開始だけなので、登録の後に scheduled_end を入れる（→ end）
     const end = !x.noAt && str(x.end) ? jstInput(x.end) : null;
-    if (!x.noAt && str(x.end) && !end) errors.end = '終わりの日時の形が正しくありません';
-    else if (end && at && end <= at) errors.end = '終わりは訪問日時より後にしてください';
+    if (!x.noAt && str(x.end) && !end) errors.end = '終了予定の日時の形が正しくありません';
+    else if (end && at && end <= at) errors.end = '終了予定は訪問日時より後にしてください';
     if (!KIND_KEYS.includes(f.kind)) errors.kind = 'フェーズを選んでください';
     if (f.kind === 'other') {
       if (!f.label) errors.label = '「その他」の名前を入れてください（例: 点検・清掃）';
