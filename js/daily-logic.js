@@ -102,8 +102,8 @@
       caseById.set(c.id, c);
       const count = {};
       for (const p of listOf(c.phases)) {
-        count[L.kindGroup(p.kind)] = (count[L.kindGroup(p.kind)] || 0) + 1;
-        phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[L.kindGroup(p.kind)]) });
+        count[p.kind] = (count[p.kind] || 0) + 1;
+        phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[p.kind]) });
       }
     }
     const placeOf = c => L.placeName(c) || '（物件名なし）';
@@ -144,10 +144,11 @@
           sub: [`行く部屋: ${L.visitText(p.plan, c)}`] }, base));
       }
       const st = L.stage(p, null, nowAt, { me });
-      if (st.due && ((p.kind === 'survey' && st.key === 'write') || (p.kind !== 'survey' && st.key === 'report')) && st.due <= nextYmd) {
+      if (st.due && ((p.kind === 'survey' && st.key === 'write') || (p.kind !== 'survey' && st.key === 'report') || st.key === 'record') && st.due <= nextYmd) {
         const dueText = p.kind === 'survey' && st.dueAt ? L.fmtMDWHM(st.dueAt) : ymdMDW(st.due);
+        const what = st.key === 'record' ? '現地確認の記録を送信' : '報告書を書いて提出'; // Task 65
         next.push(Object.assign({ key: 'next:report:' + p.id, at: st.dueAt ? ms(st.dueAt) : ms(L.jstAt(+st.due.slice(0, 4), +st.due.slice(5, 7), +st.due.slice(8, 10), 23, 59)),
-          text: `報告書を書いて提出（期限 ${dueText}${st.late ? '・期限超過' : ''}） ${place} ${title}`, sub: [] }, base));
+          text: `${what}（期限 ${dueText}${st.late ? '・期限超過' : ''}） ${place} ${title}`, sub: [] }, base));
       }
       const et = L.estimateTodo(p, nowAt);
       if (et && et.due <= nextYmd) {

@@ -149,6 +149,9 @@ function edShowVal(s, errors, warnings) {
   if (nodes.length) box.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
+// Task 65: 現地確認の記録（work_type site_check）は「記録」「送信」と呼ぶ（中身は報告書の画面と同じ）
+const edWords = s => (ReportLogic.isRecord(s.f.work_type) ? { doc: '現地確認の記録', vb: '送信', rec: true } : { doc: '報告書', vb: '提出', rec: false });
+
 /* ---------- 画面の組み立て（入力欄は js/report-form.js の rfBuildForm を共有） ---------- */
 function edBuild(s) {
   const L = ReportLogic, els = s.els;
@@ -158,10 +161,11 @@ function edBuild(s) {
   // 上部: 戻る・保存状態
   const top = mk('div', 'rep-between rep-ed-top');
   const fb = (typeof fieldBack === 'function' ? fieldBack(s.report.case_id) : null); // 現場用から開いたときは「‹ ツール」（js/field-ui.js。Task 18）
-  els.back = dBtn(fb ? fb.label : '← 報告書一覧', 'back', async () => {
+  const recBack = !fb && edWords(s).rec; // Task 65: 現地確認の記録は案件ページへ戻る
+  els.back = dBtn(fb ? fb.label : recBack ? '← 案件' : '← 報告書一覧', 'back', async () => {
     if (s.photoBusy || s.submitting) return;
     await edFlush(s);
-    location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
+    location.hash = fb ? fb.hash : '#case/' + s.report.case_id + (recBack ? '' : '/reports');
   });
   top.appendChild(els.back);
   CaseBand.attach(top, els.back, s.info).id = 'rp-place'; // Task 30: 物件名と号室の帯
@@ -190,7 +194,8 @@ function edBuild(s) {
   // Task 35: 再編集の印（再編集中／再編集あり（いつ・誰が）／再編集 n回）
   const rl = edReeditLine(s);
   if (rl) nodes.push(rl);
-  if (ro) nodes.push(mk('div', 'rep-ro', 'この報告書は「' + L.statusLabel(s.report.status, s.report.submitted_via, L.submittedByOther(s.report, edMe())) + '」のため、内容は変更できません（読み取り専用）'));
+  const roState = edWords(s).rec ? '送信済み' : L.statusLabel(s.report.status, s.report.submitted_via, L.submittedByOther(s.report, edMe()));
+  if (ro) nodes.push(mk('div', 'rep-ro', 'この' + edWords(s).doc + 'は「' + roState + '」のため、内容は変更できません（読み取り専用）'));
   // Task 35: 提出後の再編集（依頼元へ送る前まで）。現場用は「再編集して管理者に知らせる」、管理画面（管理者）は「再編集する」
   const rc = ro ? edReeditCard(s) : null;
   if (rc) nodes.push(rc);
@@ -202,7 +207,7 @@ function edBuild(s) {
     // Task 20: 対応フェーズの報告書は作業区分が決まっている（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。切替を出さない）
     fixedMode: !!s.fixed,
     fixedLabel: s.fixed ? L.WORK_TYPE_LABEL[s.f.work_type] : '',
-    fixedHint: s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
+    fixedHint: edWords(s).rec ? '' : s.fixed ? (s.fixed.title ? s.fixed.title + 'の報告書なので変えられません' : '対応フェーズの報告書なので変えられません') : '',
     infoRows: [['物件名', info.name], ['現場住所', info.address], ['元請', info.client_name], ['案件No', String(s.report.case_id || '').slice(0, 8).toUpperCase()]],
     // Task 25: 作業担当者への指示で「被害箇所の写真撮影」を選んだ号室の注意書き（このフェーズの指示）
     photoNote: ph && typeof PhaseLogic !== 'undefined' ? L.photoNote(PhaseLogic.photoRooms(ph.plan)) : '',
@@ -254,7 +259,8 @@ function edReeditLine(s) {
   box.dataset.key = m.key;
   if (m.short) box.appendChild(mk('span', 'reedit-tag', m.short));
   const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
-  const tail = m.key === 'editing' ? '直して「提出する」を押すと、管理者に知らせます'
+  const w = edWords(s);
+  const tail = m.key === 'editing' ? '直して「' + w.vb + 'する」を押すと、管理者に知らせます'
     : m.key === 'edited' ? (field ? '管理者が確認すると、この印は消えます' : '内容を確かめてください（確認すると印は消えます）') : '';
   const detail = m.key === 'history' ? m.text : [m.at ? PhaseLogic.fmtMDHM(m.at) : '', m.by].filter(Boolean).join(' ');
   box.appendChild(mk('span', null, [detail, tail].filter(Boolean).join('。')));
@@ -270,7 +276,10 @@ function edReeditCard(s) {
   const card = mk('div', 'rep-card rep-reedit');
   card.id = 'rp-reedit';
   if (!can.ok) { card.appendChild(mk('div', 'rep-sub', can.reason)); return card; }
-  card.appendChild(mk('div', 'rep-sub', field ? '依頼元へ送る前なら、提出した後でも直せます。押すと編集できる状態に戻り、管理者に自動で知らせます（直したらもう一度「提出する」）'
+  const w = edWords(s);
+  card.appendChild(mk('div', 'rep-sub', w.rec ? (field ? '送信した後でも直せます。押すと編集できる状態に戻り、管理者に自動で知らせます（直したらもう一度「送信する」）'
+    : '送信された記録を下書きに戻して直せます（直したらもう一度「送信する」）')
+    : field ? '依頼元へ送る前なら、提出した後でも直せます。押すと編集できる状態に戻り、管理者に自動で知らせます（直したらもう一度「提出する」）'
     : '依頼元へ送る前なら、提出された報告書を下書きに戻して直せます（直したらもう一度「提出する」）'));
   const b = dBtn(field ? '再編集して管理者に知らせる' : '再編集する（下書きに戻して直す）', 'btn ghost inline', () => edReedit(s, card, b));
   b.id = 'rp-reedit-btn';
@@ -284,7 +293,8 @@ let edFlash = null; // 開き直した報告書に出すお知らせ { id, text 
 async function edReedit(s, card, btn) {
   if (s.submitting || s.photoBusy) return;
   const field = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin();
-  const ok = await askInline(card, 'この報告書を再編集にしますか？\n編集できる状態に戻ります。直して「提出する」を押すまでは「再編集中」になります。'
+  const w = edWords(s);
+  const ok = await askInline(card, 'この' + w.doc + 'を再編集にしますか？\n編集できる状態に戻ります。直して「' + w.vb + 'する」を押すまでは「再編集中」になります。'
     + (s.report.status === 'confirmed' ? '\n確認済みの記録と、未送信の送付メールの下書きは消えます。' : '')
     + (field ? '\n再編集にしたことは管理者に自動で知らせます。' : ''), { okLabel: '再編集にする', id: 'rp-ask' });
   if (!ok || ed !== s || s.submitting) return;
@@ -299,7 +309,7 @@ async function edReedit(s, card, btn) {
   edSetBarBusy(s, false);
   btn.disabled = false;
   if (msg) { setMsg('rp-reedit-msg', msg); return; }
-  edFlash = { id: s.id, text: '再編集にしました。直して「提出する」を押してください' + (field ? '（管理者に知らせました）' : '') };
+  edFlash = { id: s.id, text: '再編集にしました。直して「' + w.vb + 'する」を押してください' + (field ? '（管理者に知らせました）' : '') };
   openReport(s.id);
 }
 
@@ -461,16 +471,17 @@ async function edSubmit(s) {
     if (edPending(s)) { edShowVal(s, ['入力を保存できていません。通信を確認して、上の「再試行」を押してください'], []); return; }
     const cur = Object.assign({}, s.report, edCollect(s));
     const { errors, warnings } = ReportLogic.validate(cur);
-    if (!cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください');
+    const wd = edWords(s);
+    if (!wd.rec && !cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください'); // 記録は作業担当者の欄なし（送った人が残る）
     edShowVal(s, errors, warnings);
     if (errors.length) return;
-    if (warnings.length && !(await askPopup('このまま提出しますか？\n\n' + warnings.map(w => '・' + w).join('\n'), { title: '提出の前に確認', okLabel: '提出する' }))) return;
+    if (warnings.length && !(await askPopup('このまま' + wd.vb + 'しますか？\n\n' + warnings.map(w => '・' + w).join('\n'), { title: wd.vb + 'の前に確認', okLabel: wd.vb + 'する' }))) return;
     // Task 45・48: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を移る前に「タスクに追加されました」（画面全体）で知らせる
     const before = typeof fieldTaskKeys === 'function' ? fieldTaskKeys(s.info && s.info.phases ? s.info : null) : null;
     try {
       await ReportsApi.submit(s.report);
     } catch (e) {
-      edShowVal(s, ['提出できませんでした: ' + errText(e)], []);
+      edShowVal(s, [wd.vb + 'できませんでした: ' + errText(e)], []);
       return;
     }
     const added = before ? await fieldNoteAddedTasks(s.report.case_id, before) : [];
@@ -482,7 +493,7 @@ async function edSubmit(s) {
     // Task 48: タスクが増えたら、移る前に画面全体のポップアップ（「確認」を押すまで閉じない）→ 押したら移る（その間に別の画面へ移っていたらそのまま）
     const here = location.hash;
     if (added.length) await fieldAddedPopup(added);
-    if (location.hash === here) location.hash = fb ? fb.hash : '#case/' + s.report.case_id + '/reports';
+    if (location.hash === here) location.hash = fb ? fb.hash : '#case/' + s.report.case_id + (wd.rec ? '' : '/reports');
   } finally {
     s.submitting = false;
     edSetBarBusy(s, false);
@@ -581,8 +592,12 @@ async function openReport(id) {
   const bar = $('report-bar');
   bar.hidden = false;
   $('rep-submit').hidden = s.ro;
+  // Task 65: 現地確認の記録は「送信する」だけ（PDF・確認・依頼元への送付は無い）
+  const rec = edWords(s).rec;
+  $('rep-submit').textContent = rec ? '送信する' : '提出する';
+  $('rep-to-pdf').hidden = rec;
   // 提出済み（確認待ち）のときだけ「確認する」。現場用（Task 18）では出さない（確認・送付は管理者側）
-  $('rep-confirm').hidden = r.status !== 'submitted' || (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
+  $('rep-confirm').hidden = rec || r.status !== 'submitted' || (typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
   $('rep-confirm').textContent = ReportLogic.needsCheck(r, edMe()) ? '確認する' : '報告書を送る'; // 自分の提出は確認を飛ばす（Task 23・25）
   $('rep-to-pdf').onclick = () => edGoPdf(s);
   $('rep-submit').onclick = () => edSubmit(s);
@@ -593,15 +608,12 @@ async function openReport(id) {
   else if (restored) edFlush(s);
 }
 
-// フェーズ付きの報告書 → { type: 作業区分, title: '現地確認 2回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）
+// フェーズ付きの報告書 → { type: 作業区分, title: '調査 1回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）
 function edFixedOf(r, info) {
   if (!r.phase_id) return null;
   const phases = info && Array.isArray(info.phases) ? info.phases : [];
   const p = phases.find(x => x.id === r.phase_id) || null;
-  const want = p && ReportLogic.WORK_TYPE_OF_PHASE[p.kind];
-  // Task 64: 工事は設備修繕の書式にそろえたが、082 より前に作った復旧工事の書式（restore）の報告書はそのまま（入力を失わない）
-  const keep = !!want && PhaseLogic.isWork(p.kind) && r.work_type === 'restore';
-  const type = keep ? r.work_type : want || (ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate');
+  const type = (p && ReportLogic.WORK_TYPE_OF_PHASE[p.kind]) || (ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate');
   const title = p && typeof PhaseLogic !== 'undefined' ? PhaseLogic.phaseTitle(p, p.seq) : '';
   return { type, title };
 }

@@ -29,14 +29,13 @@
   // 次の対応方針（1つ選ぶ。data.nextAction = { type, estimateDue, reason, detail, other, estimateDueReason, estimateDueBy }）
   //   Task 29: 見積書提案期日は通常2日以内。今日（日本時間）＋2日より先なら estimateDueReason（理由）と estimateDueBy（いつまでに提出できるか）が必須
   const NEXT_ACTIONS = [
-    { key: 'cause', label: '工事' },
-    { key: 'resurvey', label: '再確認' },
+    { key: 'cause', label: '原因元工事' },
+    { key: 'resurvey', label: '再調査' },
     { key: 'other', label: 'その他' }
   ];
   const NEXT_KEYS = NEXT_ACTIONS.map(n => n.key);
-  // 報告書の作業区分はフェーズの種類で決まる（現地確認→現地確認／工事・その他→設備修繕。Task 20・Task 64）
-  // Task 37: その他は設備修繕の書式。Task 64: 工事（cause・repair）も同じ設備修繕の書式（082 より前の復旧工事の報告書は自分の区分のまま。report-edit の edFixedOf）
-  const WORK_TYPE_OF_PHASE = { survey: 'investigate', cause: 'repair', repair: 'repair', other: 'repair' };
+  // 報告書の作業区分はフェーズの種類で決まる（調査→調査／原因元工事→設備修繕／復旧工事→復旧工事。Task 20）
+  const WORK_TYPE_OF_PHASE = { site_check: 'site_check', survey: 'investigate', cause: 'repair', repair: 'restore', other: 'repair' }; // Task 37: その他は設備修繕の書式・Task 65: 現地確認は記録
   const RESTORE_PLACES = ['廊下', 'キッチン', '洗面所', '浴室', 'トイレ', '居室', 'ベランダ'];
   const RESTORE_PARTS = ['天井', '壁', '床', 'ダウンライト'];
   const AFTER_STATUS = ['正常に復旧', '様子見（経過観察）', '一部未完了（再訪予定）', '要追加工事'];
@@ -74,6 +73,8 @@
       '入居者へ作業内容を説明し、現場と整合するか確認した',
       '写真の手ブレがないか確認した'
     ],
+    // Task 65: 現地確認の記録は1項目だけ（DB の reports_site_check_sent が同じ文で見る）
+    site_check: ['工事の見積書に記載されている範囲の写真は撮影しているか'],
     restore: [
       '施工範囲の養生・下地処理を適切に行った',
       '作業前・作業中・作業後の写真を撮影した',
@@ -108,7 +109,7 @@
   /* ---- 旧ツールの入力欄の文言（289–359行・655行） ---- */
   const FREE_CHIP = '自由記載'; // 自由記載チップ。data の配列に入っていれば ON
   const TEXT = {
-    f1Hint: '実施した作業・現地確認の詳細・手順・確認箇所など',
+    f1Hint: '実施した作業・調査の詳細・手順・確認箇所など',
     leakLabel: '漏水の状況',
     leakActionLabel: '漏水時の対応',
     leakRoomPlaceholder: '号室（例：605）',
@@ -118,7 +119,7 @@
     afterReasonLabel: '理由 *',
     afterReasonPlaceholder: '「正常に復旧」でない理由（必須・自由記載）',
     f2Label: '原因',
-    f2Hint: '分からないときは「不明」を押してください（次の対応方針は「再確認」になります）',
+    f2Hint: '分からないときは「不明」を押してください（次の対応方針は「再調査」になります）',
     reasonLabel: '原因と判断した理由',
     reasonHint: 'そう判断した根拠・確認した事実など（自由記載）',
     // Task 26: 記載例（薄い文字）。社内・現場用・担当者URL のページ（r.html）で共通
@@ -137,21 +138,17 @@
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
     // Task 45: 「見積書の提出予定日」（必須。何を入れる欄かの説明つき。DB の列・管理者あての連絡の「見積書提案期日」は同じもの）
     estimateDueLabel: '見積書の提出予定日',
-    estimateDueHint: '工事の見積書をいつまでに出すかの日付です。提出すると、作業担当者のタスクに「工事の見積書作成」（この日が期限）が入ります',
-    resurveyDueHint: '再確認の見積書をいつまでに出すかの日付です。提出すると「現地確認（次の回）」が作られ、作業担当者のタスクに「再確認の見積書作成」（この日が期限）が入ります',
-    unknownNextHint: '原因が「不明」なので「再確認」か「その他」を選んでください（「不明」を外すと工事も選べます）',
-    resurveyReasonLabel: '再確認の理由',
+    estimateDueHint: '原因元工事の見積書をいつまでに出すかの日付です。提出すると、作業担当者のタスクに「原因元工事の見積書作成」（この日が期限）が入ります',
+    resurveyDueHint: '再調査の見積書をいつまでに出すかの日付です。提出すると「調査（次の回）」が作られ、作業担当者のタスクに「再調査の見積書作成」（この日が期限）が入ります',
+    unknownNextHint: '原因が「不明」なので「再調査」か「その他」を選んでください（「不明」を外すと原因元工事も選べます）',
+    resurveyReasonLabel: '再調査の理由',
     // Task 29: 見積書提案期日が今日＋2日より先のとき
     estimateDueWhyHead: '見積書の提出予定日が2日より先です（通常は2日以内）。理由と、いつまでに提出できるかを入れてください',
     estimateDueReasonLabel: '2日より先になる理由',
     estimateDueReasonPlaceholder: '例：部材メーカーの見積が届くのが来週になる',
     estimateDueByLabel: 'いつまでに提出できるか',
     estimateDueWhyHint: '理由は案件の管理者に知らせ、案件ページの表にも出ます（依頼元には出ません）',
-    resurveyDetailLabel: '再確認の内容',
-    // Task 64: 次の対応方針「工事」の表題（任意）
-    nextLabelLabel: '工事の表題（任意）',
-    nextLabelPlaceholder: '例：給水管交換工事',
-    nextLabelHint: '入れると、作られる工事がこの名前で表やタスクに出ます（空なら「工事」）',
+    resurveyDetailLabel: '再調査の内容',
     nextOtherLabel: '次の対応方針（その他）',
     // Task 61: 次の対応方針の下に入居者からの申し送り（任意。PDF にも出す・空なら出さない）
     tenantNoteLabel: '入居者からの申し送り',
@@ -175,7 +172,7 @@
   /* ---- 旧ツール 470–519行（MODES）。checkGroups の field / freeField は新アプリの data のキー ---- */
   const MODES = {
     investigate: {
-      label: '現地確認',
+      label: '調査',
       checkCardTitle: '作業実施項目', contentCardTitle: '作業内容',
       // Task 20: 7つの項目。「その他」は自由記載の欄を出すチップ（freeChip）
       checkGroups: [{ title: null, items: INV_WORK_ITEMS.filter(x => x !== WORK_ITEM_OTHER), free: true, freeChip: WORK_ITEM_OTHER, freePrefix: 'その他', field: 'workItems', freeField: 'workItemOther' }],
@@ -184,7 +181,7 @@
       f1Label: '作業実施内容', f1Req: true,
       showLeak: true, showAfter: false, showF2: true, showReason: true, showF4: true, pickCause: true, pickNext: true,
       f1ph: '例：605号室キッチン脇のダウンライトまわりから漏水を確認。給水管の耐圧テストを実施。',
-      rSection: '現地確認結果',
+      rSection: '調査結果',
       // Task 61: 作業実施内容は「原因と判断した理由」の下。次の対応方針の下に入居者からの申し送り
       rRows: [
         { label: '漏水の状況', field: 'leak' },
@@ -210,7 +207,7 @@
       ]
     },
     restore: {
-      label: '工事（復旧）',
+      label: '復旧工事',
       checkCardTitle: '施工範囲', contentCardTitle: '作業内容',
       checkGroups: [
         { title: '場所', items: RESTORE_PLACES, free: true, freePrefix: '場所その他', field: 'scopePlaces', freeField: 'scopePlaceFree' },
@@ -223,9 +220,24 @@
       rRows: [
         { label: '申し送り', field: 'f1' }
       ]
+    },
+    // Task 65: 現地確認の記録（報告書は作らない。写真・申し送り・チェックリスト1項目 → 送信で管理者に通知）。
+    //   record: true = 入力画面は 写真・申し送り・チェックリストだけ（号室・作業日は作った時の値のまま。鍵の欄なし）。作業区分の切替には出さない（pick: false）
+    site_check: {
+      label: '現地確認の記録', record: true, pick: false,
+      checkCardTitle: null, contentCardTitle: '現地確認の記録',
+      checkGroups: [],
+      f1Label: '申し送り', f1Req: false,
+      showLeak: false, showAfter: false, showF2: false, showReason: false, showF4: false,
+      f1ph: '例：脱衣所の床下は点検口から撮影。駐車場なし（近くのコインパーキング）',
+      rSection: '現地確認の記録',
+      rRows: [
+        { label: '申し送り', field: 'f1' }
+      ]
     }
   };
-  const WORK_TYPE_LABEL = { investigate: '現地確認', repair: '設備修繕', restore: '工事（復旧）' }; // Task 64: restore は 082 より前の復旧工事の書式（読む・直すだけ）
+  const WORK_TYPE_LABEL = { investigate: '調査', repair: '設備修繕', restore: '復旧工事', site_check: '現地確認の記録' };
+  const isRecord = wt => !!(MODES[wt] && MODES[wt].record);
   const STATUS_LABEL = { draft: '下書き', submitted: '提出済み・確認待ち', confirmed: '確認済み', sent: '依頼元へ送付済み' };
 
   const modeOf = wt => MODES[wt] || MODES.investigate;
@@ -233,9 +245,7 @@
   const trim = v => str(v).trim();
   const arr = v => (Array.isArray(v) ? v : []);
 
-  // Task 64: label = 工事の表題（任意・40字まで。type 'cause' のときだけ使う。DB の reports_next_action が作る工事の表題）
-  const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '', estimateDueReason: '', estimateDueBy: '', label: '' });
-  const NEXT_LABEL_MAX = 40;
+  const emptyNext = () => ({ type: '', estimateDue: '', reason: '', detail: '', other: '', estimateDueReason: '', estimateDueBy: '' });
   function emptyData() {
     return {
       items: [], itemsFree: '', f1: '', leak: '', leakAction: '', leakActionOther: '', leakRoom: '', reason: '', f2: '', f4: '',
@@ -260,10 +270,10 @@
   }
   function normalizeNext(v) {
     const n = Object.assign(emptyNext(), v && typeof v === 'object' && !Array.isArray(v) ? v : {});
-    ['type', 'estimateDue', 'reason', 'detail', 'other', 'estimateDueReason', 'estimateDueBy', 'label'].forEach(k => { n[k] = str(n[k]); });
+    ['type', 'estimateDue', 'reason', 'detail', 'other', 'estimateDueReason', 'estimateDueBy'].forEach(k => { n[k] = str(n[k]); });
     if (!NEXT_KEYS.includes(n.type)) n.type = '';
     return { type: n.type, estimateDue: n.estimateDue, reason: n.reason, detail: n.detail, other: n.other,
-      estimateDueReason: n.estimateDueReason, estimateDueBy: n.estimateDueBy, label: n.label };
+      estimateDueReason: n.estimateDueReason, estimateDueBy: n.estimateDueBy };
   }
   // 欠けたキーを初期値で補う（古い下書きや協力業者の提出でも落ちないように）
   //   鍵（Task 21）: keyBorrowed / keyReturned が無い古い報告書は keyChecklist（旧3項目）と返却方法から読み替える
@@ -365,18 +375,15 @@
     });
     return [parts.join('、'), trim(d.f2)].filter(Boolean).join('\n');
   }
-  // 次の対応方針を文に: 「工事「給水管交換工事」（見積書 10/25 までにご提案）」（表題が無ければ「工事（見積書 …）」）「再調査: 内容（理由: …）」「その他の自由記載」。古い自由記載（f4）は改行して後ろに
+  // 次の対応方針を文に: 「原因元工事（見積書 10/25 までにご提案）」「再調査: 内容（理由: …）」「その他の自由記載」。古い自由記載（f4）は改行して後ろに
   function nextActionText(data) {
     const d = normalizeData(data);
     const n = d.nextAction;
     let t = '';
-    if (n.type === 'cause') {
-      const head = trim(n.label) ? `工事「${trim(n.label)}」` : '工事';
-      t = isYmd(n.estimateDue) ? `${head}（見積書 ${mdOf(n.estimateDue)} までにご提案）` : head;
-    }
+    if (n.type === 'cause') t = isYmd(n.estimateDue) ? `原因元工事（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '原因元工事';
     else if (n.type === 'resurvey') {
       // Task 21: 再調査にも見積書提案期日 → 「再調査（見積書 M/D までにご提案）: 内容（理由: …）」
-      const head = isYmd(n.estimateDue) ? `再確認（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '再確認';
+      const head = isYmd(n.estimateDue) ? `再調査（見積書 ${mdOf(n.estimateDue)} までにご提案）` : '再調査';
       const body = [trim(n.detail), trim(n.reason) ? `（理由: ${trim(n.reason)}）` : ''].join('');
       t = body ? `${head}: ${body}` : head;
     } else if (n.type === 'other') t = trim(n.other) || 'その他';
@@ -470,6 +477,11 @@
     const errors = [], warnings = [];
     const cfg = modeOf(report.work_type);
     const d = normalizeData(report.data);
+    if (cfg.record) { // Task 65: 現地確認の記録は号室・作業日・時刻を見ない（作った時の値のまま）
+      if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
+      if (!arr(d.workChecklist).includes(WORK_CHECKLISTS.site_check[0])) warnings.push('「' + WORK_CHECKLISTS.site_check[0] + '」にチェックがありません');
+      return { errors, warnings };
+    }
     if (!trim(report.room)) errors.push('号室が未入力です');
     if (!trim(report.work_date)) errors.push('作業日が未入力です');
     if (cfg.f1Req && !trim(d.f1)) errors.push(`「${cfg.f1Label}」が未入力です`);
@@ -481,14 +493,13 @@
       const n = d.nextAction;
       // Task 45 / 61: 原因が「不明」なら次の対応方針は「再調査」か「その他」（その他は内容が必須）
       if (cfg.pickCause && hasCause(d, CAUSE_UNKNOWN)) {
-        if (n.type !== 'resurvey' && n.type !== 'other') errors.push('原因が「不明」のときは、次の対応方針を「再確認」か「その他」にしてください');
+        if (n.type !== 'resurvey' && n.type !== 'other') errors.push('原因が「不明」のときは、次の対応方針を「再調査」か「その他」にしてください');
         else if (n.type === 'other' && !trim(n.other)) errors.push('「その他」の内容を入れてください');
       }
-      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「工事」の見積書の提出予定日を入れてください');
-      if (n.type === 'cause' && Array.from(trim(n.label)).length > NEXT_LABEL_MAX) errors.push(`工事の表題は${NEXT_LABEL_MAX}文字までです`); // Task 64
-      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再確認」の見積書の提出予定日を入れてください'); // Task 21
-      if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再確認」の理由を入れてください');
-      if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再確認」の内容を入れてください');
+      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書の提出予定日を入れてください');
+      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書の提出予定日を入れてください'); // Task 21
+      if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
+      if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
       // Task 29: 期日が今日＋2日より先なら、理由といつまでに提出できるか（日付）が必須
       if ((n.type === 'cause' || n.type === 'resurvey') && estimateDueNeedsReason(n.estimateDue, o.today)) {
         if (!trim(n.estimateDueReason)) errors.push('見積書の提出予定日が2日より先です。「理由」を入れてください');
@@ -690,7 +701,7 @@
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
-    MODES, WORK_TYPE_LABEL, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
+    MODES, WORK_TYPE_LABEL, isRecord, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,

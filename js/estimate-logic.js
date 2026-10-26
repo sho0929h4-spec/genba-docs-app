@@ -356,9 +356,9 @@
 
   // ── よく使う明細（定型・migration 029 estimate_presets）──────────────────────────
   // preset = { id, kind, label, line: {description, detail?, quantity, unit, amount, unitPrice?, postTax?:false}, sort, created_at }
-  // Task 64: 種類は 共通／現地確認／工事 の3つ（工事は repair。migration 082 で cause の定型は repair にした。DB の check は cause も受ける）
-  const PRESET_KINDS = ['common', 'survey', 'repair'];
-  const PRESET_KIND_LABEL = { common: '共通', survey: '現地確認', cause: '工事', repair: '工事' };
+  // Task 65: 現地確認（site_check）の見積にも種類別の定型（DB の estimate_presets_kind_check は 083）
+  const PRESET_KINDS = ['common', 'site_check', 'survey', 'cause', 'repair'];
+  const PRESET_KIND_LABEL = { common: '共通', site_check: '現地確認', survey: '調査', cause: '原因元工事', repair: '復旧工事' };
   const PRESET_LABEL_MAX = 40;
   const chars = v => Array.from(String(v == null ? '' : v));
   const finite = v => (v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)));
@@ -402,7 +402,7 @@
   function validatePreset(p) {
     const errors = [];
     const x = p || {};
-    if (!PRESET_KINDS.includes(x.kind) && x.kind !== 'cause') errors.push('種類を選んでください'); // DB の check は cause も受ける（082 より前の行）
+    if (!PRESET_KINDS.includes(x.kind)) errors.push('種類を選んでください');
     const label = String(x.label == null ? '' : x.label);
     if (!label.trim()) errors.push('名前を入力してください');
     else if (chars(label).length > PRESET_LABEL_MAX) errors.push('名前は' + PRESET_LABEL_MAX + '字までです');
@@ -421,8 +421,7 @@
   const presetTier = p => (p && p.owner_user_id ? 'mine' : 'company');
   // 見積のフェーズの種類に合う定型（自分専用 → 会社共通、その中で その種類 → 共通の順。種類の中は sort → 作成順）
   function presetKindsFor(phaseKind) {
-    if (phaseKind === 'survey') return ['survey', 'common'];
-    return phaseKind === 'cause' || phaseKind === 'repair' ? ['repair', 'cause', 'common'] : ['common']; // Task 64: 工事は cause も repair も同じ
+    return ['site_check', 'survey', 'cause', 'repair'].includes(phaseKind) ? [phaseKind, 'common'] : ['common'];
   }
   const presetOrder = (a, b) => (num(a.sort) - num(b.sort)) || String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id || '').localeCompare(String(b.id || ''));
   function presetsFor(presets, phaseKind) {
@@ -431,7 +430,7 @@
       .sort((a, b) => (presetTier(a) === presetTier(b) ? 0 : presetTier(a) === 'mine' ? -1 : 1)
         || (kinds.indexOf(a.kind) - kinds.indexOf(b.kind)) || presetOrder(a, b));
   }
-  // 編集シートの一覧: 種類ごと（共通 → 現地確認 → 工事）。空の種類も返す
+  // 編集シートの一覧: 種類ごと（共通 → 調査 → 原因元工事 → 復旧工事）。空の種類も返す
   function groupPresets(presets) {
     return PRESET_KINDS.map(kind => ({
       kind, label: PRESET_KIND_LABEL[kind],

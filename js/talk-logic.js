@@ -75,12 +75,13 @@
       const reports = listOf(p.reports);
       const ests = listOf(p.estimates);
       if (p.schedule_set_at && p.scheduled_at && !schedConfirm.has(p.id + '|' + ms(p.schedule_set_at))) log(p.schedule_set_at, `${k}日程決定（${PL().fmtMDHM(p.scheduled_at)}）`);
-      if (p.done_at) auto(p, p.done_at, k + (p.kind === 'survey' ? '実施' : '完了'));
+      const rec = p.kind === 'site_check'; // Task 65: 現地確認は記録（送信で done_at。カードとログは記録の送信から）
+      if (p.done_at && !rec) auto(p, p.done_at, k + (p.kind === 'survey' ? '実施' : '完了'));
       for (const r of reports) {
         if (r.submitted_at) {
-          out.push({ kind: 'card', doc: 'report', id: r.id, at: r.submitted_at, text: `${k}報告書`, from: r.submitted_by || null,
+          out.push({ kind: 'card', doc: 'report', id: r.id, at: r.submitted_at, text: rec ? `${k}の記録` : `${k}報告書`, from: r.submitted_by || null,
             fromName: r.submitted_by ? nameOf(r.submitted_by) : '担当者URL', mine: !!me && r.submitted_by === me, phaseId: p.id });
-          log(r.submitted_at, `${k}報告書受領`);
+          log(r.submitted_at, rec ? `${k}の記録を${r.reedit_count ? '再' : ''}送信` : `${k}報告書受領`);
         }
         if (r.sent_at) log(r.sent_at, `${k}報告書送付`);
       }
@@ -207,7 +208,7 @@
   }
   function withSeq(phases) {
     const count = {};
-    return listOf(phases).map(p => { count[PL().kindGroup(p.kind)] = (count[PL().kindGroup(p.kind)] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[PL().kindGroup(p.kind)] }; });
+    return listOf(phases).map(p => { count[p.kind] = (count[p.kind] || 0) + 1; return { p, seq: p.seq != null ? p.seq : count[p.kind] }; });
   }
 
   // 日付の区切りをはさむ → [{ day: '10/25（土）' } | item]

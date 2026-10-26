@@ -481,7 +481,7 @@ function eueBuild(s) {
   els.hon.addEventListener('change', () => set(x => { x.honorific = els.hon.value; }));
   cli.append(eueField('宛名', els.client, '会社・管理組合は「御中」、個人は「様」'), eueField('敬称', els.hon));
   c1.appendChild(cli);
-  els.subject = eueInput('eu-subject', 'text', d.subject, v => set(x => { x.subject = v; }), { placeholder: '例：【〇〇マンション】508号室 工事' });
+  els.subject = eueInput('eu-subject', 'text', d.subject, v => set(x => { x.subject = v; }), { placeholder: '例：【〇〇マンション】508号室 復旧工事' });
   c1.appendChild(eueField('件名', els.subject));
   const g = mk('div', 'rep-g2');
   els.issueDate = eueInput('eu-issue-date', 'date', d.issueDate, v => set(x => { x.issueDate = v; }));

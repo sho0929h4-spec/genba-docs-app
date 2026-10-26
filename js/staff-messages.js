@@ -127,7 +127,7 @@ function smRender() {
       if (s.caseId) location.hash = '#case/' + s.caseId; else openCases();
     }));
     nodes.push(mk('h2', 'ob-h', '現場からの連絡'));
-    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、現地確認報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「タスク」に出ます。メールは送りません）'));
+    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、調査報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「タスク」に出ます。メールは送りません）'));
     if (s.caseId) {
       const c = smCaseOf(s.caseId);
       const f = mk('div', 'sm-filter');

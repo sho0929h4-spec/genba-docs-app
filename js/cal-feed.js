@@ -104,7 +104,7 @@ const CalFeed = (() => {
     const card = el('div', 'fd-card fd-set gcal-card');
     card.id = 'fd-set-gcal';
     card.appendChild(el('b', null, 'Google カレンダーに予定を出す'));
-    card.appendChild(el('span', 'fd-tiny', '日時と担当が決まった予定が、あなたの Google カレンダーに出ます。出るのは「物件名・号室・種類（現地確認など）・時間・市区町村」だけです（入居者の名前・電話・金額は出ません）。Google カレンダーに出るまで数時間かかることがあります。'));
+    card.appendChild(el('span', 'fd-tiny', '日時と担当が決まった予定が、あなたの Google カレンダーに出ます。出るのは「物件名・号室・種類（調査など）・時間・市区町村」だけです（入居者の名前・電話・金額は出ません）。Google カレンダーに出るまで数時間かかることがあります。'));
     const body = el('div', 'gcal-body');
     const st = el('div', 'gcal-st');
     st.id = 'gcal-st';

@@ -77,7 +77,7 @@ const CaseUndo = (() => {
       act.append(no, yes);
       nodes.push(act);
       if (st.msg) { const m = mk('div', 'err undo-err', st.msg); m.id = 'case-undo-msg'; m.setAttribute('role', 'alert'); nodes.push(m); }
-      nodes.push(mk('div', 'undo-help', '戻せるのは、案件の項目（物件名・依頼元・担当者・期日など）・対応フェーズ（日時・現地確認済み/完了・請求など）・関係する部屋 の変更です。'
+      nodes.push(mk('div', 'undo-help', '戻せるのは、案件の項目（物件名・依頼元・担当者・期日など）・対応フェーズ（日時・調査済み/完了・請求など）・関係する部屋 の変更です。'
         + '戻せないもの: ' + EditLogic.NOT_COVERED.join('・') + '。'));
     } else if (st.msg || st.flash) {
       const m = mk('div', st.msg ? 'err undo-err' : 'undo-ok', st.msg || st.flash);

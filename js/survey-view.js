@@ -19,7 +19,7 @@ const SurveyView = (() => {
     return b;
   };
   const PANEL_THUMBS = 4; // 折りたたみ欄に出すサムネイルの数（ページでは全部）
-  const EMPTY = 'まだ現地確認の報告書がありません';
+  const EMPTY = 'まだ調査の報告書がありません';
 
   // 写真の URL（印があれば重ねた画像）。同じ写真は1回だけ作る
   const urlCache = new Map();
@@ -114,10 +114,10 @@ const SurveyView = (() => {
       const list = full ? sum.photos : sum.photos.slice(0, PANEL_THUMBS);
       const p = el('div', 'sv-photos');
       p.appendChild(thumbs(list));
-      if (!full && sum.photos.length > list.length) p.appendChild(el('div', 'sv-more', 'ほか ' + (sum.photos.length - list.length) + '枚は現地確認の内容ページで見られます'));
+      if (!full && sum.photos.length > list.length) p.appendChild(el('div', 'sv-more', 'ほか ' + (sum.photos.length - list.length) + '枚は調査の内容ページで見られます'));
       out.push(row('photos', '写真（' + sum.photos.length + '枚・押すと拡大）', p));
     }
-    if (out.length === 1) out.push(el('div', 'sv-none', '報告書に現地確認の結果の記入がありません'));
+    if (out.length === 1) out.push(el('div', 'sv-none', '報告書に調査の結果の記入がありません'));
     return out;
   }
 
@@ -137,14 +137,14 @@ const SurveyView = (() => {
     tg.id = 'eu-survey-toggle';
     tg.setAttribute('aria-controls', 'eu-survey-body');
     tg.setAttribute('aria-expanded', o.open ? 'true' : 'false');
-    tg.appendChild(Icon.prepend(el('b', null, '現地確認の内容'), 'search'));
+    tg.appendChild(Icon.prepend(el('b', null, '調査の内容'), 'search'));
     const st = el('span', 'sv-state', o.open ? '閉じる ▲' : '開く ▼');
     tg.appendChild(st);
     const bd = el('div', 'sv-body');
     bd.id = 'eu-survey-body';
     bd.hidden = !o.open;
     if (o.err) {
-      const e = el('div', 'err', '現地確認の内容を読み込めませんでした: ' + o.err);
+      const e = el('div', 'err', '調査の内容を読み込めませんでした: ' + o.err);
       e.id = 'eu-survey-err';
       bd.appendChild(e);
     } else if (!o.src || !o.src.report) {
@@ -153,7 +153,7 @@ const SurveyView = (() => {
       bd.appendChild(e);
     } else {
       bd.append(...body(PhaseLogic.surveySummary(o.src, o.estPhase), false));
-      const go = btn('現地確認の内容ページを見る ›', 'btn ghost sv-go', () => o.onPage());
+      const go = btn('調査の内容ページを見る ›', 'btn ghost sv-go', () => o.onPage());
       go.id = 'eu-survey-page';
       bd.appendChild(go);
     }
@@ -175,7 +175,7 @@ const SurveyView = (() => {
     nodes.push(req);
     const res = el('div', 'fd-req sv-page');
     res.id = 'sv-result';
-    res.appendChild(Icon.prepend(el('b', 'rq-title', '現地確認の内容'), 'search'));
+    res.appendChild(Icon.prepend(el('b', 'rq-title', '調査の内容'), 'search'));
     if (!src.report) {
       const e = el('div', 'sv-none', EMPTY);
       e.id = 'sv-empty';

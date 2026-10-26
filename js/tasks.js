@@ -222,7 +222,7 @@ function tkActionBtn(it) {
         : btn('見積を作る', b => tkRun(it, b, '見積書を作れませんでした', () => tkMakeEstimate(it)));
     case 'send_estimate': return it.estimateId ? btn('送るメールへ', b => tkRun(it, b, '送付メールの下書きを作れませんでした', () => tkSendEstimate(it))) : null;
     case 'schedule': return btn(it.phase && it.phase.schedule && PhaseLogic.schedOpen(it.phase) && it.phase.schedule.state === 'wish' ? '日程を確定する' // Task 50
-      : it.kind === 'survey' ? '現地確認日を決める' : '工事日を決める', () => tkOpenWhen(it));
+      : PhaseLogic.visitWord(it.kind) ? PhaseLogic.visitWord(it.kind) + '日を決める' : '工事日を決める', () => tkOpenWhen(it));
     case 'open_report':
       // Task 23: 調査日時を過ぎて報告書がまだ無い（報告書を書く・期限あり）→ その場で作る
       return it.reportId ? btn('報告書を開く', () => { location.hash = '#report/' + it.reportId; })
@@ -267,7 +267,7 @@ async function tkMakeEstimate(it) {
   const s = tk;
   const opts = { phase_id: it.phaseId, phaseTitle: it.title };
   // 工事の見積は、この案件の調査結果の注意事項を備考の初期値に（フェーズ詳細ページの「＋ 見積書を作る」と同じ）
-  if (it.kind !== 'survey') {
+  if (it.kind !== 'survey' && it.kind !== 'site_check') {
     const r = PhaseLogic.latestSurveyResult(it.caseRow.phases);
     if (r) opts.noteExtra = PhaseLogic.estimateNoteExtra(r);
   }

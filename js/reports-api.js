@@ -94,7 +94,8 @@ const ReportsApi = (() => {
       if (f.room) row.room = String(f.room).slice(0, 40);
       if (f.work_date && /^\d{4}-\d{2}-\d{2}$/.test(f.work_date)) row.work_date = f.work_date;
       const made = must(await sb.from('reports').insert(row).select().single());
-      await logSystem(caseId, () => f.logText || `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`);
+      await logSystem(caseId, () => f.logText || (RL().isRecord(made.work_type) ? `${f.phaseTitle || '現地確認'}の記録を作った` // Task 65
+        : `${f.phaseTitle ? f.phaseTitle + 'の' : ''}報告書（${RL().WORK_TYPE_LABEL[made.work_type] || made.work_type}）を作った`));
       return made;
     },
     // Task 25: フェーズの報告書（下書き・作業区分はフェーズで固定）と担当者URL（期限なし・1本）を用意する（無ければ作る）。
@@ -117,7 +118,7 @@ const ReportsApi = (() => {
         if (finished && !o.force) return null;
         // 作業担当者の初期値はフェーズの作業担当者（無ければ空。開いた人にはしない）
         const f = window.PhaseLogic.reportFields(p, caseRow || {}, { title: o.title || '' });
-        f.logText = `${o.title ? o.title + 'の' : ''}報告書と担当者URLを用意した`;
+        f.logText = `${o.title ? o.title + 'の' : ''}${RL().isRecord(f.work_type) ? '記録' : '報告書'}と担当者URLを用意した`;
         report = await api.create(caseId, f);
         made = true;
       } else if (drafts.length) report = drafts[drafts.length - 1];
@@ -211,7 +212,8 @@ const ReportsApi = (() => {
         .eq('id', cur.id).eq('status', 'draft').select());
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
-      await logSystem(row.case_id, () => `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を${row.reedit_count ? "再" : ""}提出した`); // Task 35: 再編集のあとは「再提出した」
+      await logSystem(row.case_id, () => (RL().isRecord(row.work_type) ? `現地確認の記録を${row.reedit_count ? '再' : ''}送信した` // Task 65（管理者への連絡は DB の reports_site_check_sent）
+        : `報告書（${RL().WORK_TYPE_LABEL[row.work_type] || row.work_type}）を${row.reedit_count ? "再" : ""}提出した`)); // Task 35: 再編集のあとは「再提出した」
       await api.syncSurveyResult(row);
       // Task 20: 調査の「次の対応方針」が原因元工事（＋見積書提案期日）なら、原因元工事フェーズの作成・estimate_due・タイムラインの記録は
       // DB のトリガー（migration 037 reports_next_action）が同じ更新の中で行う（share_submit と同じ処理。期日が無ければ DB も提出を拒否する）
@@ -235,7 +237,7 @@ const ReportsApi = (() => {
         if (!next && !promise) return null;
         const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
         return await PhasesApi.saveResult(ph, next || ph.result, caseRow, window.PhaseLogic.phaseTitle(ph, seq), { next: d.nextAction });
-      } catch (e) { console.warn('現地確認結果への反映に失敗', e); return null; }
+      } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
     },
     // Task 27: 担当者URLから提出された調査の報告書（ログインなしの提出は下書きを作れない）→ 管理画面を開いたときに「調査結果のご報告」を作り直す。
     //   rows: case_summaries の行。提出から30日以内・このフェーズの「調査結果のご報告」が提出の後に作られた／更新されたものが無いときだけ
@@ -265,7 +267,7 @@ const ReportsApi = (() => {
         try {
           const full = await api.get(report.id);
           if (full && full.status !== 'draft' && await api.syncSurveyResult(full)) n += 1;
-        } catch (e) { console.warn('現地確認結果のご報告の作り直しに失敗', e); }
+        } catch (e) { console.warn('調査結果のご報告の作り直しに失敗', e); }
       }
       return n;
     },

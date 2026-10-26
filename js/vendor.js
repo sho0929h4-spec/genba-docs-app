@@ -68,6 +68,10 @@
     $('v-root').replaceChildren(box);
   }
 
+  // Task 65: 現地確認の記録（work_type site_check）は「記録」「送信」と呼ぶ（share_state / share_open の work_type で決める）
+  let words = { doc: '報告書', vb: '提出', rec: false };
+  const setWords = wt => { words = ReportLogic.isRecord(wt) ? { doc: '現地確認の記録', vb: '送信', rec: true } : { doc: '報告書', vb: '提出', rec: false }; };
+
   /* ---------- 提出後の再編集（Task 35。依頼元へ送る前まで） ---------- */
   // 「再編集して管理者に知らせる」→ 画面内で確かめる（confirm は使わない）→ share_reedit → 開き直す（同じ URL で入力・提出できる）
   function reeditBox(orgName) {
@@ -85,7 +89,7 @@
       const ask = el('div', 'v-ask');
       ask.id = 'v-reedit-ask';
       ask.setAttribute('role', 'alertdialog');
-      ask.appendChild(el('div', 'v-ask-t', '報告書を再編集にしますか？\n編集できる状態に戻ります。直して「提出する」を押すまで、' + (orgName || '依頼元の会社') + 'の画面では「再編集中」になります。再編集にしたことは自動で知らせます。'));
+      ask.appendChild(el('div', 'v-ask-t', words.doc + 'を再編集にしますか？\n編集できる状態に戻ります。直して「' + words.vb + 'する」を押すまで、' + (orgName || '依頼元の会社') + 'の画面では「再編集中」になります。再編集にしたことは自動で知らせます。'));
       const acts = el('div', 'v-ask-acts');
       const no = el('button', 'btn ghost', 'やめる');
       no.type = 'button';
@@ -120,8 +124,9 @@
     try { const res = await client.rpc('share_state', { p_token: token }); if (!res.error) st = res.data; }
     catch (e) { st = null; }
     const orgName = st && st.org ? st.org.name : '';
+    if (st) setWords(st.work_type);
     if (st && st.can_reedit) {
-      full('checkCircle', 'この報告書は提出済みです', '提出はすでに完了しています。ありがとうございました。', null, reeditBox(orgName));
+      full('checkCircle', 'この' + words.doc + 'は' + words.vb + '済みです', words.vb + 'はすでに完了しています。ありがとうございました。', null, reeditBox(orgName));
       return true;
     }
     if (st && st.status === 'sent') {
@@ -163,6 +168,7 @@
     const r = info.report || {};
     const key = 'share-' + info.share_id;
     const wt = ReportLogic.MODES[r.work_type] ? r.work_type : 'investigate';
+    setWords(wt);
     s = {
       info, key, ro: false, els: {}, blobs: new Map(),
       f: {
@@ -233,7 +239,9 @@
   function build(restored) {
     const info = s.info, L = ReportLogic;
     const orgName = (info.org && info.org.name) || '';
-    document.title = '作業報告書の入力' + (orgName ? '｜' + orgName : '');
+    document.title = (words.rec ? '現地確認の記録の入力' : '作業報告書の入力') + (orgName ? '｜' + orgName : '');
+    $('v-submit').textContent = words.vb + 'する';
+    if ($('v-sub')) $('v-sub').textContent = words.rec ? '現地確認の記録の入力をお願いします' : '作業報告書の入力をお願いします';
     $('v-logo').textContent = initial(orgName);
     $('v-org').textContent = orgName;
     $('v-hdr').hidden = false;
@@ -268,9 +276,10 @@
     const req = requestCard();
     if (req) nodes.push(req);
 
-    const note = el('div', 'rep-note',
-      '途中で閉じても、入力内容と写真のリストはこの端末に保存されます。提出後は、依頼元へ送る前なら「再編集」で直せます。' +
-      '提出された内容は' + (orgName || '依頼元の会社') + 'が確認し、報告書（PDF）にします。');
+    const note = el('div', 'rep-note', words.rec
+      ? '途中で閉じても、入力内容と写真のリストはこの端末に保存されます。送信すると' + (orgName || '依頼元の会社') + 'に知らせが届きます。送信した後も「再編集」で直せます。'
+      : '途中で閉じても、入力内容と写真のリストはこの端末に保存されます。提出後は、依頼元へ送る前なら「再編集」で直せます。' +
+        '提出された内容は' + (orgName || '依頼元の会社') + 'が確認し、報告書（PDF）にします。');
     note.id = 'v-note';
     if (restored) note.textContent = 'この端末に保存していた入力を復元しました。' + note.textContent;
     nodes.push(note);
@@ -278,7 +287,7 @@
     if (s.reedit) {
       const rn = el('div', 'v-reedit-note');
       rn.id = 'v-reedit-note';
-      rn.append(el('span', 'reedit-tag', '再編集中'), el('span', null, (reeditedNow ? '再編集にしました。' : '') + '直して「提出する」を押すと、' + (orgName || '依頼元の会社') + 'に自動で知らせます。'));
+      rn.append(el('span', 'reedit-tag', '再編集中'), el('span', null, (reeditedNow ? '再編集にしました。' : '') + '直して「' + words.vb + 'する」を押すと、' + (orgName || '依頼元の会社') + 'に自動で知らせます。'));
       nodes.push(rn);
     }
     reeditedNow = false;
@@ -492,8 +501,9 @@
     showVal(errors, warnings);
     if (errors.length) return;
     const q = (warnings.length ? '次の点を確認してください。\n' + warnings.map(w => '・' + w).join('\n') + '\n\n' : '') +
-      '提出すると内容は変更できません（依頼元へ送る前なら、あとから「再編集」で直せます）。このまま提出しますか？';
-    if (!(await askPopup(q, { title: '提出の前に確認', okLabel: '提出する' })) || !s || s.photoBusy || s.submitting || s.done) return;
+      (words.rec ? '送信すると管理者に知らせが届きます（あとから「再編集」で直せます）。このまま送信しますか？'
+        : '提出すると内容は変更できません（依頼元へ送る前なら、あとから「再編集」で直せます）。このまま提出しますか？');
+    if (!(await askPopup(q, { title: words.vb + 'の前に確認', okLabel: words.vb + 'する' })) || !s || s.photoBusy || s.submitting || s.done) return;
 
     s.submitting = true;
     const locked = [];
@@ -514,7 +524,7 @@
       s.submitting = false;
       locked.forEach(e => { e.disabled = false; });
       renderPhotos();
-      showVal(['提出できませんでした: ' + errMsg(error)], []);
+      showVal([words.vb + 'できませんでした: ' + errMsg(error)], []);
       return;
     }
     s.done = true;
@@ -523,7 +533,7 @@
     s.blobs.forEach(u => URL.revokeObjectURL(u));
     s.blobs.clear();
     window.scrollTo(0, 0);
-    full('checkCircle', '提出しました。ありがとうございました',
+    full('checkCircle', words.vb + 'しました。ありがとうございました',
       ((s.info.org && s.info.org.name) || '依頼元の会社') + 'が内容を確認します。このページは閉じてかまいません。', null,
       reeditBox((s.info.org && s.info.org.name) || '')); // Task 35: 依頼元へ送る前なら直せる
   }

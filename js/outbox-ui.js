@@ -18,7 +18,7 @@ async function outboxSync(rows) {
   const caseIds = (rows || []).map(r => r.id); // 未送信の下書きは一覧にある案件の分だけ読む（Task 23 I13）
   // Task 27: 担当者URLから提出された調査の報告書 → 「調査結果のご報告」を作り直す（管理者が開いたとき。失敗しても一覧は出す）
   if (ctx && ctx.membership && ctx.membership.role === 'owner') {
-    try { await ReportsApi.syncSharedSurveyResults(rows); } catch (e) { console.warn('現地確認結果のご報告の確認に失敗', e); }
+    try { await ReportsApi.syncSharedSurveyResults(rows); } catch (e) { console.warn('調査結果のご報告の確認に失敗', e); }
   }
   let drafts = await PhasesApi.listMailForOutbox(active, caseIds);
   const res = await PhasesApi.syncReminders(entries, drafts, now);
@@ -93,7 +93,7 @@ function obItemEl(it) {
   row.appendChild(mk('div', 'ob-subj', d.subject || '（件名なし）'));
   const info = [];
   if (it.phase && it.phase.scheduled_at && (d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'staff_notice')) {
-    info.push((it.phase.kind === 'survey' ? '現地確認日時 ' : '工事日 ') + PhaseLogic.fmtRange(it.phase.scheduled_at, it.phase.scheduled_end));
+    info.push((PhaseLogic.visitWord(it.phase.kind) ? PhaseLogic.visitWord(it.phase.kind) + '日時 ' : '工事日 ') + PhaseLogic.fmtRange(it.phase.scheduled_at, it.phase.scheduled_end));
   }
   const who = PhaseLogic.recipientsLabel(d.recipients, it.caseRow);
   info.push('宛先: ' + (who || d.to_email || '未選択'));

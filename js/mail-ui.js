@@ -17,7 +17,7 @@ const ML_DELAY = 1000;                       // 入力から保存までの待�
 const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
 // 調査日・工事日の連絡／リマインド／調査結果のご報告（purpose schedule / reminder / survey_result。対応フェーズ）:
 // 書類なし・PDFなし・送る相手は依頼元から選ぶ・戻り先は案件
-const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '現地確認結果のご報告メール',
+const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '調査結果のご報告メール',
   staff_notice: '担当者へのメール' }; // staff_notice: 担当者への確認依頼・前日のお知らせ（Task 6b。送る相手は作業担当者だけ）
 const mlIsStaff = s => !!(s && s.draft && s.draft.purpose === 'staff_notice');
 const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id && !!ML_NOTE_TITLE[s.draft.purpose]);

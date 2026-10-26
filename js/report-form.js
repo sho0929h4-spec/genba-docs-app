@@ -240,7 +240,7 @@ function rfBuildForm(s, opts) {
     els.seg = rfMk('div', 'rep-seg');
     els.seg.id = 'rp-seg';
     els.seg.setAttribute('role', 'group');
-    Object.keys(L.MODES).forEach(k => {
+    Object.keys(L.MODES).filter(k => L.MODES[k].pick !== false).forEach(k => { // Task 65: 現地確認の記録は切替に出さない
       const b = rfMk('button', null, L.MODES[k].label);
       b.type = 'button';
       b.dataset.mode = k;
@@ -261,7 +261,8 @@ function rfBuildForm(s, opts) {
   s.roomsInit = roomsInit; // 指示の号室を初期値に入れた（管理画面・現場用は保存する。report-edit.js）
 
   els.date = edInput('rp-date', 'date', s.f.work_date, v => { s.f.work_date = v; rfDirty(s); });
-  basic.appendChild(edField('作業日 *', els.date));
+  const dateField = edField('作業日 *', els.date);
+  basic.appendChild(dateField);
 
   const timeRow = (id, label, key) => {
     const inp = edInput(id, 'time', s.f[key], v => { s.f[key] = v; rfDirty(s); });
@@ -283,6 +284,8 @@ function rfBuildForm(s, opts) {
   els.ts = ts.inp;
   els.te = te.inp;
   basic.append(ts.wrap, te.wrap);
+  els.basicFields = [g2, dateField, ts.wrap, te.wrap]; // Task 65: 現地確認の記録では隠す（作った時の号室・作業日のまま）
+  els.basic = basic;
   nodes.push(basic);
 
   // ---- 区分ごとのチップカード（区分ごとに1枚。使う区分だけ表示） ----
@@ -308,7 +311,8 @@ function rfBuildForm(s, opts) {
 
   // ---- 作業内容 ----
   const content = rfMk('div', 'rep-card');
-  content.appendChild(rfMk('h3', null, '作業内容'));
+  els.contentTitle = rfMk('h3', null, '作業内容');
+  content.appendChild(els.contentTitle);
 
   const labelRow = (id, labelText, ta, key) => {
     const row = rfMk('div', 'rep-lbl-row');
@@ -429,7 +433,8 @@ function rfBuildForm(s, opts) {
   els.workChips = rfMk('div', 'rep-checks');
   els.workChips.id = 'rp-work-chips';
   cl.appendChild(els.workChips);
-  cl.appendChild(rfMk('div', 'rep-group-ttl', T.keyChecklistTitle));
+  els.keyTitle = rfMk('div', 'rep-group-ttl', T.keyChecklistTitle);
+  cl.appendChild(els.keyTitle);
   edKeyBox(s, cl);
   nodes.push(cl);
 
@@ -589,11 +594,7 @@ function edNextPicker(s, parent) {
     edField(T.estimateDueByLabel + ' *', els.nextWhyBy, T.estimateDueWhyHint, 'rep-ff-sub'));
   els.nextDueWrap.appendChild(els.nextWhyWrap);
   els.nextWrap.appendChild(els.nextDueWrap);
-  // Task 64: 工事の表題（任意・40字まで）
-  els.nextLabel = edInput('rp-next-label', 'text', n.label, v => { n.label = v; rfDirty(s); });
-  els.nextLabel.maxLength = 40;
-  els.nextLabel.placeholder = T.nextLabelPlaceholder;
-  els.nextFields.cause = sub('cause', edField(T.nextLabelLabel, els.nextLabel, T.nextLabelHint, 'rep-ff-sub'));
+  els.nextFields.cause = sub('cause');
   els.nextFields.cause.hidden = true;
   els.nextReason = ta('rp-next-reason', 'reason', '例：天井裏まで確認できなかった');
   els.nextDetail = ta('rp-next-detail', 'detail', '例：点検口を開けて給水管の継手を確認する');
@@ -624,14 +625,14 @@ function edApplyUnknown(s, on) {
 function edApplyNext(s) {
   const T = ReportLogic.TEXT, e = s.els;
   const t = s.f.data.nextAction.type;
-  Object.keys(e.nextFields).forEach(k => { e.nextFields[k].hidden = k !== t; });
+  Object.keys(e.nextFields).forEach(k => { e.nextFields[k].hidden = k !== t || k === 'cause'; });
   const due = t === 'cause' || t === 'resurvey';
   e.nextDueWrap.hidden = !due;
   if (due) e.nextDueHint.textContent = t === 'cause' ? T.estimateDueHint : T.resurveyDueHint;
   if (e.nextWhyWrap) e.nextWhyWrap.hidden = !(due && ReportLogic.estimateDueNeedsReason(s.f.data.nextAction.estimateDue));
-  // 再確認は 期日 → 理由・内容、工事は 表題 → 期日 の順（期日の欄はどちらも再確認の欄のすぐ上）
+  // 再調査は 期日 → 理由・内容 の順（期日の欄を再調査の欄の上に）
   if (due) {
-    const ref = e.nextFields.resurvey;
+    const ref = t === 'resurvey' ? e.nextFields.resurvey : e.nextFields.cause;
     if (e.nextDueWrap.nextSibling !== ref) e.nextWrap.insertBefore(e.nextDueWrap, ref); // 入力中の欄を動かさない（フォーカスが外れる）
   }
 }
@@ -721,6 +722,13 @@ function edApplyMode(s) {
   }
   Object.keys(e.chipCards).forEach(m => { e.chipCards[m].hidden = m !== k; });
   e.f1Label.textContent = cfg.f1Label + (cfg.f1Req ? ' *' : '');
+  // Task 65: 現地確認の記録は 写真・申し送り・チェックリスト1項目だけ（号室・作業日・時刻・鍵・音声以外の欄は出さない）
+  const rec = !!cfg.record;
+  (e.basicFields || []).forEach(x => { x.hidden = rec; });
+  if (e.basic) e.basic.hidden = rec && !e.basic.querySelector('.rep-auto, #rp-fixed-type');
+  if (e.contentTitle) e.contentTitle.textContent = cfg.contentCardTitle || '作業内容';
+  [e.keyTitle, e.keyBox && e.keyBox.previousSibling, e.keyBox].forEach(x => { if (x) x.hidden = rec || (x === e.keyBox && s.f.data.keyStatus !== 'returned'); });
+  e.f1Hint.hidden = rec;
   e.f1.placeholder = cfg.f1ph;
   edApplyLeak(s);
   e.afterWrap.hidden = !cfg.showAfter;

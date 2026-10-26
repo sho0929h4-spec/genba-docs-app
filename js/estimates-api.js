@@ -152,6 +152,12 @@ const EstimatesApi = (() => {
       const e = EL().emptyEstimate(c || {}, ctx.org, me);
       // 工事カードから作るときは、調査結果の注意事項の文を備考の初期値に（opts.noteExtra。NOTE_FIRST は備考の1行目に必ず入る）
       if (opts && typeof opts.noteExtra === 'string' && opts.noteExtra.trim()) e.data.notes.extra = opts.noteExtra.trim();
+      // Task 65: 対応から作る見積書の件名の初期値「物件名 ○○号室 種類名」（手で直せる。前からある見積書は変えない）
+      if (opts && opts.phase_id) {
+        let ph = (c && Array.isArray(c.phases) ? c.phases : []).find(x => x && x.id === opts.phase_id) || null;
+        if (!ph) ph = must(await sb.from('case_phases').select('id, kind, label').eq('id', opts.phase_id).maybeSingle());
+        if (ph) e.data.subject = PhaseLogic.estimateSubject(c || {}, ph);
+      }
       const tt = withTotals(e.lines);
       const ins = {
         case_id: caseId, series_id: CryptoUtil.uuid(), version: 1, status: 'draft',

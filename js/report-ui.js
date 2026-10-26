@@ -168,7 +168,7 @@ function toggleRepForm() {
   form.appendChild(mk('div', 'af-ttl', '＋ 報告書を作成'));
   const grid = mk('div', 'af-grid');
 
-  const type = dSelect(Object.entries(ReportLogic.WORK_TYPE_LABEL), 'investigate');
+  const type = dSelect(Object.entries(ReportLogic.WORK_TYPE_LABEL).filter(([k]) => !ReportLogic.isRecord(k)), 'investigate'); // Task 65: 記録は対応から作る
   const workerOpts = repMembers.map(m => [m.user_id, (m.display_name || '(名前なし)') + (m.user_id === ctx.user.id ? '（自分）' : '')]);
   workerOpts.push([REP_VENDOR, 'その他（名前を入力）']);
   const worker = dSelect(workerOpts, repMembers.some(m => m.user_id === ctx.user.id) ? ctx.user.id : REP_VENDOR);
