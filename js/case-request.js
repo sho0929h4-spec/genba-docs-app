@@ -98,11 +98,88 @@ const CaseRequest = (() => {
     ta.addEventListener('input', () => { s.v[key] = ta.value; changed(s); });
     return ta;
   }
+  // Task 66: 調査依頼項目の選択（押すと☑・複数可）。排水テストは場所（複数可＋自由記載）、その他は自由記載。
+  //   案件の登録（現場用 #f/new・管理者の新規案件）と依頼内容の編集で共通。onChange(items) に PhaseLogic.normalizeItems の形を渡す
+  function itemsPicker(init, onChange, idp) {
+    const PL = PhaseLogic;
+    let items = PL.normalizeItems(init);
+    const find = k => items.find(x => x.key === k);
+    const emit = () => onChange(PL.normalizeItems(items));
+    const box = mk('div', 'rqi');
+    box.id = idp;
+    const grid = mk('div', 'rep-checks grid rqi-grid');
+    grid.setAttribute('role', 'group');
+    grid.setAttribute('aria-label', '調査依頼項目');
+    const textIn = (cls, max, ph, aria, get, set) => {
+      const i = document.createElement('input');
+      i.type = 'text';
+      i.className = cls;
+      i.maxLength = max;
+      i.autocomplete = 'off';
+      i.placeholder = ph;
+      i.setAttribute('aria-label', aria);
+      i.value = get();
+      i.addEventListener('input', () => { set(i.value); emit(); });
+      return i;
+    };
+    // 排水テストの場所
+    const drain = mk('div', 'rqi-sub');
+    drain.id = idp + '-drain';
+    drain.appendChild(mk('div', 'rqi-k', '排水テストの場所（押して選ぶ・複数可）'));
+    const pg = mk('div', 'rep-checks grid rqi-places');
+    pg.setAttribute('role', 'group');
+    pg.setAttribute('aria-label', '排水テストの場所');
+    const placeOther = textIn('rqi-place-other', 100, '例: ベランダ', '排水テストの場所（自由記載）',
+      () => (find('drain') || {}).placeOther || '', v => { find('drain').placeOther = v; });
+    const pl = mk('label', 'rqi-f', '自由記載');
+    pl.appendChild(placeOther);
+    drain.append(pg, pl);
+    // その他
+    const otherIn = textIn('rqi-other', 200, '例: 給湯器まわりも見てほしい', '調査依頼項目（その他）',
+      () => (find('other') || {}).text || '', v => { find('other').text = v; });
+    const other = mk('label', 'rqi-f rqi-sub', 'その他（自由記載）');
+    other.id = idp + '-other';
+    other.appendChild(otherIn);
+    const placeBtns = PL.DRAIN_PLACES.map(p => {
+      const b = edCheck(p, false, false, on => {
+        const d = find('drain');
+        const set = new Set(d.places);
+        if (on) set.add(p); else set.delete(p);
+        d.places = PL.DRAIN_PLACES.filter(x => set.has(x));
+        emit();
+      });
+      b.dataset.place = p;
+      pg.appendChild(b);
+      return b;
+    });
+    const sync = () => {
+      const d = find('drain');
+      drain.hidden = !d;
+      other.hidden = !find('other');
+      placeBtns.forEach(b => edSetOn(b, !!d && d.places.includes(b.dataset.place)));
+      placeOther.value = d ? d.placeOther : '';
+      otherIn.value = (find('other') || {}).text || '';
+    };
+    PL.REQUEST_ITEMS.forEach(d => {
+      const b = edCheck(d.label, !!find(d.key), false, on => {
+        items = PL.normalizeItems(on ? items.concat([{ key: d.key }]) : items.filter(x => x.key !== d.key));
+        sync();
+        emit();
+      });
+      b.dataset.key = d.key;
+      grid.appendChild(b);
+    });
+    box.append(grid, drain, other);
+    sync();
+    return box;
+  }
   function editor(s) {
     const wrap = mk('div', 'rq-editor');
     s.els = {};
     wrap.appendChild(field('依頼内容（依頼元から聞いた内容）', textArea(s, 'text', 'rq-in-text', 3, PhaseLogic.REQUEST_TEXT_MAX,
       '例: 402号室の浴室下から階下302号室の天井に漏水')));
+    wrap.appendChild(mk('div', 'ph-cau-t', '調査依頼項目（押して選ぶ・複数可）'));
+    wrap.appendChild(itemsPicker(s.v.items, v => { s.v.items = v; changed(s); }, 'rq-items'));
     // 症状
     wrap.appendChild(mk('div', 'ph-cau-t', '症状（押して選ぶ・複数可）'));
     const grid = mk('div', 'rep-checks grid rq-symptoms');
@@ -340,5 +417,5 @@ const CaseRequest = (() => {
 
   window.addEventListener('pagehide', flushAll);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAll(); });
-  return { section, refresh, flushAll, pending };
+  return { section, refresh, flushAll, pending, itemsPicker };
 })();

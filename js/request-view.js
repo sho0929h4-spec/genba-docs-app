@@ -74,6 +74,12 @@ const RequestView = (() => {
       const row = el('div', 'rq-row');
       row.dataset.key = it.key;
       if (it.key !== 'text') row.appendChild(el('div', 'rq-k', it.label));
+      // Task 66: 「養生対応（入居者確認必要）」は目立つ印（作業担当者が当日 入居者に確かめる）
+      if (it.key === 'items' && PL.needsTenantCheck(r)) {
+        const m = el('span', 'rq-mark', '入居者に確認');
+        m.title = '養生対応は入居者に確認が必要です';
+        row.firstChild.append(' ', m);
+      }
       if (it.key === 'symptoms') {
         const chips = el('div', 'rq-chips');
         PL.REQUEST_SYMPTOMS.filter(x => r.symptoms.includes(x.key)).forEach(x => {

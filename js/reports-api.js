@@ -85,6 +85,8 @@ const ReportsApi = (() => {
     async create(caseId, f = {}) {
       // Task 20: 調査結果の初期値は選択式の形へ（原因 → 原因「その他」の自由記載・次の対応方針 → 「その他」の自由記載）
       const data = RL().applyInit(RL().emptyData(), f.init);
+      // Task 66: 作業実施項目の初期値 = 調査依頼項目（PhaseLogic.reportFields の work。作成時だけ）
+      if (f.work && (f.work_type || 'investigate') === 'investigate') Object.assign(data, RL().workInit(f.work));
       const row = {
         case_id: caseId, status: 'draft', work_type: f.work_type || 'investigate',
         worker_id: f.worker_id || null, worker_name: f.worker_name || null, data

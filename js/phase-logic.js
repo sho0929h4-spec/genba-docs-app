@@ -1052,6 +1052,16 @@
     { key: 'downstairs', label: '階下からの申告' }, { key: 'smell', label: '異臭・カビ' }, { key: 'water_bill', label: '水道料金の増加' },
     { key: 'other', label: 'その他' }
   ];
+  // Task 66: 調査依頼項目（案件の登録で 調査／現地確認 のとき選ぶ。request.items = [{ key, places?, placeOther?, text? }]）
+  //   work: 調査の報告書の「作業実施項目」（ReportLogic.INV_WORK_ITEMS）の初期値にする項目
+  const REQUEST_ITEMS = [
+    { key: 'visual', label: '目視確認', work: '目視確認' }, { key: 'drain', label: '排水テスト', work: '排水テスト' },
+    { key: 'ps', label: 'PS確認', work: 'PS内漏れ確認' }, { key: 'pressure', label: '耐圧テスト', work: '耐圧テスト' },
+    { key: 'curing', label: '養生対応', work: '養生対応' }, { key: 'curing_tenant', label: '養生対応（入居者確認必要）', work: '養生対応' },
+    { key: 'other', label: 'その他', work: 'その他' }
+  ];
+  const DRAIN_PLACES = ['トイレ', '浴室', '洗面所', 'キッチン', '洗濯機'];
+  const ITEM_KINDS = ['survey', 'site_check']; // 調査依頼項目を選べる種類
   const REQUEST_TEXT_MAX = 2000;
   const REQUEST_FIELD_MAX = 1000;
   const REQUEST_PHOTOS_MAX = 30;
@@ -1069,7 +1079,48 @@
       return o;
     });
     return { text: txt(r.text), symptoms: pickList(r.symptoms, REQUEST_SYMPTOMS), symptomOther: txt(r.symptomOther),
-      damage: txt(r.damage), suspect: txt(r.suspect), photos };
+      damage: txt(r.damage), suspect: txt(r.suspect), items: normalizeItems(r.items), photos };
+  }
+  // 調査依頼項目 → 並びはボタンの順・知らない項目は落とす・同じ項目は1回。排水テストは places（決まった場所だけ）と placeOther、その他は text
+  //   （DB の _case_request_ok と同じ長さ: placeOther 100・text 200）
+  function normalizeItems(v) {
+    const by = new Map();
+    (Array.isArray(v) ? v : []).forEach(x => {
+      const o = x && typeof x === 'object' && !Array.isArray(x) ? x : typeof x === 'string' ? { key: x } : {};
+      if (REQUEST_ITEMS.some(d => d.key === o.key) && !by.has(o.key)) by.set(o.key, o);
+    });
+    return REQUEST_ITEMS.filter(d => by.has(d.key)).map(d => {
+      const o = by.get(d.key);
+      if (d.key === 'drain') {
+        const set = new Set(Array.isArray(o.places) ? o.places : []);
+        return { key: 'drain', places: DRAIN_PLACES.filter(p => set.has(p)), placeOther: txt(o.placeOther).slice(0, 100) };
+      }
+      if (d.key === 'other') return { key: 'other', text: txt(o.text).slice(0, 200) };
+      return { key: d.key };
+    });
+  }
+  // 表示の文「目視確認・排水テスト（トイレ・浴室）・その他（…）」。空なら ''
+  function itemsText(items) {
+    return normalizeItems(items).map(x => {
+      const d = REQUEST_ITEMS.find(y => y.key === x.key);
+      if (x.key === 'drain') {
+        const ps = x.places.concat(str(x.placeOther) ? [str(x.placeOther)] : []);
+        return d.label + (ps.length ? '（' + ps.join('・') + '）' : '');
+      }
+      if (x.key === 'other') return str(x.text) ? 'その他（' + str(x.text) + '）' : d.label;
+      return d.label;
+    }).join('・');
+  }
+  // 「養生対応（入居者確認必要）」を選んでいるか（作業担当者の画面で「入居者に確認」の印）
+  const needsTenantCheck = raw => normalizeRequest(raw).items.some(x => x.key === 'curing_tenant');
+  // 調査の報告書の作業実施項目の初期値 → { workItems: [ReportLogic.INV_WORK_ITEMS の値], workItemOther }。項目が無ければ null
+  function requestWorkItems(raw) {
+    const items = normalizeRequest(raw).items;
+    if (!items.length) return null;
+    const work = [];
+    items.forEach(x => { const w = REQUEST_ITEMS.find(d => d.key === x.key).work; if (!work.includes(w)) work.push(w); });
+    const other = items.find(x => x.key === 'other');
+    return { workItems: work, workItemOther: other ? str(other.text) : '' };
   }
   const symptomText = r => choiceText(REQUEST_SYMPTOMS, r.symptoms, r.symptomOther);
   // 文章の項目 → [{ key, label, text }]（空の項目は出さない）。依頼内容は見出しなしで先頭に
@@ -1077,6 +1128,7 @@
     const r = normalizeRequest(raw);
     const out = [];
     if (str(r.text)) out.push({ key: 'text', label: '依頼内容', text: textLines(r.text).join('\n') });
+    if (r.items.length) out.push({ key: 'items', label: '調査依頼項目', text: itemsText(r.items) });
     if (r.symptoms.length) out.push({ key: 'symptoms', label: '症状', text: symptomText(r) });
     if (str(r.damage)) out.push({ key: 'damage', label: '被害箇所', text: textLines(r.damage).join('\n') });
     if (str(r.suspect)) out.push({ key: 'suspect', label: '怪しい箇所', text: textLines(r.suspect).join('\n') });
@@ -1810,6 +1862,9 @@
     if (str(c.room)) f.room = str(c.room).slice(0, 40);
     f.work_date = p.scheduled_at ? jstYmd(p.scheduled_at) : jstYmd(toDate(opt.now) || new Date());
     if (p.kind === 'survey' && hasResult(p.result)) f.init = reportInit(p.result, f.room);
+    // Task 66: 調査の報告書の作業実施項目の初期値 = 調査依頼項目（作業担当者が外せる。ReportsApi.create が入れる）
+    const work = p.kind === 'survey' ? requestWorkItems(c.request) : null;
+    if (work) f.work = work;
     return f;
   }
   // 提出された調査の報告書（選択式の原因・理由・次の対応方針）→ 調査結果（case_phases.result）の空の項目だけ埋めたもの（Task 23 I10）。
@@ -2622,9 +2677,11 @@
       else if (Array.from(f.label).length > LABEL_MAX) errors.label = `「その他」の名前は${LABEL_MAX}文字までです`;
     }
     if (Array.from(f.request).length > NEW_CASE_MAX.request) errors.request = '依頼内容詳細は2000文字までです';
+    const items = ITEM_KINDS.includes(f.kind) ? normalizeItems(x.items) : []; // Task 66: 調査依頼項目は 調査／現地確認 のときだけ
     const ok = Object.keys(errors).length === 0;
     return { ok, errors, end: ok && end ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
-      p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request } : null };
+      p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request,
+      ...(items.length ? { p_items: items } : {}) } : null };
   }
 
   /* ---------- Task 48: トーク画面の右上の「フェーズ」（Task 47 のフェーズ管理を作り直し）・工事の日程の条件 ---------- */
@@ -3077,7 +3134,7 @@
     phaseTitle, stage, workerStage, isBlankReport, estimateTodo, reportTodo, ymdAdd, reportState, shareRequestText, caseNext, nextText, caseFlags, teamStages, TASK_GROUPS, taskGroupOf, taskGroups, reminderSlots, scheduleSetAt, dueReminders, staleReminders, reminderState,
     mailLabel, recipientsLabel, canSkip, groupOutbox, contacts, defaultRecipients, scheduleMail, reminderMail, docTrack,
     GREETING, CLOSING, roomLabel, placeName, addresseeLine, addresseeLines, setAddressee,
-    REQUEST_SYMPTOMS, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
+    REQUEST_SYMPTOMS, REQUEST_ITEMS, DRAIN_PLACES, ITEM_KINDS, normalizeItems, itemsText, needsTenantCheck, requestWorkItems, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, taskDueGroups, TASK_VIEWS, taskView, taskViewCounts, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,

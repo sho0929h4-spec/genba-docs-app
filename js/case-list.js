@@ -325,6 +325,9 @@ async function openCaseModal(row, onSaved, opts) {
   $('cm-call-kind').value = 'survey';
   $('cm-call-label').value = '';
   $('cm-call-label-box').hidden = true;
+  caseModalItems = []; // Task 66
+  $('cm-call-items').replaceChildren(CaseRequest.itemsPicker([], v => { caseModalItems = v; }, 'cm-items'));
+  cmItemsShow();
   $('cm-call-at').value = '';
   $('cm-call-end').value = '';
   const sel = $('cm-assignee');
@@ -372,6 +375,8 @@ async function openCaseModal(row, onSaved, opts) {
 // Task 51: 新規案件の作業担当者の決め方（「特定の担当者を選ぶ」= 今までの担当者／「一斉配信（早い者順）」= 担当者なしで対応を1つ作って募集）。編集では出さない
 let caseModalMode = 'pick';
 let caseModalWhen = { when: 'today', hour: null }; // Task 60: いつ来てほしいか（日時を決める = 下の日時の欄）
+let caseModalItems = []; // Task 66: 調査依頼項目（募集する対応が 調査／現地確認 のとき）
+const cmItemsShow = () => { $('cm-call-items-box').hidden = !PhaseLogic.ITEM_KINDS.includes($('cm-call-kind').value); };
 function caseModalModeDraw() {
   const host = $('cm-wk-mode');
   const fresh = !caseModalRow;
@@ -461,6 +466,9 @@ async function saveCaseModal() {
   let callErr = '';
   if (created && call) {
     try {
+      // Task 66: 調査依頼項目は依頼内容（cases.request）へ。対応より先に入れる（調査の報告書の作業実施項目の初期値になる）
+      const items = PhaseLogic.ITEM_KINDS.includes(callKind) ? PhaseLogic.normalizeItems(caseModalItems) : [];
+      if (items.length) created.request = (await CasesApi.saveRequest(created.id, Object.assign({}, created.request, { items }))).request;
       const ph = await PhasesApi.create(created.id, callKind, created, null, callLabel || null);
       if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt.toISOString(), scheduled_end: callEnd ? callEnd.toISOString() : null });
       await PhasesApi.openCall(ph.id, when, caseModalWhen.hour); // Task 60: いつ来てほしいか
@@ -493,7 +501,7 @@ async function saveCaseModal() {
 function bindCaseList() {
   $('case-search').addEventListener('input', renderCaseList);
   $('cm-assignee').addEventListener('change', () => { caseModalAssigneeTouched = true; });
-  $('cm-call-kind').addEventListener('change', () => { setMsg('cm-msg', ''); $('cm-call-label-box').hidden = $('cm-call-kind').value !== 'other'; });
+  $('cm-call-kind').addEventListener('change', () => { setMsg('cm-msg', ''); $('cm-call-label-box').hidden = $('cm-call-kind').value !== 'other'; cmItemsShow(); });
   $('cm-client').addEventListener('change', () => { caseModalClientTouched = true; setMsg('cm-msg', ''); renderClientInfo(); });
   $('cm-client-add').addEventListener('click', openNewClient);
   $('cm-nc-cancel').addEventListener('click', closeNewClient);

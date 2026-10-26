@@ -1384,7 +1384,7 @@ function fdPhoneNorm(v) {
 }
 /* ---------- #f/new 案件の登録（Task 37） ---------- */
 let fdNewDraft = null; // 入力中の値（画面を離れても残す。登録したら消す）
-const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', end: '', kind: '', label: '', request: '', wk: 'pick', worker: '' }); // Task 51: 作業担当者の決め方（worker 空 = 自分）
+const fdNewBlank = () => ({ name: '', room: '', address: '', resident: '', contact: '', at: '', end: '', kind: '', label: '', request: '', items: [], wk: 'pick', worker: '' }); // Task 66: items = 調査依頼項目 // Task 51: 作業担当者の決め方（worker 空 = 自分）
 const FD_NEW_KINDS = () => PhaseLogic.KINDS.map(k => ({ key: k.key, label: k.label }));
 function fdRenderNew() {
   const s = fd;
@@ -1451,6 +1451,11 @@ function fdRenderNew() {
   chips.setAttribute('aria-label', 'フェーズ');
   const labelBox = field('label', 'その他の名前', { req: true, ph: '例: 点検・清掃', max: PhaseLogic.LABEL_MAX });
   labelBox.classList.add('fd-new-label');
+  // Task 66: 調査依頼項目（調査・現地確認のときだけ。複数可）
+  const itemsBox = mk('div', 'fd-set-f fd-new-f');
+  itemsBox.id = 'fd-new-f-items';
+  itemsBox.appendChild(head('調査依頼項目（押して選ぶ・複数可）'));
+  itemsBox.appendChild(CaseRequest.itemsPicker(v.items, items => { v.items = items; }, 'fd-new-items'));
   const paint = () => {
     chips.querySelectorAll('button').forEach(b => {
       const on = b.dataset.kind === v.kind;
@@ -1458,6 +1463,7 @@ function fdRenderNew() {
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     });
     labelBox.hidden = v.kind !== 'other';
+    itemsBox.hidden = !PhaseLogic.ITEM_KINDS.includes(v.kind);
   };
   FD_NEW_KINDS().forEach(k => {
     const b = dBtn(k.label, 'fd-new-kind k-' + k.key, () => {
@@ -1474,6 +1480,7 @@ function fdRenderNew() {
   kb.appendChild(errOf('kind'));
   card.appendChild(kb);
   card.appendChild(labelBox);
+  card.appendChild(itemsBox);
   paint();
   // Task 60: 一斉配信の「今日中」などを選んでいる間は訪問日時の欄を隠す（日時は「行けます」で決まる）
   const atShow = () => { atBox.hidden = endBox.hidden = fdNewNoAt(v); };

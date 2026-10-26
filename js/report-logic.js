@@ -405,6 +405,13 @@
     return d;
   }
 
+  // Task 66: 調査依頼項目からの作業実施項目の初期値 { workItems, workItemOther } → 7つのチップの値だけ・チップの順（その他は自由記載も）
+  function workInit(w) {
+    const set = new Set(arr(w && w.workItems));
+    const workItems = INV_WORK_ITEMS.filter(x => set.has(x));
+    return { workItems, workItemOther: workItems.includes(WORK_ITEM_OTHER) ? trim(w.workItemOther) : '' };
+  }
+
   // Task 25: 調査結果を直したとき、自動で作った報告書の下書きの初期値（原因・原因と判断した理由・次の対応方針）を入れ直す。
   //   その4項目（causes / causeOther / reason / nextAction）が前の初期値（prevInit）のまま＝まだ誰も触っていないときだけ。
   //   → 入れ直した data（変わらなければ null）
@@ -700,7 +707,7 @@
 
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
-    normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, reapplyInit, legacyChips, isYmd, hasCause,
+    normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, workInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, isRecord, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
