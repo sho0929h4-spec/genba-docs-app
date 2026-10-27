@@ -442,6 +442,29 @@ const ReportsApi = (() => {
       }
       return size;
     },
+    /* ===== 共有（Task 68 / migration 085） ===== */
+    // doc: 'report' | 'estimate'。その書類の未送信の送付メールの下書きを使う（無ければ作る）。件名・本文は共有の文面にする（送った中身の記録）
+    async shareDraft(doc, row, m) {
+      const col = doc === 'estimate' ? 'estimate_id' : 'report_id';
+      const ds = must(await sb.from('mail_drafts').select('*').eq(col, row.id).eq('status', 'draft').order('created_at', { ascending: false })) || [];
+      if (ds[0]) {
+        const rows = must(await sb.from('mail_drafts').update({ subject: m.subject, body: m.body }).eq('id', ds[0].id).eq('status', 'draft').select());
+        return (rows && rows[0]) || ds[0];
+      }
+      const ins = { case_id: row.case_id, [col]: row.id, purpose: doc, subject: m.subject, body: m.body };
+      if (row.phase_id) ins.phase_id = row.phase_id;
+      return must(await sb.from('mail_drafts').insert(ins).select().single());
+    },
+    // 共有した（送付済みにする・タイムライン）。via: share（スマホの共有）／mail／line。管理者と、現場用で自分が登録した案件の本人だけ（DB が断る）
+    async shareSent(draft, via) { return must(await sb.rpc('doc_share_sent', { p_draft: draft.id, p_via: via })); },
+    // 「送っていない」に戻す（管理者だけ）。draft = 送信済みのメール
+    async shareUndo(draft) { return must(await sb.rpc('doc_share_undo', { p_draft: draft.id })); },
+    // いちばん新しい送信済みのメール（無ければ null）
+    async lastSent(doc, id) {
+      const rows = must(await sb.from('mail_drafts').select('id, sent_at, status').eq(doc === 'estimate' ? 'estimate_id' : 'report_id', id).eq('status', 'sent')
+        .order('sent_at', { ascending: false }).limit(1)) || [];
+      return rows[0] || null;
+    },
     // opts.skipLog: 呼び出し側（見積の送付＝EstimatesApi.onMailSent）が宛先・件名を含めて1件だけ記録するとき
     // opts.logText: 記録の文（日程連絡・リマインド: 「調査 1回目: 調査日のご連絡を送った（元請・入居者）」。mail-ui が作る）
     async markSent(draft, opts = {}) {

@@ -437,6 +437,7 @@ async function openReportPdf(id) {
   CaseBand.set($('rpdf-place'), null); // Task 30: 物件名と号室の帯（読み込んだら入れる）
   $('rpdf-download').onclick = rpdfDownload;
   rpdfSyncControls();
+  ShareUi.mount($('rpdf-share'), {}); // Task 68: 読み込むまで共有は出さない
   rpdfMessage('読み込み中…', false);
 
   let opts;
@@ -454,4 +455,7 @@ async function openReportPdf(id) {
   st.opts = opts;
   CaseBand.set($('rpdf-place'), opts.caseRow);
   rpdfRender();
+  // Task 68: 共有（メール・LINE）。管理者と、現場用で自分が登録した案件の作業担当者だけ（js/share-ui.js）
+  ShareUi.mount($('rpdf-share'), { doc: 'report', row: opts.report, caseRow: opts.caseRow, makeBlob: () => ReportPdf.toBlob(opts),
+    onChange: () => { if (gen === rpdfSeq) openReportPdf(id); } });
 }

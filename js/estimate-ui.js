@@ -1447,7 +1447,11 @@ async function openEstimatePdf(id) {
   msg.id = 'eu-pdf-msg';
   const pv = mk('div');
   pv.id = 'eu-preview';
-  $('estimate-pdf-root').replaceChildren(top, head, acts, msg, pv);
+  const shr = mk('div', 'dsh-box'); // Task 68: 共有（メール・LINE）。管理者と、現場用で自分が登録した案件の作業担当者だけ（js/share-ui.js）
+  shr.id = 'eu-pdf-share';
+  $('estimate-pdf-root').replaceChildren(top, head, acts, shr, msg, pv);
+  ShareUi.mount(shr, { doc: 'estimate', row: est, caseRow: st.caseRow, makeBlob: () => EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl),
+    onChange: () => { if (st === eup) { eup = null; openEstimatePdf(id); } } });
   try {
     EstimatePdf.preview(pv, est, st.caseRow, ctx.org || {}, st.logoUrl);
   } catch (e) {
