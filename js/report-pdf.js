@@ -11,6 +11,18 @@
   const PAGE_W_MM = 210, PAGE_H_MM = 297;
   const PAD_TOP_MM = 14, PAD_BOTTOM_MM = 12; // .rp-page の padding 14mm 15mm 12mm
   const IMG_TIMEOUT_MS = 20000;
+
+  // 段階ごとの時間の上限。iPhone で「作成中」のまま止まる件: 止まった段階を出して失敗にする（opts.onStep(段階) で画面にも出す）
+  const STEP_TIMEOUT_MS = 60000;
+  const FONT_WAIT_MS = 5000; // 文字の準備は待ちきれなくても先へ進む
+  function step(opts, label, p) {
+    if (opts && typeof opts.onStep === 'function') opts.onStep(label);
+    let t;
+    const limit = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('PDFを作れませんでした（' + label + 'で止まりました）')), STEP_TIMEOUT_MS); });
+    return Promise.race([p, limit]).finally(() => clearTimeout(t));
+  }
+  const fontsReady = () => (document.fonts && document.fonts.ready
+    ? Promise.race([Promise.resolve(document.fonts.ready).catch(() => {}), new Promise(r => setTimeout(r, FONT_WAIT_MS))]) : Promise.resolve());
   const IMG_FAIL_TEXT = '画像を読み込めませんでした';
 
   /* ===== CSS（旧 1019–1054行。.rp- 接頭辞のまま。新規は ★） ===== */
@@ -551,10 +563,10 @@
       }
       canvas.width = canvas.height = 0;
     };
-    const ready = async () => {
-      await applyMarks(host); // 印のある写真は印を重ねた画像に差し替えてから撮る
-      await waitImages(host);
-      if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) { /* 無視 */ } }
+    const ready = async no => {
+      await step(opts, no + 'ページ目の印の合成', applyMarks(host)); // 印のある写真は印を重ねた画像に差し替えてから撮る
+      await step(opts, no + 'ページ目の写真の読み込み', waitImages(host));
+      await step(opts, '文字の準備', fontsReady());
       layoutPhotos(host);
       fitCaptions(host);
     };
@@ -562,18 +574,18 @@
       // 表紙だけ先に置いて分割数（=ページ番号の総数）を決める。写真ページは必ず1ページ
       const cover = buildCover(pr.o);
       host.replaceChildren(cover);
-      await ready();
+      await ready(1);
       const coverSlices = slicesOf(cover);
       const total = coverSlices.length + pr.nPhotoPages;
       setPno(cover, coverSlices.length, total); // 複数ページに分かれた表紙はフッタのある最後のページ番号
-      await capture(cover, coverSlices);
+      await step(opts, '1ページ目の撮影', capture(cover, coverSlices));
       host.replaceChildren();
       for (let k = 0; k < pr.nPhotoPages; k++) {
         const page = photoPageAt(pr, k);
         setPno(page, coverSlices.length + k + 1, total);
         host.replaceChildren(page);
-        await ready();
-        await capture(page, [{ y: 0, h: Math.min(page.offsetHeight, PAGE_H_MM * (page.offsetWidth / PAGE_W_MM)), off: 0 }]);
+        await ready(coverSlices.length + k + 1);
+        await step(opts, (coverSlices.length + k + 1) + 'ページ目の撮影', capture(page, [{ y: 0, h: Math.min(page.offsetHeight, PAGE_H_MM * (page.offsetWidth / PAGE_W_MM)), off: 0 }]));
         page.querySelectorAll('img').forEach(img => { img.removeAttribute('src'); });
         host.replaceChildren();
       }

@@ -3,7 +3,7 @@
 //   ⑭ 作成・編集（#estimate/{id}）               … openEstimate(id)
 //   ⑮ PDFプレビュー（#estimate/{id}/pdf）         … openEstimatePdf(id)
 //   ⑯ 版の差分（#estimate/{id}/diff）             … openEstimateDiff(id)（前の版と比べた追加・削除・金額変更と合計差）
-// 提出済み以降の版には操作カード（依頼者へ送付・承諾された・減額対応で新しい版を作る・前の版との差分）を出す。
+// 提出済み以降の版には操作カード（依頼者へ送付・承諾された・新しい版を作る（値引き・直し）・前の版との差分）を出す。
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert は使わない（画面内に出す）。
 // mk() は case-list.js、dBtn / errText / currentCase は case-detail.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
 // 計算・文言は EstimateLogic、DB は EstimatesApi（版管理・送付・承諾は Task 5 でこの画面に足す）、紙面は EstimatePdf。
@@ -705,6 +705,8 @@ function eueActsCard(s) {
   if (st === 'draft' && v < 2) return null;
   const admin = !(typeof fieldHidesAdmin === 'function' && fieldHidesAdmin());
   const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+  // Task 73: 新しい版（値引き・直し）は 管理者 か 自分で登録した案件の人（DB の new_estimate_version と同じ）。系列の最新版が提出済み／送付済みのとき
+  const canNew = PhaseLogic.canNewVersion(s.vers, { owner, me: ctx && ctx.user ? ctx.user.id : null, caseCreatedBy: s.caseRow && s.caseRow.created_by });
   let note = null; // Task 35: 現場用で送付済み → 「管理者に連絡」の案内
   const card = mk('div', 'rep-card eu-acts');
   card.id = 'eu-acts';
@@ -716,13 +718,14 @@ function eueActsCard(s) {
     if (admin && s.latest && ['issued', 'sent', 'accepted'].includes(st)) btn('依頼元へ送付', 'eu-send', 'btn inline', () => eueSend(s));
     if (s.latest && ['issued', 'sent'].includes(st)) {
       if (admin) btn('承諾された', 'eu-accept', 'btn inline green', () => eueAccept(s));
-      // 減額対応の新しい版は送付済みの版を旧版にする（管理者の「発注待ち」が戻る）ので管理者だけ（Task 23 I8）
-      if (admin) btn('減額対応で新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
+      if (canNew) btn('新しい版を作る（値引き・直し）', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
     }
+    // Task 73: 旧版を開いたときも、この版を元に（差し戻し）
+    if (!s.latest && st === 'superseded' && canNew) btn('この版を元に新しい版を作る', 'eu-newver', 'btn ghost inline', () => eueNewVerPanel(s));
     // Task 35 C: 提出済み（依頼元へ送る前）の最新版は、同じ番号のまま直せる（作業担当者・管理者。権限は DB の estimate_reedit が見る）
     const can = PhaseLogic.canReedit('estimate', r, { latest: !!s.latest });
     if (can.ok && (!admin || owner)) btn(admin ? '再編集する（同じ番号のまま直す）' : '再編集して管理者に知らせる', 'eu-reedit', 'btn ghost inline', () => eueReedit(s));
-    else if (!admin && s.latest && can.reason) note = mk('div', 'rep-sub eu-reedit-no', can.reason);
+    else if (!admin && s.latest && can.reason && !canNew) note = mk('div', 'rep-sub eu-reedit-no', can.reason);
   }
   // Task 35 B: 減額対応で作った新しい版（まだ提出していない下書き）は、やめて前の版に戻せる（管理者だけ）
   if (st === 'draft' && v >= 2 && !r.number && admin && owner) btn('この版をやめて前の版に戻す', 'eu-cancel-ver', 'btn ghost inline', () => eueCancelVer(s));
@@ -742,7 +745,7 @@ function eueActsCard(s) {
 }
 function eueActsBusy(s, on) {
   s.busy = on || '';
-  if (s.els.acts) s.els.acts.querySelectorAll('button, input').forEach(b => { b.disabled = !!on; });
+  if (s.els.acts) s.els.acts.querySelectorAll('button, input, select').forEach(b => { b.disabled = !!on; });
   eueSyncBar(s);
 }
 
@@ -764,7 +767,8 @@ function eueLinksCard(s) {
   return card;
 }
 
-// 「減額対応で新しい版を作る」: 未対応の依頼をチェックで選ぶ（0件なら選択なし）→ EstimatesApi.newVersion → 新しい版の編集へ
+// 「新しい版を作る（値引き・直し）」: 元にする版を選ぶ（既定は最新版。旧版から開いたときはその版）・未対応の依頼をチェックで選ぶ（0件なら選択なし）
+//   → EstimatesApi.newVersion → 新しい版の編集へ（Task 73）
 async function eueNewVerPanel(s) {
   if (s.busy) return;
   const panel = s.els.nv;
@@ -776,8 +780,25 @@ async function eueNewVerPanel(s) {
   try { reqs = await EstimatesApi.listOpenRequests(s.row.case_id); }
   catch (e) { if (eue === s) panel.replaceChildren(mk('div', 'err', '依頼を読み込めませんでした: ' + errText(e))); return; }
   if (eue !== s) return;
-  const nodes = [mk('b', null, '第' + ((Number(s.row.version) || 1) + 1) + '版を作ります')];
-  nodes.push(mk('div', 'rep-sub', '明細・備考をコピーした下書きを作ります（値引きの端数調整は外して計算し直します。見積日は今日）。この版は「旧版」になります'));
+  const vers = s.vers && s.vers.length ? s.vers : [s.row];
+  const latest = vers.reduce((m, v) => ((Number(v.version) || 0) > (Number(m.version) || 0) ? v : m), vers[0]);
+  const lv = Number(latest.version) || 1;
+  const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+  const nodes = [mk('b', null, '第' + (lv + 1) + '版を作ります')];
+  nodes.push(mk('div', 'rep-sub', '選んだ版の明細・備考をコピーした下書きを作ります（値引きの端数調整は外して計算し直します。見積日は今日）。今の最新版（第' + lv + '版）は「旧版」になります'
+    + (owner ? '' : '。作ったことは管理者に自動で知らせます')));
+  const lab = mk('label', 'rep-group-ttl', '元にする版');
+  lab.htmlFor = 'eu-nv-base';
+  const sel = document.createElement('select');
+  sel.id = 'eu-nv-base';
+  PhaseLogic.newVersionBases(vers).forEach(b => {
+    const o = document.createElement('option');
+    o.value = b.id;
+    o.textContent = b.label + (b.id === latest.id ? '（最新）' : '');
+    sel.appendChild(o);
+  });
+  sel.value = s.latest ? latest.id : s.row.id;
+  nodes.push(lab, sel);
   const checks = [];
   if (!reqs.length) {
     const none = mk('div', 'empty', 'タイムラインに未対応の依頼はありません（紐付けなしで作れます）');
@@ -799,7 +820,7 @@ async function eueNewVerPanel(s) {
     eueActsBusy(s, 'newver');
     go.textContent = '作成中…';
     let made = null, msg = '';
-    try { made = await EstimatesApi.newVersion(s.row, ids); }
+    try { made = await EstimatesApi.newVersion(latest, ids, vers.find(v => v.id === sel.value) || null); }
     catch (e) { msg = '新しい版を作れませんでした: ' + errText(e); }
     if (eue !== s) return;
     eueActsBusy(s, '');
@@ -1362,6 +1383,7 @@ async function openEstimate(id) {
     dirty: false, rev: 0, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null,
     busy: '', armIssue: false, armTimer: null, left: false, notice: '', els: {}, inflight: null, locked: null,
     latest: !(vers || []).some(v => (Number(v.version) || 0) > (Number(row.version) || 0)),
+    vers: vers || [], // Task 73: 元にする版の選択肢・新しい版を作れるか
     seriesNumber: ((vers || []).find(v => v.number) || {}).number || '',
     linked: linked || [],
     // 利益率（%。見積ごと。未設定なら会社設定の既定値、無ければ 0）・読み込んだ業者PDF（Task 19・migration 036）

@@ -385,7 +385,7 @@ async function rpdfDownload() {
   rpdfSyncControls();
   let blob = null, errMsg = '';
   try {
-    blob = await ReportPdf.toBlob(st.opts);
+    blob = await ReportPdf.toBlob(Object.assign({}, st.opts, { onStep: t => { if (st === rpdf) $('rpdf-download').textContent = 'PDFを作成中…（' + t + '）'; } }));
   } catch (e) {
     errMsg = 'PDFを作成できませんでした: ' + errText(e);
   }
@@ -456,6 +456,6 @@ async function openReportPdf(id) {
   CaseBand.set($('rpdf-place'), opts.caseRow);
   rpdfRender();
   // Task 68・72: 「LINEで共有」「メールで共有」。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人（js/share-ui.js）
-  ShareUi.mount($('rpdf-share'), { doc: 'report', row: opts.report, caseRow: opts.caseRow, makeBlob: () => ReportPdf.toBlob(opts),
+  ShareUi.mount($('rpdf-share'), { doc: 'report', row: opts.report, caseRow: opts.caseRow, makeBlob: onStep => ReportPdf.toBlob(Object.assign({}, opts, { onStep })),
     onChange: () => { if (gen === rpdfSeq) openReportPdf(id); } });
 }

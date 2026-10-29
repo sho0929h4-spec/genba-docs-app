@@ -412,6 +412,18 @@
     });
   }
 
+  // 段階ごとの時間の上限。iPhone で「作成中」のまま止まる件: 止まった段階を出して失敗にする（opts.onStep(段階) で画面にも出す）
+  const STEP_TIMEOUT_MS = 60000;
+  const FONT_WAIT_MS = 5000; // 文字の準備は待ちきれなくても先へ進む
+  function step(opts, label, p) {
+    if (opts && typeof opts.onStep === 'function') opts.onStep(label);
+    let t;
+    const limit = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('PDFを作れませんでした（' + label + 'で止まりました）')), STEP_TIMEOUT_MS); });
+    return Promise.race([p, limit]).finally(() => clearTimeout(t));
+  }
+  const fontsReady = () => (document.fonts && document.fonts.ready
+    ? Promise.race([Promise.resolve(document.fonts.ready).catch(() => {}), new Promise(r => setTimeout(r, FONT_WAIT_MS))]) : Promise.resolve());
+
   /* ===== 公開: PDF（Blob） ===== */
   // 画面外に原寸で1ページずつ描画 → html2canvas → jsPDF A4縦 JPEG。画面外DOMは必ず消す。
   // opts.onPage(jpgDataUrl, index) / opts.onPageDom(pageEl, index)（撮影直前の DOM。検証用）
@@ -431,13 +443,13 @@
       for (let i = 0; i < pr.nPages; i++) {
         const page = buildPage(pr, i);
         host.replaceChildren(page);
-        await Promise.all(Array.from(page.querySelectorAll('img')).map(waitImg));
-        if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) { /* 無視 */ } }
+        await step(opts, (i + 1) + 'ページ目の画像の読み込み', Promise.all(Array.from(page.querySelectorAll('img')).map(waitImg)));
+        await step(opts, '文字の準備', fontsReady());
         fitText(page);
         if (typeof opts.onPageDom === 'function') opts.onPageDom(page, i);
-        const canvas = await window.html2canvas(page, {
+        const canvas = await step(opts, (i + 1) + 'ページ目の撮影', window.html2canvas(page, {
           scale, useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0
-        });
+        }));
         const jpg = canvas.toDataURL('image/jpeg', quality);
         if (i > 0) doc.addPage('a4', 'portrait');
         doc.addImage(jpg, 'JPEG', 0, 0, PAGE_W_PT, PAGE_H_PT);

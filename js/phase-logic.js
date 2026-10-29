@@ -2131,6 +2131,25 @@
     return { ok: false, reason: '' };
   }
 
+  // Task 73: 送ったあとの新しい版（値引き・直し）を作れるか（vers: 系列の全版）。DB の new_estimate_version と同じ規則:
+  //   系列の最新版が提出済み／送付済み（採用済みは対象外）、かつ 管理者 か 自分で登録した案件（cases.created_by = 自分）の人
+  function canNewVersion(vers, opts) {
+    const o = opts || {};
+    const latest = listOf(vers).reduce((m, v) => (!m || (Number(v.version) || 0) > (Number(m.version) || 0) ? v : m), null);
+    if (!latest || !['issued', 'sent'].includes(latest.status)) return false;
+    return !!o.owner || (!!o.me && o.caseCreatedBy === o.me);
+  }
+  // Task 73: 元にする版の選択肢（新しい順・下書きは除く）。先頭が最新版（既定）。label「第1版・¥11,000（税込）・旧版」
+  const BASE_STATUS = { issued: '提出済み', sent: '送付済み', superseded: '旧版', accepted: '採用版' };
+  function newVersionBases(vers) {
+    return listOf(vers).filter(v => v.status !== 'draft')
+      .sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0))
+      .map(v => {
+        const n = Number(v.version) || 1;
+        return { id: v.id, version: n, label: '第' + n + '版・' + yen(Number(v.total) || 0) + '（税込）・' + (BASE_STATUS[v.status] || '') };
+      });
+  }
+
   /* ---------- 案件ページのフェーズの行（Task 9 は フェーズ名・日時・対応状況 だけ表示。Task 10 の表の列のデータもここで作る） ---------- */
   // phase: case_phases の行（か case_summaries.phases の要素）、seq: 同じ種類の何回目、
   // docs: { estimates（全版可）, reports, mails（このフェーズの mail_drafts） }（省略時は phase.estimates / phase.reports）、now
@@ -3152,7 +3171,7 @@
     REQUEST_SYMPTOMS, REQUEST_ITEMS, DRAIN_PLACES, ITEM_KINDS, normalizeItems, itemsText, needsTenantCheck, requestWorkItems, REQUEST_TEXT_MAX, REQUEST_FIELD_MAX, REQUEST_PHOTOS_MAX, REQUEST_HEAD, normalizeRequest, requestItems, hasRequest, requestLines, requestSummary, staffSectionLines,
     LATE_CHOICES, LATE_MAX, lateLabel, parseLateMinutes, caseResidents, residentTelOpen,
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, taskDueGroups, TASK_VIEWS, taskView, taskViewCounts, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
-    scheduleForm, introLine, reeditMark, canReedit, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
+    scheduleForm, introLine, reeditMark, canReedit, canNewVersion, newVersionBases, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
     MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
     reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,

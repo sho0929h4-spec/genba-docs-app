@@ -174,11 +174,13 @@ const ShareUi = (() => {
       await record('line');
     }, 'LINE 用の文面を用意できませんでした');
 
-    acts.appendChild(mk('div', 'rep-sub', 'PDFを作成中…'));
+    const busyLine = mk('div', 'rep-sub', 'PDFを作成中…');
+    busyLine.id = 'dsh-busy';
+    acts.appendChild(busyLine);
     sync();
     (async () => {
       try {
-        st.blob = await o.makeBlob();
+        st.blob = await o.makeBlob(t => { busyLine.textContent = 'PDFを作成中…（' + t + '）'; });
         st.file = new File([st.blob], fname, { type: 'application/pdf' });
       } catch (e) {
         acts.replaceChildren();

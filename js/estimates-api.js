@@ -260,16 +260,18 @@ const EstimatesApi = (() => {
     // 提出済み/送付済みの版から次の版の下書きを作り、前の版を superseded にする。
     // DB 関数 new_estimate_version が1トランザクションで行う（系列の行をロック・最新版か検査・明細の引き継ぎ規則は
     // nextVersionFrom と同じ・合計の計算・linked の検査）。競合や状態の変化は DB が日本語の例外で返す
-    async newVersion(est, linkedRequestIds) {
+    // Task 73: base（元にする版の行。省略・null は最新版 est）。系列の過去のどの版からでも（DB が同じ系列か検査）
+    async newVersion(est, linkedRequestIds, base) {
       if (!est || !est.id) throw new Error('見積書が見つかりません');
       if (!['issued', 'sent'].includes(est.status)) throw new Error('提出済みか送付済みの見積書から新しい版を作れます');
       const ids = Array.from(new Set((linkedRequestIds || []).filter(Boolean).map(String)));
-      const res = must(await sb.rpc('new_estimate_version', { p_id: est.id, p_linked: ids }));
+      const b = base && base.id && base.id !== est.id ? base : null;
+      const res = must(await sb.rpc('new_estimate_version', { p_id: est.id, p_linked: ids, p_base: b ? b.id : null }));
       const newId = Array.isArray(res) ? res[0] : res;
       if (!newId) throw new Error('新しい版を作れませんでした');
       const row = await api.get(newId);
       if (!row) throw new Error('作成した版が見つかりません。見積書一覧を開き直してください');
-      await logSystem(est.case_id, () => `見積書（${t(est.number)}）の第${row.version}版を作成した${ids.length ? `（依頼${ids.length}件を紐付け）` : ''}`);
+      await logSystem(est.case_id, () => `見積書（${t(est.number)}）の第${row.version}版を作成した${b ? `（第${b.version}版を元に）` : ''}${ids.length ? `（依頼${ids.length}件を紐付け）` : ''}`);
       return row;
     },
     // Task 35 B: 「この版をやめて前の版に戻す」（管理者だけ）。まだ提出していない第2版以降の下書きを消し、前の版を旧版にする前の状態
