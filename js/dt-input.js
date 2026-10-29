@@ -1,6 +1,6 @@
 // js/dt-input.js — 日付と時刻を別々に選ぶ欄（Task 67）。日付 = input[type=date]、時刻 = select（30分きざみ。iOS Safari は step を見ないので select）
 //   値は ISO（日本時間として読む・書く。端末のTZに依存しない）。そろっていなければ null
-//   DtInput.el({ id, cls, label, iso, onChange }) → { el, date, time, get(fallbackYmd) → ISO|null, set(iso), focus() }
+//   DtInput.el({ id, cls, label, iso, onChange }) → { el, date, time, get(fallbackYmd) → ISO|null, set(iso), setHm('HH:MM'), focus() }
 //     id … 外側の id（日付は id-d・時刻は id-t）。cls … 外側に足す class。fallbackYmd … 日付が空で時刻だけのときに使う日（終了予定 = 開始の日）
 //   30分きざみでない時刻（前に入れた値）は、その時刻を選択肢に足して見せる
 (function (root) {
@@ -53,11 +53,15 @@
       set(iso) {
         const p = split(iso);
         date.value = p.ymd;
-        if (p.hm && !Array.from(time.options).some(op => op.value === p.hm)) {
-          const after = Array.from(time.options).find(op => op.value > p.hm); // 時刻の順に差し込む
-          time.insertBefore(opt(p.hm, p.hm), after || null);
+        api.setHm(p.hm);
+      },
+      // 時刻だけ入れる（Task 70: 見積書の工事時間。日付はそのまま）
+      setHm(hm) {
+        if (hm && !Array.from(time.options).some(op => op.value === hm)) {
+          const after = Array.from(time.options).find(op => op.value > hm); // 時刻の順に差し込む
+          time.insertBefore(opt(hm, hm), after || null);
         }
-        time.value = p.hm;
+        time.value = hm || '';
       },
       focus() { (!date.value || time.value ? date : time).focus(); }
     };

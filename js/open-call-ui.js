@@ -5,6 +5,7 @@
 //   Task 60（migration 076）: ocWhenEl … 「いつ来てほしいか」（今日中・今日 ○時以降・明日・明日 ○時以降・日時を決める・日時未定）。
 //              範囲のある募集のカードは所要時間と到着の時刻（30分きざみ・今より前は出さない・自分の予定と重なる時刻は灰色）→「この時刻で行きます」
 //              = 担当＋日時が決まる。募集した本人にも同じカード（見た人・決まったか）。期限切れは「出し直す」
+// Task 70: 日時のある募集の「この時刻で行きます」「行けます」は、すぐ決めずに移動の時間の確認（TravelUi.check。同じ日の前後に予定があるときだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
 // mk() は case-list.js、dBtn / errText は case-detail.js、schBusyBtn / schErr は schedule-ui.js
 
@@ -183,8 +184,13 @@ function ocCardEl(x, o) {
   }
   if (x.state === 'open') {
     const s = PhaseLogic.schedOpen(p);
+    // Task 70: 日時のある募集を引き受ける前に、自分の同じ日の前後の予定との移動の時間を確かめる（前後に無ければ出さない）
+    const travelOk = (start, end) => TravelUi.check({ workerId: o.me, phaseId: p.id, start, end, caseRow: x.caseRow, who: 'worker' });
     const go = (label, cls, start) => {
-      const b = schBusyBtn(label, 'sch-btn oc-go ' + cls, err, async () => { await done(await ocAccept(p, start)); });
+      const b = schBusyBtn(label, 'sch-btn oc-go ' + cls, err, async () => {
+        if (p.scheduled_at && !(await travelOk(p.scheduled_at, p.scheduled_end))) return;
+        await done(await ocAccept(p, start));
+      });
       b.setAttribute('aria-describedby', t.id);
       if (start) b.dataset.start = start;
       return b;
@@ -211,7 +217,10 @@ function ocCardEl(x, o) {
         if (!slot) { holder.replaceChildren(mk('div', 'sch-full', '行ける時刻がありません（募集の時間を過ぎました）')); return; }
         holder.replaceChildren(schPickEl({ slot, dur: { mins }, busy, cls: 'oc-go oc-arrive', can: true, err,
           fullText: '行ける時刻がありません（' + PhaseLogic.fmtMDHM(p.open_call_to).split(' ')[1] + ' までに終わる時刻・空いている時刻がありません）',
-          label: opt => 'この時刻で行きます（' + PhaseLogic.slotText(opt) + '）', onPick: async opt => { await done(await ocAccept(p, opt.start, mins)); } }));
+          label: opt => 'この時刻で行きます（' + PhaseLogic.slotText(opt) + '）', onPick: async opt => {
+            if (!(await travelOk(opt.start, opt.end))) return; // Task 70
+            await done(await ocAccept(p, opt.start, mins));
+          } }));
       };
       durSel.addEventListener('change', () => { mins = Number(durSel.value); draw(); });
       draw();

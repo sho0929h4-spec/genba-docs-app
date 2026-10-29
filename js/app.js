@@ -65,6 +65,7 @@ async function renderSettings() {
   $('invite-email').disabled = !isOwner;
   $('card-staff').hidden = !isOwner;
   $('card-gcal').hidden = !isOwner; // Task 55: 作業担当者の Google カレンダー
+  $('set-travel').replaceChildren(TravelUi.surveyCard(), ...(isOwner ? [TravelUi.keyCard()] : [])); // Task 70
   if (isOwner && typeof CalFeed !== 'undefined') CalFeed.renderMembers($('gcal-list'));
   ['set-name', 'set-address', 'set-tel', 'set-email', 'set-reg', 'set-margin'].forEach(id => { $(id).readOnly = !isOwner; });
   const img = $('set-logo-img');

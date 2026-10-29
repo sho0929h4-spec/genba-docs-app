@@ -2175,8 +2175,15 @@ function phWorkerSelect(p, errId) {
     sel.appendChild(o);
   }
   sel.value = p.worker_id || '';
-  sel.addEventListener('change', () => {
+  sel.addEventListener('change', async () => {
     const v = sel.value || null;
+    // Task 70: 日時の入った対応に担当者を指名 → その人の同じ日の前後の予定との移動の時間を確かめる（前後に無ければ出さない）
+    if (v && p.scheduled_at && v !== p.worker_id) {
+      sel.disabled = true;
+      const go = await TravelUi.check({ workerId: v, phaseId: p.id, start: p.scheduled_at, end: p.scheduled_end, caseRow: currentCase, who: 'admin' });
+      sel.disabled = false;
+      if (!go) { sel.value = p.worker_id || ''; return; }
+    }
     phRun(sel, errId, '担当者の変更', () => PhasesApi.setWorker(p, v, phTitle(p), members));
   });
   return sel;

@@ -15,6 +15,8 @@
 // Task 40: 自分が作業担当者で報告書を提出した対応（提出済み・確認済み＝依頼元へ送る前、再編集中）は案件タブの「提出済み（管理者の確認待ち）」の段
 //   （日時未定の上。札「報告書 提出済み 10/22」「報告書 再編集中」）に残す。依頼元へ送付したら段から消える（過去の対応履歴で見られる）。
 //   カレンダー表示では上に「📄 提出済みの報告書 N件 ›」（一覧のその段へ）。ツールの報告書は「提出済み 10/22 ・ 中身を見る・直す」（PhaseLogic.fieldTools）
+// Task 70: 案件の登録の訪問日時は任意（空 = 日時未定）。調査は開始を入れると終了予定に 開始＋N分（設定の「調査の終了予定」・TravelUi.surveyEnd）。
+//   管理者が担当者と日時を決めて登録するときは、同じ日の前後の予定との移動の時間を確かめる（TravelUi.check）
 // Task 42: ツールページの一番下に小さく「この案件を削除」（自分が登録した案件だけ。CaseTrash.fieldSection。2段階＋パスワード →
 //   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
 // 下のタブバー 案件／タスク／メッセージ／設定（safe-area。Task 46: 日報作成は設定の中の項目 → #f/daily）。旧ルート #f/inbox は #f/tasks、
@@ -1455,8 +1457,10 @@ function fdRenderNew() {
     box.append(c.el, errOf(key));
     return [box, c];
   };
-  const [atBox, at] = dtField('at', '訪問日時', true);
+  const [atBox, at] = dtField('at', '訪問日時（任意）'); // Task 70: 空なら日時未定で登録
   const [endBox, end] = dtField('end', '終了予定（任意）');
+  // Task 70: 調査だけ、開始の時刻を入れて終了予定が空なら 開始＋N分（設定の「調査の終了予定」）。自動で入れた値は下書きに覚える
+  const autoEnd = TravelUi.surveyEnd(at, end, () => v.kind, { auto: v.endAuto, onAuto: a => { v.endAuto = a; } });
   card.appendChild(atBox);
   card.appendChild(endBox);
   // フェーズ（4つから1つ。押して選ぶ）
@@ -1487,6 +1491,7 @@ function fdRenderNew() {
       v.kind = k.key;
       errEls.kind.textContent = '';
       paint();
+      autoEnd.refresh(); // Task 70: 調査にした・調査でなくした
       if (k.key === 'other') { const i = $('fd-new-label'); if (i && !i.value) i.focus(); }
     });
     b.dataset.kind = k.key;
@@ -1535,7 +1540,7 @@ function fdNewWorkerEl(v, onWhen) {
   const draw = () => {
     body.replaceChildren(ocModeEl(v.wk, k => { v.wk = k; draw(); if (onWhen) onWhen(); }, 'fd-new-wk'),
       ...(v.wk === 'call' ? [mk('div', 'oc-hint', OC_HINT + '（登録した後に出します。自分も「行けます」を押せます）'), mk('div', 'oc-when-k', 'いつ来てほしいか'),
-        ocWhenEl(v.callWhen, { idPrefix: 'fd-new-when', fixedText: '上の「訪問日時」で募集します', onChange: () => { if (onWhen) onWhen(); } })] : [sel]));
+        ocWhenEl(v.callWhen, { idPrefix: 'fd-new-when', fixedText: '上の「訪問日時」で募集します（空なら日時未定で募集します）', onChange: () => { if (onWhen) onWhen(); } })] : [sel]));
   };
   draw();
   box.appendChild(body);
@@ -1556,6 +1561,14 @@ async function fdNewSubmit(s, btn, errEls, err) {
     if (el) { el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'center' }); }
     return;
   }
+  // Task 70: 管理者が担当者と日時を決めて登録 → 同じ日の前後の予定との移動の時間を確かめる（前後に無ければ出さない）
+  if (fdIsOwner() && v.wk !== 'call' && chk.args.p_scheduled_at) {
+    s.busy = 'new';
+    const go = await TravelUi.check({ workerId: v.worker || fdMe(), phaseId: null, start: chk.args.p_scheduled_at, end: chk.end,
+      caseRow: { name: chk.args.p_name, room: chk.args.p_room, address: chk.args.p_address }, who: 'admin' });
+    s.busy = '';
+    if (!go || !fdAlive(s)) return;
+  }
   s.busy = 'new';
   let res = null;
   await withBusy(btn, async () => {
@@ -1573,7 +1586,8 @@ async function fdNewSubmit(s, btn, errEls, err) {
   const after = v.wk === 'call' ? 'call' : v.worker ? 'other' : '';
   if (after) {
     try {
-      if (after === 'call') await PhasesApi.openCall(res.phase_id, v.callWhen.when, v.callWhen.hour); // Task 60: いつ来てほしいか
+      // Task 60: いつ来てほしいか。Task 70: 「日時を決める」で日時が空なら日時未定で募集
+      if (after === 'call') await PhasesApi.openCall(res.phase_id, v.callWhen.when === 'fixed' && !chk.args.p_scheduled_at ? 'none' : v.callWhen.when, v.callWhen.hour);
       else await PhasesApi.update(res.phase_id, { worker_id: v.worker });
     } catch (e) { fieldSetFlash('案件は登録しましたが、' + (after === 'call' ? '一斉配信' : '作業担当者の変更') + 'ができませんでした: ' + errText(e)); }
     fdNewDraft = null;
@@ -1656,6 +1670,7 @@ function fdRenderSettings() {
     inp.addEventListener('blur', () => { if (fdSetTimer) save(); });
   });
   nodes.push(me);
+  nodes.push(TravelUi.surveyCard({ field: true })); // Task 70: 調査の終了予定（開始から）
   if (typeof CalFeed !== 'undefined') nodes.push(CalFeed.selfCard()); // Task 55: Google カレンダーに予定を出す
   // Task 46: 日報作成は下のタブから設定の中の項目に移した（中身は今のまま）
   const daily = dBtn('', 'fd-set-daily', () => { location.hash = '#f/daily'; });

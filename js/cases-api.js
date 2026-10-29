@@ -53,7 +53,8 @@ const CasesApi = (() => {
       const out = {};
       if (fields && 'display_name' in fields) out.display_name = String(fields.display_name || '').trim();
       if (fields && 'phone' in fields) out.phone = String(fields.phone || '').trim() || null;
-      return must(await sb.from('memberships').update(out).eq('user_id', ctx.user.id).select('user_id, display_name, phone').single());
+      if (fields && 'survey_end_mins' in fields) out.survey_end_mins = Number(fields.survey_end_mins); // Task 70（migration 086）: 調査の終了予定の既定
+      return must(await sb.from('memberships').update(out).eq('user_id', ctx.user.id).select('user_id, display_name, phone, survey_end_mins').single());
     },
     async listMembers() {
       return must(await sb.from('memberships').select('user_id, display_name, email, role, phone').order('display_name'));

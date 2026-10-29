@@ -2665,8 +2665,9 @@
       if (f.contact.length > NEW_CASE_MAX.contact || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.contact)) errors.contact = '連絡先のメールアドレスの形が正しくありません';
     } else if (Array.from(f.contact).length > NEW_CASE_MAX.tel) errors.contact = '連絡先（電話番号）は40文字までです';
     // Task 60: noAt = 一斉配信の「今日中」などで登録する（訪問日時・終わりは使わない。範囲は登録の後の募集で入る）
+    // Task 70: 訪問日時は任意（空 = 日時未定で登録）。入れたのに読めない（2月30日など）ときだけ止める
     const at = x.noAt ? null : jstInput(x.at);
-    if (!at && !x.noAt) errors.at = '訪問日時を入れてください';
+    if (!at && !x.noAt && str(x.at)) errors.at = '訪問日時の形が正しくありません';
     // Task 58: 終わり（任意。空なら1時間扱い）。rpc は開始だけなので、登録の後に scheduled_end を入れる（→ end）
     const end = !x.noAt && str(x.end) ? jstInput(x.end) : null;
     if (!x.noAt && str(x.end) && !end) errors.end = '終了予定の日時の形が正しくありません';
@@ -2679,7 +2680,7 @@
     if (Array.from(f.request).length > NEW_CASE_MAX.request) errors.request = '依頼内容詳細は2000文字までです';
     const items = ITEM_KINDS.includes(f.kind) ? normalizeItems(x.items) : []; // Task 66: 調査依頼項目は 調査／現地確認 のときだけ
     const ok = Object.keys(errors).length === 0;
-    return { ok, errors, end: ok && end ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
+    return { ok, errors, end: ok && end && at ? end.toISOString() : null, args: ok ? { p_name: f.name, p_room: f.room, p_address: f.address, p_resident_name: f.resident, p_contact: f.contact,
       p_scheduled_at: at ? at.toISOString() : null, p_kind: f.kind, p_label: f.kind === 'other' ? f.label : null, p_request: f.request,
       ...(items.length ? { p_items: items } : {}) } : null };
   }

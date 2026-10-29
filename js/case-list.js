@@ -6,6 +6,7 @@ let caseModalRow = null;      // null=新規 / 行=編集
 let caseModalOnSaved = null;  // 編集保存後の再描画コールバック
 let caseModalBusy = false;    // 保存中（閉じ操作を無効化）
 let cmCallAt = null, cmCallEnd = null; // Task 67: 一斉配信の「日時を決める」の開始・終了予定（DtInput。開くたびに作り直す）
+let cmAutoEnd = null; // Task 70: 調査の終了予定の自動入力（TravelUi.surveyEnd）
 let caseModalAssigneeTouched = false; // 読み込み中にユーザーが担当者を選んだか
 let caseModalSeq = 0;         // モーダルを開くたびに増やす。古い担当者一覧の応答を捨てる
 let caseListSeq = 0;          // 一覧取得のリクエスト番号。古い応答を捨てる
@@ -334,6 +335,7 @@ async function openCaseModal(row, onSaved, opts) {
   cmCallEnd = DtInput.el({ id: 'cm-call-end', label: '終了予定' });
   $('cm-call-at-box').replaceChildren(cmCallAt.el);
   $('cm-call-end-box').replaceChildren(cmCallEnd.el);
+  cmAutoEnd = TravelUi.surveyEnd(cmCallAt, cmCallEnd, () => $('cm-call-kind').value); // Task 70: 調査だけ 開始＋N分
   const sel = $('cm-assignee');
   const want = row ? row.assignee_id || '' : ctx.user.id;
   sel.replaceChildren(new Option('未設定', ''));
@@ -389,7 +391,7 @@ function caseModalModeDraw() {
   $('cm-assignee').hidden = fresh && caseModalMode === 'call';
   $('cm-call').hidden = !(fresh && caseModalMode === 'call');
   const fixedShow = () => { $('cm-call-fixed').hidden = caseModalWhen.when !== 'fixed'; };
-  $('cm-call-when').replaceChildren(ocWhenEl(caseModalWhen, { idPrefix: 'cm-when', fixedText: '下の欄に日時を入れてください', onChange: () => { setMsg('cm-msg', ''); fixedShow(); } }));
+  $('cm-call-when').replaceChildren(ocWhenEl(caseModalWhen, { idPrefix: 'cm-when', fixedText: '下の欄に日時を入れてください（空なら日時未定で募集します）', onChange: () => { setMsg('cm-msg', ''); fixedShow(); } }));
   fixedShow();
 }
 
@@ -436,8 +438,7 @@ async function saveCaseModal() {
   const callLabel = callKind === 'other' ? $('cm-call-label').value.trim() : '';
   if (callKind === 'other' && !callLabel) { setMsg('cm-msg', '「その他」の名前を入れてください（例: 点検・清掃）'); $('cm-call-label').focus(); return; }
   if (Array.from(callLabel).length > PhaseLogic.LABEL_MAX) { setMsg('cm-msg', '「その他」の名前は' + PhaseLogic.LABEL_MAX + '文字までです'); $('cm-call-label').focus(); return; }
-  const callAt = when === 'fixed' ? cmCallAt.get() : null; // ISO（Task 67）
-  if (when === 'fixed' && !callAt) { setMsg('cm-msg', '「日時を決める」は開始の日付と時刻を選んでください'); cmCallAt.focus(); return; }
+  const callAt = when === 'fixed' ? cmCallAt.get() : null; // ISO（Task 67）。Task 70: 空なら日時未定で募集（下の openCall）
   // Task 58: 終了予定（任意。空なら1時間扱い）。Task 67: 日が空で時刻だけなら開始の日
   const callEnd = callAt ? cmCallEnd.get(cmCallAt.date.value) : null;
   if (callEnd && Date.parse(callEnd) <= Date.parse(callAt)) { setMsg('cm-msg', '終了予定は開始より後にしてください'); cmCallEnd.focus(); return; }
@@ -475,7 +476,7 @@ async function saveCaseModal() {
       if (items.length) created.request = (await CasesApi.saveRequest(created.id, Object.assign({}, created.request, { items }))).request;
       const ph = await PhasesApi.create(created.id, callKind, created, null, callLabel || null);
       if (callAt) await PhasesApi.update(ph.id, { scheduled_at: callAt, scheduled_end: callEnd });
-      await PhasesApi.openCall(ph.id, when, caseModalWhen.hour); // Task 60: いつ来てほしいか
+      await PhasesApi.openCall(ph.id, when === 'fixed' && !callAt ? 'none' : when, caseModalWhen.hour); // Task 60: いつ来てほしいか
     } catch (e) { callErr = '案件は作りましたが、一斉配信にできませんでした（案件ページの対応の表「担当者」から出し直せます）: ' + (e && e.message ? e.message : e); }
   }
   // 強制クローズ（画面遷移）や別モーダルの表示で世代が変わっていたら、UIにも画面遷移にも一切触れない。
@@ -505,7 +506,7 @@ async function saveCaseModal() {
 function bindCaseList() {
   $('case-search').addEventListener('input', renderCaseList);
   $('cm-assignee').addEventListener('change', () => { caseModalAssigneeTouched = true; });
-  $('cm-call-kind').addEventListener('change', () => { setMsg('cm-msg', ''); $('cm-call-label-box').hidden = $('cm-call-kind').value !== 'other'; cmItemsShow(); });
+  $('cm-call-kind').addEventListener('change', () => { setMsg('cm-msg', ''); $('cm-call-label-box').hidden = $('cm-call-kind').value !== 'other'; cmItemsShow(); if (cmAutoEnd) cmAutoEnd.refresh(); });
   $('cm-client').addEventListener('change', () => { caseModalClientTouched = true; setMsg('cm-msg', ''); renderClientInfo(); });
   $('cm-client-add').addEventListener('click', openNewClient);
   $('cm-nc-cancel').addEventListener('click', closeNewClient);

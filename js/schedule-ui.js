@@ -6,6 +6,8 @@
 //   schCardEl     … トークのカード（候補・条件・希望・確定。今のカードだけボタンが押せる・処理済みは灰色）
 //   schSheet      … 現場用の「日程を変える」のシート（× だけで閉じる）
 //   schRun        … 関数を呼んで、管理者なら連絡メールの下書き（日時を決めた・消した）をそろえる
+// Task 70: 手入力（スイッチ false）の欄は、調査なら終了予定に 開始＋N分、原因元工事・復旧工事なら見積書の工事時間（TravelUi）。
+//   管理者が担当者のいる対応の日時を決めるときは、移動の時間の確認（TravelUi.check）を挟む
 // 日時の欄は日本時間（phToInput / phFromInput は phase-ui.js）。mk は case-list.js、dBtn / errText は case-detail.js
 // ユーザー入力は createElement + textContent / value で描画する（innerHTML は使わない）。alert/confirm は使わない
 
@@ -139,6 +141,7 @@ function schSlotRows(o) {
     r.append(l1, l2, warn);
     const item = { r, st, en, warn };
     [st, en].forEach(i => (i.el || i).addEventListener('input', () => { checkRow(item); if (o.onChange) o.onChange(); }));
+    if (o.plain) TravelUi.surveyEnd(st, en, () => o.kind); // Task 70: 調査だけ、開始を入れて終了予定が空なら 開始＋N分
     if (rows.length > 0) {
       r.appendChild(dBtn('この候補を消す', 'linkbtn sch-del', () => { rows.splice(rows.indexOf(item), 1); r.remove(); sync(); if (o.onChange) o.onChange(); }));
     }
@@ -159,6 +162,7 @@ function schSlotRows(o) {
     count: () => rows.length,
     check() { rows.forEach(it => { setType(it); checkRow(it); }); },
     busy: () => busy,
+    first: () => rows[0], // Task 70: 見積書の工事時間を入れる（手入力の1行目）
     read(need) {
       const slots = [];
       for (const it of rows) {
@@ -280,9 +284,12 @@ function schOfferForm(o) {
   const form = mk('div', 'ph-form sch-form sch-offer');
   const err = schErr();
   const dur = schDurEl({ dur: PhaseLogic.schedDur(p) || PhaseLogic.durDefault(p), onChange: () => { rows.check(); } });
-  const rows = schSlotRows({ max: on ? 5 : 1, plain: !on, start: o.start, end: o.end, firstCls: o.firstCls, dur: on ? dur : null, busy: schBusyFor(p.worker_id, p.id), onChange: () => sync() });
+  const rows = schSlotRows({ max: on ? 5 : 1, plain: !on, kind: p.kind, start: o.start, end: o.end, firstCls: o.firstCls, dur: on ? dur : null, busy: schBusyFor(p.worker_id, p.id), onChange: () => sync() });
   if (on) form.appendChild(dur.el);
   form.appendChild(rows.el);
+  // Task 70: 原因元工事・復旧工事は、時刻の欄が空なら最新の見積書の工事時間を入れる（日付は人が選ぶ・直せる）
+  const wt = !on ? TravelUi.workTimes(p, rows.first().st, rows.first().en) : '';
+  if (wt) form.appendChild(mk('div', 'ph-sub sch-worktime', wt));
   if (o.hint) form.appendChild(mk('div', 'ph-sub', o.hint));
   const acts = mk('div', 'ph-acts');
   if (o.onCancel) acts.appendChild(dBtn(o.cancelLabel || 'キャンセル', 'btn sm ghost inline', o.onCancel));
@@ -303,6 +310,9 @@ function schOfferForm(o) {
     const en = on && dur.mode() === 'days' ? PhaseLogic.durEnd(st, d) : r.slots[0].end || PhaseLogic.durEnd(st, d);
     const cl = rows.busy() && PhaseLogic.clashOf(st, en, rows.busy());
     if (cl) { err.textContent = '保存できません。作業担当者のほかの予定 ' + PhaseLogic.clashText(cl) + '（先に決まった予定が優先です）'; return; } // DB の 23P01 と同じ言い方
+    // Task 70: 管理者が担当者のいる対応の日時を決める → 同じ日の前後の予定との移動の時間を確かめる（前後に無ければ出さない）
+    const owner = !!(ctx && ctx.membership && ctx.membership.role === 'owner');
+    if (owner && p.worker_id && !(await TravelUi.check({ workerId: p.worker_id, phaseId: p.id, start: st, end: r.slots[0].end || null, who: 'admin' }))) return;
     await o.onConfirm(st, en, b);
   });
   const one = schBusyBtn('候補として送る（作業担当者が始まりを選ぶ）', 'btn sm ghost inline sch-offer-one', err, offer);
