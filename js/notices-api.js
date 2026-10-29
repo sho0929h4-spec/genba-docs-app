@@ -92,7 +92,7 @@ const NoticesApi = (() => {
       if (opts && opts.phaseTitle) { // 対応フェーズのカードから作ったときはタイムラインに記録（失敗しても作成は成功扱い）
         try {
           must(await sb.from('timeline_entries').insert({ case_id: caseId, type: 'system',
-            body: opts.auto ? `${opts.phaseTitle}の工事掲示を自動で作った（見積書の提出から・下書き）` : `${opts.phaseTitle}の工事掲示を作った` }));
+            body: opts.auto ? `${opts.phaseTitle}の工事掲示を自動で作った（${opts.auto === 'works' ? '見積書の工事の条件から' : '見積書の提出から'}・下書き）` : `${opts.phaseTitle}の工事掲示を作った` }));
         } catch (e) { console.warn('自動記録に失敗', e); }
       }
       return made;

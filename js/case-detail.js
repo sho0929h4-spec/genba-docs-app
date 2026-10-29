@@ -317,7 +317,7 @@ function renderCaseTools() {
   // 調査に付いた工事掲示（前のデータ）はカードを出さないので、一覧への入口だけ残す（消さない）
   const old = sel && sel.kind === 'survey' && s.data ? (s.data.notices || []).filter(n => n.phase_id === sel.id).length : 0;
   if (old) {
-    const ln = dBtn('この調査に付いている工事掲示 ' + old + '件（前のデータ）を一覧で見る ›', 'linkbtn ctools-old-notice', () => { location.hash = '#case/' + c.id + '/notices'; });
+    const ln = dBtn('この調査に付いている工事掲示 ' + old + '件' + (PhaseLogic.isResurvey(sel) ? '' : '（前のデータ）') + 'を一覧で見る ›', 'linkbtn ctools-old-notice', () => { location.hash = '#case/' + c.id + '/notices'; }); // Task 74: 再調査は見積書から作れる
     ln.id = 'case-tool-old-notices';
     nodes.push(ln);
   }

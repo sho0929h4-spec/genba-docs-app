@@ -260,7 +260,8 @@ function eueNormData(raw) {
     // Task 48 E: ホテル移動・荷物の片付け（必要／不要）。前からある「荷物の移動依頼」のチェックは 片付け 必要（場所なし）に置き換える
     hotel: n.hotel === 'need' || n.hotel === 'none' ? n.hotel : '',
     katazuke: (k => ({ sel: k.sel === 'need' || k.sel === 'none' ? k.sel : euObj(n.nimotsu).on ? 'need' : '',
-      places: (Array.isArray(k.places) ? k.places : []).filter(p => EstimateLogic.KATAZUKE_PLACES.includes(p)), free: euStr(k.free) }))(euObj(n.katazuke)),
+      places: (Array.isArray(k.places) ? k.places : []).filter(p => EstimateLogic.KATAZUKE_PLACES.includes(p)), free: euStr(k.free), degree: euStr(k.degree) }))(euObj(n.katazuke)),
+    works: EstimateLogic.noteWorks(n), // Task 74: 工事の条件
     extra: euStr(n.extra)
   };
   ['koki', 'jikan'].forEach(k => { d.notes[k].on = !!d.notes[k].on; d.notes[k].val = euStr(d.notes[k].val); });
@@ -619,10 +620,42 @@ function eueBuild(s) {
   els.kzFree = eueInput('eu-note-katazuke-free', 'text', d.notes.katazuke.free, v => { set(x => { x.notes.katazuke.free = v; }); eueNotesPv(s); }, { placeholder: '自由記載（例：浴室）' });
   els.kzFree.setAttribute('aria-label', '片付けをお願いする場所（自由記載）');
   places.appendChild(els.kzFree);
+  // Task 74: 片付けの程度（80字まで。紙面は片付けの文の次の行「片付けの程度：○○」）
+  const dgLb = mk('span', 'eu-places-lb', '片付けの程度');
+  els.kzDegree = eueInput('eu-note-katazuke-degree', 'text', d.notes.katazuke.degree, v => { set(x => { x.notes.katazuke.degree = v; }); eueNotesPv(s); },
+    { placeholder: 'どの程度片付けが必要か記載', maxLength: EstimateLogic.DEGREE_MAX });
+  els.kzDegree.setAttribute('aria-label', '片付けの程度');
+  if (ro && !d.notes.katazuke.degree.trim()) { dgLb.hidden = true; els.kzDegree.hidden = true; }
+  places.append(dgLb, els.kzDegree);
   const kzRow = choiceRow('katazuke', '荷物の片付け', d.notes.katazuke.sel, v => { set(x => { x.notes.katazuke.sel = v; }); places.hidden = v !== 'need'; });
   kzRow.appendChild(places);
   opts.appendChild(kzRow);
-  if (ro && !['koki', 'jikan'].some(k => d.notes[k].on) && !d.notes.hotel && !d.notes.katazuke.sel) opts.hidden = true;
+  // Task 74: 工事の条件（複数可・押す／外す）。選択肢は工事掲示の工事内容（EstimateLogic.workChoices）。読み取り専用では選んだものだけ
+  const wkRow = mk('div', 'eu-note-row');
+  wkRow.dataset.note = 'works';
+  const wk = mk('div', 'eu-choice');
+  wk.setAttribute('role', 'group');
+  wk.setAttribute('aria-label', '工事の条件');
+  EstimateLogic.workChoices().forEach(w => {
+    const on = d.notes.works.includes(w.key);
+    if (ro && !on) return;
+    const b = dBtn(w.label, 'eu-choice-b sm' + (on ? ' on' : ''), () => {
+      const now = b.getAttribute('aria-pressed') !== 'true';
+      b.setAttribute('aria-pressed', now ? 'true' : 'false');
+      b.classList.toggle('on', now);
+      set(x => { x.notes.works = EstimateLogic.workChoices().map(c => c.key).filter(k => (k === w.key ? now : x.notes.works.includes(k))); });
+      eueNotesPv(s);
+      eueNoticeOffer(s);
+    });
+    b.id = 'eu-note-work-' + w.key;
+    b.dataset.work = w.key;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    wk.appendChild(b);
+  });
+  wkRow.append(mk('span', 'eu-note-lb', '工事の条件（複数可）'), wk);
+  if (ro && !d.notes.works.length) wkRow.hidden = true;
+  opts.appendChild(wkRow);
+  if (ro && !['koki', 'jikan'].some(k => d.notes[k].on) && !d.notes.hotel && !d.notes.katazuke.sel && !d.notes.works.length) opts.hidden = true;
   c3.appendChild(opts);
   els.extra = document.createElement('textarea');
   els.extra.id = 'eu-note-extra';
@@ -638,6 +671,9 @@ function eueBuild(s) {
   els.notesPv = mk('div', 'eu-notes-pv');
   els.notesPv.id = 'eu-notes-pv';
   c3.appendChild(els.notesPv);
+  els.ntOffer = mk('div', 'eu-nt-offer');
+  els.ntOffer.id = 'eu-nt-offer';
+  c3.appendChild(els.ntOffer);
 
   // 並び（PC=上のバー＋左 入力／右 紙面、スマホ=1段＋紙面の折りたたみ）は EstimateLayout
   // Task 36: 現場用は帯の下・入力欄の上に「調査の内容」の折りたたみ欄（管理画面には出さない）
@@ -665,6 +701,59 @@ function eueBuild(s) {
   const links = eueLinksCard(s);
   if (links) extra.push(links);
   if (extra.length) roBox.after(...extra);
+  eueNoticeOffer(s);
+}
+
+/* ---------- Task 74: 工事の条件から工事掲示の下書きを作る（選んだらその場で提案。押さなければ作らない） ---------- */
+// 対象: 原因元工事・復旧工事・その他・再調査（PhaseLogic.noticeOffer。初回の調査は出さない）。編集できる見積書で工事の条件を1つ以上選んだとき。
+//   そのフェーズに工事掲示がもうあれば「工事掲示はもうあります（開く）」（重ねて作らない）。s.nt = { list: そのフェーズの掲示 | null（読み込み中）, made, busy, err }
+function eueNoticePhase(s) {
+  const phases = s.caseRow && Array.isArray(s.caseRow.phases) ? s.caseRow.phases : [];
+  const p = s.row.phase_id ? phases.find(x => x.id === s.row.phase_id) : null;
+  return p && PhaseLogic.noticeOffer(p) ? p : null;
+}
+function eueNoticeOffer(s) {
+  const box = s.els.ntOffer;
+  if (!box || eue !== s) return;
+  const p = eueNoticePhase(s);
+  if (!p || s.readOnly || typeof NoticesApi === 'undefined' || !s.data.notes.works.length) { box.hidden = true; box.replaceChildren(); return; }
+  box.hidden = false;
+  if (!s.nt) {
+    s.nt = { list: null };
+    NoticesApi.listByCase(s.row.case_id).then(l => { s.nt.list = (l || []).filter(n => n.phase_id === p.id); }, e => { s.nt.list = []; s.nt.err = '工事掲示を確認できませんでした: ' + errText(e); })
+      .then(() => { if (eue === s) eueNoticeOffer(s); });
+  }
+  const nt = s.nt;
+  const openLink = (label, n) => { const a = dBtn(label, 'linkbtn eu-nt-open', () => { location.hash = '#notice/' + n.id; }); a.id = 'eu-nt-open'; return a; };
+  const nodes = [];
+  if (nt.made) nodes.push(mk('div', 'eu-nt-msg', '工事掲示の下書きを作りました（案件ページの表の「工事掲示」から直せます）'), openLink('工事掲示を開く ›', nt.made));
+  else if (nt.list === null) nodes.push(mk('div', 'eu-nt-msg', '工事掲示を確認しています…'));
+  else if (nt.list.length) nodes.push(mk('div', 'eu-nt-msg', '工事掲示はもうあります'), openLink('開く ›', nt.list[0]));
+  else {
+    const b = dBtn(nt.busy ? '作っています…' : '工事掲示の下書きを作る', 'btn sm ghost eu-nt-make', () => eueMakeNotice(s));
+    b.id = 'eu-nt-make';
+    b.disabled = !!nt.busy;
+    nodes.push(b, mk('div', 'eu-nt-desc', '選んだ条件を入れた工事掲示の下書きを作ります'));
+  }
+  if (nt.err) nodes.push(mk('div', 'err', nt.err));
+  box.replaceChildren(...nodes);
+}
+async function eueMakeNotice(s) {
+  const nt = s.nt;
+  if (!nt || nt.busy || nt.made) return;
+  nt.busy = true;
+  nt.err = '';
+  eueNoticeOffer(s);
+  try {
+    // 画面の今の中身（まだ保存していない選択も）で作る
+    const made = await EstimatesApi.autoNotice(Object.assign({}, s.row, { data: s.data, lines: s.lines }), true);
+    if (made) nt.made = made;
+    else nt.list = ((await NoticesApi.listByCase(s.row.case_id)) || []).filter(n => n.phase_id === s.row.phase_id); // その間にできていた
+  } catch (e) {
+    nt.err = '工事掲示の下書きを作れませんでした: ' + errText(e);
+  }
+  nt.busy = false;
+  if (eue === s) eueNoticeOffer(s);
 }
 
 /* ---------- 調査の内容（現場用。Task 36） ---------- */

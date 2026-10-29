@@ -136,13 +136,31 @@
   }
 
   // ── 備考 ───────────────────────────────────────────────────────────────────
-  // notes = { koki:{on,val}, jikan:{on,val}, hotel: 'need'|'none'|'', katazuke: { sel: 'need'|'none'|'', places: [], free }, extra }（est.data.notes。data ごとでも可）
+  // notes = { koki:{on,val}, jikan:{on,val}, hotel: 'need'|'none'|'', katazuke: { sel: 'need'|'none'|'', places: [], free, degree }, works: ['noise'…]（Task 74）, extra }（est.data.notes。data ごとでも可）
   //   Task 48 E: 「荷物の移動依頼」（nimotsu:{on,val}）は「ホテル移動」「荷物の片付け」（必要／不要）に置き換えた。前からある nimotsu.on は 片付け 必要（場所なし）として読む
   const KATAZUKE_PLACES = ['トイレ', '洗面所', 'キッチン', '洗濯機'];
   const HOTEL_TEXT = '工事期間中はホテル等への一時移動が必要です。';
   const katazukeText = places => `工事箇所${places.length ? `（${places.join('・')}）` : ''}周辺のお荷物の片付けをお願いいたします。`;
   function defaultNotes() {
-    return { koki: { on: false, val: '3' }, jikan: { on: false, val: '' }, hotel: '', katazuke: { sel: '', places: [], free: '' }, extra: '' };
+    return { koki: { on: false, val: '3' }, jikan: { on: false, val: '' }, hotel: '', katazuke: { sel: '', places: [], free: '', degree: '' }, works: [], extra: '' };
+  }
+  // Task 74: 工事の条件（works）。選択肢は工事掲示の工事内容（NoticeLogic.WORK_TYPES。その他（自由記入）は除く）が唯一の定義元
+  const inNode = typeof module !== 'undefined' && module.exports && typeof require === 'function';
+  const NL = () => (inNode ? require('./notice-logic.js') : root.NoticeLogic);
+  const workChoices = () => NL().WORK_TYPES.filter(w => w.key !== 'other').map(w => ({ key: w.key, label: w.label }));
+  const DEGREE_MAX = 80;
+  // 備考（notes か data ごと）→ 選んだ工事の条件のキー（WORK_TYPES の並び・知らないキーは落とす）
+  function noteWorks(notes) {
+    let n = notes || {};
+    if (n.notes && typeof n.notes === 'object') n = n.notes;
+    const on = Array.isArray(n.works) ? n.works : [];
+    return workChoices().map(w => w.key).filter(k => on.includes(k));
+  }
+  // 工事掲示と同じ文（騒音と振動の両方なら NOISE_VIBRATION_TEXT にまとめる）
+  function workTexts(works) {
+    const wt = {};
+    (works || []).forEach(k => { if (k !== 'other') wt[k] = true; });
+    return NL().bodySentences({ workTypes: wt });
   }
   // 備考の欄 → { hotel, katazuke: 'need'|'none'|''（未選択）, places: 選んだ場所＋自由記載 }
   function noteChoices(notes) {
@@ -153,9 +171,10 @@
     const katazuke = sel(k.sel) || (n.nimotsu && n.nimotsu.on ? 'need' : '');
     const free = k.free == null ? '' : String(k.free).trim();
     const places = katazuke === 'need' ? KATAZUKE_PLACES.filter(p => Array.isArray(k.places) && k.places.includes(p)).concat(free ? [free] : []) : [];
-    return { hotel: sel(n.hotel), katazuke, places };
+    const degree = katazuke === 'need' && k.degree != null ? Array.from(String(k.degree).trim()).slice(0, DEGREE_MAX).join('') : '';
+    return { hotel: sel(n.hotel), katazuke, places, degree };
   }
-  // 紙面の備考: 1行目（必須）→ 工期 → 工事時間 → ホテル移動・荷物の片付け（必要のときだけ。不要は書かない）→ 自由記入
+  // 紙面の備考: 1行目（必須）→ 工期 → 工事時間 → ホテル移動・荷物の片付け（必要のときだけ。不要は書かない）→ 片付けの程度 → 工事の条件（Task 74）→ 自由記入
   function buildNotes(notes) {
     let n = notes || {};
     if (n.notes && typeof n.notes === 'object') n = n.notes;
@@ -170,6 +189,8 @@
     const ch = noteChoices(n);
     if (ch.hotel === 'need') out.push(HOTEL_TEXT);
     if (ch.katazuke === 'need') out.push(katazukeText(ch.places));
+    if (ch.degree) out.push(`片付けの程度：${ch.degree}`);
+    out.push(...workTexts(noteWorks(n)));
     const extra = n.extra == null ? '' : String(n.extra);
     if (extra.trim()) out.push(extra.trim());
     return out.join('\n');
@@ -203,8 +224,9 @@
     }
     const hotel = ch.hotel === 'need' ? '必要' : ch.hotel === 'none' ? '不要' : '';
     const katazuke = ch.katazuke === 'need' ? (ch.places.length ? `必要（${ch.places.join('・')}）` : '必要') : ch.katazuke === 'none' ? '不要' : '';
-    const water = /断水/.test(all);
-    const drain = /排水(制限|停止|不可|禁止)|排水を伴うご使用をお控え/.test(all);
+    const works = isObj ? noteWorks(raw) : [];
+    const water = works.includes('water') || /断水/.test(all);
+    const drain = works.includes('drain') || /排水(制限|停止|不可|禁止)|排水を伴うご使用をお控え/.test(all);
     const missing = COND_ITEMS.filter((_, i) => ![days, time, hotel, katazuke][i]);
     return { days, time, hotel, katazuke, water, drain, missing };
   }
@@ -803,7 +825,7 @@
     newLine, isRealLine, totals, withTotals,
     recalcShokehi, addShokehi, addQuick, adjustToHundred, adjustLine, isAdjustLine,
     unitPrice, commitAmount, normAmount,
-    defaultNotes, buildNotes, KATAZUKE_PLACES, noteChoices, COND_ITEMS, conditions, timeRange,
+    defaultNotes, buildNotes, KATAZUKE_PLACES, noteChoices, workChoices, noteWorks, workTexts, DEGREE_MAX, COND_ITEMS, conditions, timeRange,
     emptyEstimate, nextVersionFrom, diff,
     formatNumber, fileName, fmt, yen,
     hankoParts, hankoCols, validate,

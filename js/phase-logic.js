@@ -2538,13 +2538,17 @@
   //   号室 = 案件の部屋、工事名称 = 「原因元工事」「復旧工事」＋ 見積の件名、工事日 = フェーズの工事日（未定なら「工事日は未定」）、
   //   工事内容のチェック = 調査結果の注意事項 ＋ 見積の備考の文（騒音／振動／断水／排水制限／通行制限／臭気）、排水制限の号室 = 調査結果の号室
   //   → NoticesApi.create の opts.data（workTypes / drainRooms / otherWorkText / roomNo / workName / workDate… / workDateTbd / autoFrom）
+  //   Task 74: 再調査（調査で source_phase_id があるもの）も受ける（工事名称は「再調査」＋件名）。初回の調査は null。見積書の備考の工事の条件（notes.works）もチェックに入れる
+  const isResurvey = p => !!p && p.kind === 'survey' && !!p.source_phase_id;
+  const noticeOffer = p => !!p && (isWork(p.kind) || isResurvey(p));
   function autoNoticeData({ phase, caseRow, phases, estimate } = {}) {
     const p = phase || {}, c = caseRow || {};
-    if (!isWork(p.kind)) return null;
+    if (!noticeOffer(p)) return null;
     const ed = (estimate && estimate.data) || {};
     // Task 65: 件名が自動で入れた「物件名 号室 種類名」のままなら、前の初期値（物件名）として扱う（工事掲示の工事名称を変えない）
     const subject = str(ed.subject) === estimateSubject(c, p) ? str(c.name) : str(ed.subject);
-    const data = { roomNo: str(c.room).slice(0, 80), workName: (workName(p.kind, p) + (subject ? ' ' + subject : '')).slice(0, 80), autoFrom: 'estimate' };
+    const name = isResurvey(p) ? '再調査' : workName(p.kind, p);
+    const data = { roomNo: str(c.room).slice(0, 80), workName: (name + (subject ? ' ' + subject : '')).slice(0, 80), autoFrom: 'estimate' };
     if (p.scheduled_at) {
       data.workDate = jstYmd(p.scheduled_at);
       data.timeStart = fmtHM(jst(p.scheduled_at)).padStart(5, '0');
@@ -2560,6 +2564,7 @@
     const notes = [str(ed.notes && ed.notes.extra), str(ed.notes && typeof ed.notes === 'string' ? ed.notes : '')].join('\n');
     NL().WORK_TYPES.forEach(w => { if (w.key !== 'other' && w.text && notes.includes(w.text)) wt[w.key] = true; });
     if (notes.includes(NL().NOISE_VIBRATION_TEXT)) { wt.noise = true; wt.vibration = true; }
+    if (EL() && EL().noteWorks) EL().noteWorks(ed.notes).forEach(k => { wt[k] = true; });
     // Task 47: 工事の日程の条件（見積書の備考と明細）: 断水・排水制限のチェック、工事時間（時刻）、工期（日数 → 終わりの日）
     const cond = EL() && EL().conditions ? EL().conditions(estimate) : null;
     if (cond) {
@@ -2581,8 +2586,8 @@
   //   → { state: 'na'（調査）|'none'|'auto'（見積の提出で自動で作った下書き・まだ手で直していない）|'made'|'many', text, open（1件のときの掲示） }
   function noticeCell(phase, notices) {
     const p = phase || {};
-    if (!isWork(p.kind)) return { state: 'na', text: '—', open: null };
     const list = listOf(notices);
+    if (!isWork(p.kind) && !(isResurvey(p) && list.length)) return { state: 'na', text: '—', open: null }; // Task 74: 再調査は見積書から作った掲示があれば出す
     if (!list.length) return { state: 'none', text: '未作成', open: null };
     if (list.length > 1) return { state: 'many', text: `${list.length}件`, open: null };
     const auto = !!(list[0].data && list[0].data.autoFrom);
@@ -3180,7 +3185,7 @@
     paymentDueDefault, isOverdue, fmtYmdMD,
     fieldMine, fieldWhen, fieldDefaultPhase, fieldFocus, fieldStageLabel, fieldCases, fieldEstimateCards, fieldPhaseChips, fieldTools,
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
-    SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
+    SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell, isResurvey, noticeOffer,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
     SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOn, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText, callOrder, callBoard, callOnly,
     CALL_WHENS, isCallWindow, callWindow, callHours, callEnd, callExpired, callRangeText, callSlot, callStarts, callDur, callDurChoices,

@@ -244,18 +244,19 @@ const EstimatesApi = (() => {
     },
     // 見積から工事掲示の下書きを作る（Task 29）。工事のフェーズでまだ掲示が無いときだけ → 作った掲示 or null
     //   中身は PhaseLogic.autoNoticeData（号室・工事名称・工事日・工事内容のチェック・排水制限の号室）。お問い合わせ先は会社マスタ（NoticesApi.create）
-    async autoNotice(est) {
+    //   Task 74: manual = 見積書の画面の「工事掲示の下書きを作る」（工事の条件から）。再調査も作る（提出のときの自動は今まで通り工事だけ）
+    async autoNotice(est, manual) {
       if (!est || !est.phase_id || typeof NoticesApi === 'undefined' || typeof CasesApi === 'undefined' || typeof PhaseLogic === 'undefined') return null;
       const c = await CasesApi.getSummary(est.case_id);
       const phases = c && Array.isArray(c.phases) ? c.phases : [];
       const p = phases.find(x => x.id === est.phase_id);
-      if (!p || !PhaseLogic.isWork(p.kind)) return null; // 工事（原因元工事・復旧工事）と その他（Task 37）
+      if (!p || !(manual ? PhaseLogic.noticeOffer(p) : PhaseLogic.isWork(p.kind))) return null; // 工事（原因元工事・復旧工事）と その他（Task 37）
       const notices = (await NoticesApi.listByCase(est.case_id)) || [];
       if (notices.some(n => n.phase_id === p.id)) return null;
       const data = PhaseLogic.autoNoticeData({ phase: p, caseRow: c, phases, estimate: est });
       if (!data) return null;
       const ch = PhaseLogic.fieldPhaseChips(phases, new Date()).find(x => x.id === p.id);
-      return NoticesApi.create(est.case_id, c, { phase_id: p.id, phaseTitle: ch ? ch.title : PhaseLogic.phaseTitle(p), auto: true, data });
+      return NoticesApi.create(est.case_id, c, { phase_id: p.id, phaseTitle: ch ? ch.title : PhaseLogic.phaseTitle(p), auto: manual ? 'works' : true, data });
     },
     // 提出済み/送付済みの版から次の版の下書きを作り、前の版を superseded にする。
     // DB 関数 new_estimate_version が1トランザクションで行う（系列の行をロック・最新版か検査・明細の引き継ぎ規則は
