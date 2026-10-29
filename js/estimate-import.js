@@ -322,8 +322,17 @@ const EstimateImport = (() => {
     st.src.appendChild(Icon.prepend(mk('span', 'rep-sub', '読み込んだ他社の見積もり（' + kind + '）'), 'clip', 14));
     const open = dBtn('開く', 'linkbtn', async b => {
       b.disabled = true;
-      try { window.open(await AppStorage.getUrl(path, 600), '_blank', 'noopener'); }
-      catch (e) { setMsg(s, 'err', '元のファイルを開けませんでした: ' + errOf(e)); }
+      // 押したその場で窓を開けておく（URL を待ってから開くとスマホのブラウザが止める）
+      const w = window.open('', '_blank');
+      try {
+        let url = await AppStorage.getUrl(path, 600);
+        // data: の URL は新しい窓で開けない（お試し版）。同じ中身の blob: にする
+        if (/^data:/.test(url)) url = URL.createObjectURL(await (await fetch(url)).blob());
+        if (w) { w.opener = null; w.location.href = url; } else location.assign(url);
+      } catch (e) {
+        if (w) w.close();
+        setMsg(s, 'err', '元のファイルを開けませんでした: ' + errOf(e));
+      }
       b.disabled = false;
     });
     open.id = 'eu-import-src-open';

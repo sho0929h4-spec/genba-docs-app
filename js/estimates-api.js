@@ -157,6 +157,7 @@ const EstimatesApi = (() => {
         let ph = (c && Array.isArray(c.phases) ? c.phases : []).find(x => x && x.id === opts.phase_id) || null;
         if (!ph) ph = must(await sb.from('case_phases').select('id, kind, label').eq('id', opts.phase_id).maybeSingle());
         if (ph) e.data.subject = PhaseLogic.estimateSubject(c || {}, ph);
+        if (ph && ph.kind === 'cause') e.data.notes.koki.val = '1'; // 原因元工事の工期は1日から（−／＋ で変える）
       }
       const tt = withTotals(e.lines);
       const ins = {

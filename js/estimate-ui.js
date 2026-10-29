@@ -554,14 +554,26 @@ function eueBuild(s) {
   const nrow = (key, label, control, wrapper) => {
     const r = mk('div', 'eu-note-row');
     if (ro && !d.notes[key].on) r.hidden = true; // 読み取り専用では使っていない備考の行は出さない
-    r.append(eueCheck('eu-note-' + key, label, d.notes[key].on, v => { set(x => { x.notes[key].on = v; }); control.disabled = ro || !v; eueNotesPv(s); }), wrapper || control);
-    control.disabled = ro || !d.notes[key].on;
+    const ctl = [control, ...(wrapper ? wrapper.querySelectorAll('button') : [])]; // 工期の −／＋ も一緒に
+    const dis = on => ctl.forEach(e => { e.disabled = ro || !on; });
+    r.append(eueCheck('eu-note-' + key, label, d.notes[key].on, v => { set(x => { x.notes[key].on = v; }); dis(v); eueNotesPv(s); }), wrapper || control);
+    dis(d.notes[key].on);
     return r;
   };
   const kokiBox = mk('span', 'eu-note-koki');
   els.koki = eueInput('eu-note-koki-val', 'text', d.notes.koki.val, v => { set(x => { x.notes.koki.val = v; }); eueNotesPv(s); }, { inputMode: 'numeric' });
   els.koki.setAttribute('aria-label', '工期の日数');
-  kokiBox.append(els.koki, mk('span', null, '日間'));
+  // −／＋ で1日ずつ（1日より下げない）。文字でも入れられる
+  const kokiStep = (t, id, dv) => {
+    const b = dBtn(t, 'btn sm ghost inline eu-step', () => {
+      els.koki.value = String(Math.max(1, (parseInt(els.koki.value, 10) || 0) + dv));
+      els.koki.dispatchEvent(new Event('input'));
+    });
+    b.id = id;
+    b.setAttribute('aria-label', dv < 0 ? '工期を1日減らす' : '工期を1日増やす');
+    return b;
+  };
+  kokiBox.append(kokiStep('−', 'eu-note-koki-down', -1), els.koki, kokiStep('＋', 'eu-note-koki-up', 1), mk('span', null, '日間'));
   opts.appendChild(nrow('koki', '工期', els.koki, kokiBox));
   els.jikan = eueInput('eu-note-jikan-val', 'text', d.notes.jikan.val, v => { set(x => { x.notes.jikan.val = v; }); eueNotesPv(s); }, { placeholder: '例：9:00〜17:00' });
   els.jikan.setAttribute('aria-label', '工事時間');
