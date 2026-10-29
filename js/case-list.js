@@ -91,7 +91,8 @@ async function openCases() {
 function renderCaseList() {
   const me = ctx.user.id;
   const now = new Date();
-  const counts = CaseLogic.countByFilter(caseRows, me, now);
+  const shownRows = caseRows.filter(r => !PhaseLogic.callOnly(r, now)); // Task 71: 募集中の対応だけの案件は「募集」の画面へ（一覧から外す）
+  const counts = CaseLogic.countByFilter(shownRows, me, now);
   document.querySelectorAll('#case-chips .chip').forEach(chip => {
     const k = chip.dataset.filter;
     chip.textContent = CHIP_LABELS[k] + ' ' + (counts[k] || 0);
@@ -101,7 +102,7 @@ function renderCaseList() {
   const hint = $('case-chip-hint');
   if (hint) { hint.textContent = CHIP_HINTS[caseFilter] || ''; hint.hidden = !CHIP_HINTS[caseFilter]; }
 
-  const rows = CaseLogic.filterCases(caseRows, caseFilter, $('case-search').value, me, now);
+  const rows = CaseLogic.filterCases(shownRows, caseFilter, $('case-search').value, me, now);
   const list = $('case-list');
   list.replaceChildren(...rows.map(r => caseRowEl(r, now)));
   $('case-loading').hidden = !caseLoading;
@@ -134,7 +135,8 @@ function caseRowEl(r, now) {
   el.appendChild(meta);
 
   // 次: 各フェーズの今の段階（PhaseLogic.caseNext）。完了した案件は入金待ちだけ
-  const all = PhaseLogic.caseNext(r.phases, now || new Date(), { me: ctx && ctx.user ? ctx.user.id : null }); // Task 25: 見ている人で段階が変わる
+  const calls = new Set((r.phases || []).filter(p => PhaseLogic.isOpenCall(p, now || new Date())).map(p => p.id)); // Task 71: 募集中の対応は「次:」に出さない（「募集」の画面）
+  const all = PhaseLogic.caseNext(r.phases, now || new Date(), { me: ctx && ctx.user ? ctx.user.id : null }).filter(x => !calls.has(x.phaseId)); // Task 25: 見ている人で段階が変わる
   const next = r.status === 'done' ? all.filter(x => x.key === 'payment') : all;
   const kindCount = {};
   (r.phases || []).forEach(p => { kindCount[p.kind] = (kindCount[p.kind] || 0) + 1; });
@@ -143,8 +145,6 @@ function caseRowEl(r, now) {
 
   const badges = mk('div', 'badges');
   if (r.open_requests > 0) badges.appendChild(mk('span', 'bdg alert', '未対応の依頼 ' + r.open_requests));
-  const calls = (r.phases || []).filter(p => PhaseLogic.isOpenCall(p, new Date())).length; // Task 51: 一斉配信の募集中
-  if (calls) badges.appendChild(mk('span', 'bdg call', '募集中' + (calls > 1 ? ' ' + calls + '件' : '')));
   badges.appendChild(Icon.prepend(mk('span', 'bdg', (r.timeline_count || 0) + '件'), 'chat', 12));
   el.appendChild(badges);
 

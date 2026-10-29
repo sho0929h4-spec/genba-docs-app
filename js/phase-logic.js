@@ -592,6 +592,7 @@
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
+        if (isOpenCall(p, now)) continue; // Task 71: 募集中は「募集」の画面（やることには出さない）
         // Task 25: 作業担当者が別の人の「報告書を書いて提出」はその人の分（自分の分には入れない。全員の分には出す）
         const own = stage(p, null, now, { me, members: o.members });
         const st = own.key === 'waiting' ? workerStage(p, now, { me, members: o.members }) : own;
@@ -1443,8 +1444,7 @@
     const p = x.phase || null;
     const place = x.caseRow ? placeName(x.caseRow) || '（物件名なし）' : '日報';
     const kind = p && KIND_KEYS.includes(p.kind) ? p.kind : '';
-    const todo = x.type === 'call' ? `募集 ${callWhen(p, x.now)} — 行けますか？`
-      : x.callMsg ? ((x.message && x.message.meta && x.message.meta.action) === 'expired' ? '募集が期限切れ（出し直せます）' : callBody(x)) // Task 60
+    const todo = x.callMsg ? ((x.message && x.message.meta && x.message.meta.action) === 'expired' ? '募集が期限切れ（出し直せます）' : callBody(x)) // Task 60
       : x.type === 'message' ? (x.nudge ? '催促' : '管理者からの返事') : ((x.type === 'estimate' || x.type === 'schedule' || x.type === 'report') && x.name) || TASK_TODO[x.type] || str(x.label);
     let due = '';
     if (DUE_TYPES.includes(x.type)) {
@@ -1453,7 +1453,6 @@
       if (at) due = at + 'まで' + (x.late ? '・超過' : '');
     } else if (x.type === 'message') due = fmtMDWHM(x.fromAt);
     else if (x.type === 'conditions') due = listOf(x.missing).join('・') + 'が未記入'; // Task 47
-    else if (x.type === 'call') due = ''; // Task 51: 日時は「やること」の中にある
     else if (p) due = p.scheduled_at ? fmtMDWHM(p.scheduled_at) + '〜' : '日時未定';
     return { place, kind, kindText: kindLabel(kind), todo, due, late: !!x.late && DUE_TYPES.includes(x.type), sendback: !!x.sendback };
   }
@@ -1477,7 +1476,7 @@
     const groups = new Map();
     for (const x of listOf(items)) {
       const ymd = DUE_TYPES.includes(x.type) && x.due ? (x.dueAt ? jstYmd(x.dueAt) : str(x.due).slice(0, 10)) : '';
-      const key = x.type === 'call' || x.callMsg ? 'call' : x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
+      const key = x.callMsg ? 'call' : x.type === 'message' ? 'message' : !ymd ? 'none' : x.late ? 'late' : ymd === today ? 'today' : ymd;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(x);
     }
@@ -1743,12 +1742,7 @@
       const count = {};
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
-        // Task 51: 一斉配信の募集（会社の全員。Task 60 で出した本人も）。決まる・取り消す・期限切れで消える
-        if (meId && isOpenCall(p, now)) { // Task 60: 募集した本人にも出す
-          const seq = p.seq != null ? p.seq : count[p.kind];
-          out.push({ type: 'call', caseRow: c, phase: p, title: phaseTitle(p, seq), label: callText(p, c, seq, now), now, due: null, dueAt: null, late: false,
-            from: '', fromAt: p.open_call_at, tomorrow: false, brief: '' });
-        }
+        // Task 71: 一斉配信の募集中はタスクに出さない（下のタブの「募集」のページ。callBoard）
         if (!meId || p.worker_id !== meId || p.lost_at) continue; // Task 47: 失注はタスクから外す
         const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
         // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない（下書きでは消えない）
@@ -2438,7 +2432,7 @@
     for (const c of listOf(caseRows)) {
       if ((c.status && c.status !== 'open') || c.deleted_at) continue;
       const mineCase = c.assignee_id === meId;
-      const list = withSeq(c.phases).filter(({ p }) => mineCase || p.worker_id === meId);
+      const list = withSeq(c.phases).filter(({ p }) => (mineCase || p.worker_id === meId) && !isOpenCall(p, nowAt)); // Task 71: 募集中は「募集」のページ
       if (!list.length) {
         if (mineCase && !listOf(c.phases).length) {
           out.push({ caseRow: c, phase: null, title: '', group: 'none', at: null, when: '対応なし', time: '', visit: '', stage: null, stageText: '', today: false });
@@ -3078,6 +3072,26 @@
   // 募集中 = open_call_at があり作業担当者が空（失注は除く。DB の check で担当者がいれば open_call_at は空）。
   //   now を渡すと終わりを過ぎたものは募集中でない（画面は案件を読む前に DB の open_call_expire で期限切れにしている）
   const isOpenCall = (p, now) => !!(p && p.open_call_at && !p.worker_id && !p.lost_at) && !(now != null && callEnd(p) != null && callEnd(p) <= ms(now));
+  // Task 71: 募集の急ぎの順（到着の期限が早い順）: 今日中 → 今日 ○時以降 → 明日 → 明日 ○時以降（範囲の日・時の早い順）→ 日時を決める（その日時の早い順）
+  //   → 日時未定。同じなら募集した時刻の早い順 → 比べる関数（a, b = 対応）
+  const callRank = p => (p.open_call_from && isCallWindow(p.open_call_kind) ? [0, Date.parse(jstYmd(p.open_call_from)), p.open_call_kind.endsWith('_after') ? 1 : 0, ms(p.open_call_from)]
+    : p.scheduled_at ? [1, ms(p.scheduled_at), 0, 0] : [2, 0, 0, 0]);
+  function callOrder(a, b) {
+    const x = callRank(a || {}), y = callRank(b || {});
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
+    return (ms(a && a.open_call_at) || 0) - (ms(b && b.open_call_at) || 0);
+  }
+  // Task 71: 「募集」のページ = 進行中の案件の募集中の対応（急ぎの順）→ [{ caseRow, phase, seq }]
+  function callBoard(caseRows, now) {
+    const out = [];
+    for (const c of listOf(caseRows)) {
+      if ((c.status && c.status !== 'open') || c.deleted_at) continue;
+      withSeq(c.phases).forEach(({ p, seq }) => { if (isOpenCall(p, now)) out.push({ caseRow: c, phase: p, seq }); });
+    }
+    return out.sort((a, b) => callOrder(a.phase, b.phase));
+  }
+  // Task 71: 募集中の対応だけの案件（案件の一覧から外す。募集中でない対応が1つでもあれば残す）
+  const callOnly = (caseRow, now) => listOf(caseRow && caseRow.phases).length > 0 && listOf(caseRow.phases).every(p => isOpenCall(p, now));
   // 期限切れ（担当が空のまま）: DB が期限切れにした（open_call_expired_at）か、now を渡して終わりを過ぎた募集中
   const callExpired = (p, now) => !!(p && !p.worker_id && !p.lost_at
     && (p.open_call_at ? now != null && callEnd(p) != null && callEnd(p) <= ms(now) : !!p.open_call_expired_at));
@@ -3149,7 +3163,7 @@
     SURVEY_WORK_HOURS, REPORT_GRACE_HOURS, workEndAt, reportDueAt, reportDueText, ESTIMATE_DUE_DAYS, estimateDueNeedsReason, estimateDueReasonText,
     SCHEDULE_GROUPS, fieldSchedule, fieldSubmitted, scheduleGroupLabel, fieldRedirectPhase, fieldHistory, fmtMDW, overdueReports, autoNoticeData, noticeCell,
     SURVEY_REPORT_DONE, surveyReportOf, estimateSurvey, fmtYmdMDW, surveySummary, manageStage, workConditions, CHEVRON_STEPS, flowName, chevron, phaseChevrons,
-    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOn, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText,
+    SCHED_TODO, SCHED_DAYS, SCHED_CARD_TITLE, schedOn, schedOpen, schedDue, bandText, condText, schedOutside, slotText, schedSlots, schedTask, schedLogText, isOpenCall, callWhen, callText, callOrder, callBoard, callOnly,
     CALL_WHENS, isCallWindow, callWindow, callHours, callEnd, callExpired, callRangeText, callSlot, callStarts, callDur, callDurChoices,
     normDur, durText, durEnd, slotStarts, busyOf, clashOf, clashText, startOptions, slotFree, windowText, durDefault, schedDur, TOOL_NAMES, toolOrder, schedText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

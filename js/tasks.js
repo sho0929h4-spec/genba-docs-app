@@ -6,6 +6,7 @@
 //   日程調整必要 → 工事日（調査日）を決める（詳細ページの日時の入力を開く）／調査に行く → ボタンなし（開くだけ）／
 //   報告書を書く・確認する → 報告書を開く／報告書を送る → 送るメールへ（未送信の下書き。無ければ確認して作る）／
 //   完了報告必要 → 報告書を作る（自社で作って編集画面へ）／報告書を開く／請求する → 請求した（入金期限を入れて画面内で確かめてから記録）
+// Task 71: 一斉配信の募集は「募集」の画面（#calls。js/open-call-ui.js）に移した
 // Task 43: 一番上に「差し戻し」（作業担当者が差し戻したタスク。PhaseLogic.taskSendbacks。「自分の分だけ」に関係なく出す）。
 //   各行に「済みにする」（rpc task_flag_close。連絡に返事をしても済みになる）と「開く」
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
@@ -38,15 +39,13 @@ async function openTasks() {
 
 async function tkLoad(seq) {
   let res = null, errMsg = '';
-  // Task 60: 一斉配信の募集の一覧（読めなくてもやることは出す）
-  try { res = await Promise.all([CasesApi.listSummaries(), CasesApi.listMembers(), PhasesApi.openCallList().catch(e => { console.warn('募集の一覧を読み込めませんでした', e); return []; })]); }
+  try { res = await Promise.all([CasesApi.listSummaries(), CasesApi.listMembers()]); }
   catch (e) { errMsg = 'やることの読み込みに失敗しました: ' + errText(e); }
   if (!tk || tk.seq !== seq) return; // 別の画面に移った / より新しい読み込み
   tk.loading = false;
   tk.failed = !!errMsg;
   tk.rows = errMsg ? [] : (res[0] || []);
   tk.members = errMsg ? [] : (res[1] || []);
-  tk.calls = errMsg ? [] : (res[2] || []);
   setMsg('tasks-msg', errMsg);
   tkRender();
 }
@@ -71,7 +70,6 @@ function tkRender() {
   const cards = shown ? g.groups.map(gr => tkGroupEl(gr)) : [];
   const sbs = shown ? PhaseLogic.taskSendbacks(s.rows) : [];
   if (sbs.length) cards.unshift(tkSendbackGroupEl(sbs));
-  if (shown && (s.calls || []).length) cards.unshift(tkCallGroupEl(s.calls)); // Task 60: 一斉配信の募集（「自分の分だけ」に関係なく出す）
   $('tasks-body').replaceChildren(...cards);
   $('tasks-loading').hidden = !s.loading;
   $('tasks-empty').hidden = !shown || cards.length > 0;
@@ -94,40 +92,6 @@ function tkGroupEl(gr) {
   h.appendChild(sub);
   card.appendChild(h);
   gr.items.forEach(it => card.appendChild(tkRowEl(it)));
-  return card;
-}
-
-// Task 60: 一斉配信の募集（14日以内・対応ごとに一番新しい回。DB の open_call_list）: 募集中・決まった・期限切れ・取り消し
-const TK_CALL_STATE = { open: '募集中', taken: '決まった', expired: '期限切れ', closed: '取り消し' };
-function tkCallGroupEl(list) {
-  const card = mk('div', 'member tk-group tk-calls');
-  card.dataset.group = 'calls';
-  const h = mk('div', 'member-h');
-  const open = list.filter(x => x.state === 'open').length;
-  h.append(mk('b', null, '一斉配信の募集'), mk('span', 'mh-sub tk-n', list.length + '件' + (open ? '（募集中 ' + open + '件）' : '')));
-  card.appendChild(h);
-  list.forEach(x => {
-    const ph = { kind: x.kind, open_call_kind: x.call_kind, open_call_from: x.from, open_call_to: x.to, scheduled_at: x.scheduled_at, scheduled_end: x.scheduled_end };
-    const row = mk('div', 'mt-row tk-row tk-call');
-    row.dataset.phase = x.phase_id;
-    row.dataset.group = 'calls';
-    row.dataset.state = x.state;
-    const l = mk('div', 'mt-l');
-    l.appendChild(mk('b', x.state === 'expired' ? 'hot' : null, TK_CALL_STATE[x.state] || ''));
-    const when = x.state === 'taken' ? PhaseLogic.schedText(ph) : x.state === 'expired' && PhaseLogic.callEnd(ph) ? PhaseLogic.fmtMDWHM(PhaseLogic.callEnd(ph)) + 'まで' : PhaseLogic.callWhen(ph);
-    const who = x.state === 'taken' ? (x.taker_name || '（退会したメンバー）') + 'が担当' : '';
-    const seen = x.state === 'open' ? ((x.seen || []).length ? '見た人 ' + x.seen.join('・') : 'まだ誰も見ていません') : '';
-    l.appendChild(mk('span', 'mt-case', [x.place || '(案件名なし)', x.title, when, who, seen, (x.posted_by_name || '不明') + 'が募集'].filter(Boolean).join(' ・ ')));
-    row.appendChild(l);
-    const r = mk('div', 'mt-r');
-    const ob = mk('button', 'poke tk-open', '開く');
-    ob.type = 'button';
-    ob.setAttribute('aria-label', '開く: ' + (x.place || '') + ' ' + x.title);
-    ob.addEventListener('click', () => { location.hash = '#case/' + x.case_id; });
-    r.appendChild(ob);
-    row.appendChild(r);
-    card.appendChild(row);
-  });
   return card;
 }
 

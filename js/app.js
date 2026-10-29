@@ -242,6 +242,7 @@ function routeFromHash() {
   else if (h === '#team') openTeam();
   else if (h === '#calendar' && typeof openCalendar === 'function') openCalendar(); // カレンダー（js/calendar-ui.js。Task 38）
   else if (h === '#tasks' && typeof openTasks === 'function') openTasks(); // やること（js/tasks.js。Task 17）
+  else if (h === '#calls' && typeof openCallsScreen === 'function') openCallsScreen(); // 募集（js/open-call-ui.js。Task 71）
   else if (h === '#outbox' && typeof openOutbox === 'function') openOutbox(); // 送るメール（js/outbox-ui.js）
   else if ((m = h.match(SM_HASH_RE)) && typeof openMessages === 'function') openMessages(m[1] || null); // 📨 現場からの連絡（js/staff-messages.js。Task 23）
   else if ((m = h.match(TALK_HASH_RE)) && typeof openTalkScreen === 'function') openTalkScreen(m[1] || null); // メッセージ（LINE 風のトーク。js/talk-ui.js。Task 46）
@@ -285,8 +286,11 @@ function refreshActiveScreen() {
       else if (fd.view === 'daily' && !(fd.daily && fd.daily.busy)) fdLoadDaily(fd.seq); // Task 29（入力中の一言は残す）
       else if (fd.view === 'contact' && typeof sm !== 'undefined' && sm) smLoad(sm.seq);
       else if (fd.view === 'msg' && typeof talk !== 'undefined' && talk && !talk.busy) talkLoad(talk); // Task 46（入力中の文は残す）
+      else if (fd.view === 'calls' && typeof ocp !== 'undefined' && ocp) ocpLoad(ocp); // Task 71
     } else if (on('inbox-staff') && typeof si !== 'undefined' && si) {
       siLoad(si.seq);
+    } else if (on('calls') && typeof ocp !== 'undefined' && ocp) {
+      ocpLoad(ocp); // Task 71
     } else if (on('tasks') && typeof tk !== 'undefined' && tk) {
       tkLoad(tk.seq);
     } else if (on('messages') && typeof sm !== 'undefined' && sm) {

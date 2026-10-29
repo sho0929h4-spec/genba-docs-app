@@ -7,7 +7,8 @@
 //              = 担当＋日時が決まる。募集した本人にも同じカード（見た人・決まったか）。期限切れは「出し直す」
 // Task 70: 日時のある募集の「この時刻で行きます」「行けます」は、すぐ決めずに移動の時間の確認（TravelUi.check。同じ日の前後に予定があるときだけ）
 // ユーザー入力は createElement + textContent で描画する（innerHTML は使わない）。alert/confirm は使わない
-// mk() は case-list.js、dBtn / errText は case-detail.js、schBusyBtn / schErr は schedule-ui.js
+// Task 71: openCallsPage … 「募集」のページ（作業担当者の下のタブ #f/calls・管理者の #calls。下の方）
+// mk() は case-list.js、dBtn / errText は case-detail.js、schBusyBtn / schErr は schedule-ui.js、$ は app.js
 
 const OC_MODES = [{ key: 'pick', label: '特定の担当者を選ぶ' }, { key: 'call', label: '一斉配信（早い者順）' }];
 const OC_HINT = '会社の全員のタスクに「募集: … — 行けますか？」が出て、一番早く「行けます」を押した人が担当になります';
@@ -265,4 +266,91 @@ function ocCardEl(x, o) {
   }
   box.appendChild(err);
   return box;
+}
+
+// Task 71: 「募集」のページ（作業担当者 = 下のタブ #f/calls・管理者 = #calls）。o: { root, field }
+//   作業担当者: 募集中だけを急ぎの順（PhaseLogic.callBoard）に、全体のトークと同じカード（ocCardEl）で。
+//   管理者: 「募集中」（急ぎの順）・「決まった」・「期限切れ」（出し直す）・「取り消し」（14日以内。決まった〜取り消しは DB の open_call_list）。
+//   管理者のカードには「案件ページ ›」。引き受けた・出し直した結果は上に1回出す
+let ocp = null; // { root, field, loading, err, rows, list, members, flash }
+const OCP_STATES = [{ key: 'open', label: '募集中' }, { key: 'taken', label: '決まった' }, { key: 'expired', label: '期限切れ' }, { key: 'closed', label: '取り消し' }];
+// 管理者の「募集」（#calls。案件一覧・チーム状況・やること・カレンダーと並ぶ画面の切り替え）
+function openCallsScreen() {
+  renderHeaders();
+  showScreen('calls');
+  if (location.hash !== '#calls') history.replaceState(null, '', location.pathname + location.search + '#calls');
+  return openCallsPage({ root: $('calls-root'), field: false });
+}
+async function openCallsPage(o) {
+  const s = { root: o.root, field: !!o.field, loading: true, err: '', rows: [], list: [], members: [], flash: '' };
+  ocp = s;
+  ocpRender(s);
+  await ocpLoad(s);
+}
+const ocpAlive = s => ocp === s && (s.field ? location.hash === '#f/calls' : $('screen-calls').classList.contains('active'));
+async function ocpLoad(s) {
+  let err = '', res = null;
+  try {
+    res = await Promise.all([s.field && typeof fieldRows === 'function' ? fieldRows() : CasesApi.listSummaries(), CasesApi.listMembers(),
+      s.field ? [] : PhasesApi.openCallList()]);
+  } catch (e) { err = '募集を読み込めませんでした: ' + errText(e); }
+  if (!ocpAlive(s)) return;
+  Object.assign(s, { loading: false, err, rows: res ? res[0] || [] : [], members: res ? res[1] || [] : [], list: res ? res[2] || [] : [] });
+  ocpRender(s);
+}
+function ocpRender(s) {
+  const me = ctx && ctx.user ? ctx.user.id : null;
+  const names = Object.fromEntries((s.members || []).map(m => [m.user_id, m.display_name || '(名前なし)']));
+  const board = s.loading || s.err ? [] : PhaseLogic.callBoard(s.rows, new Date());
+  if (s.field && typeof fieldCallBadge === 'function' && !s.loading && !s.err) fieldCallBadge(board.length);
+  const nodes = [];
+  const flash = mk('div', 'ob-msg oc-page-flash', s.flash || '');
+  flash.id = 'oc-page-flash';
+  flash.setAttribute('role', 'status');
+  flash.hidden = !s.flash;
+  nodes.push(flash);
+  if (s.loading) nodes.push(mk('div', 'empty', '読み込み中…'));
+  else if (s.err) nodes.push(mk('div', 'err', s.err), dBtn('再読み込み', 'btn sm ghost inline', () => openCallsPage(s)));
+  const opts = { me, isOwner: !!(ctx && ctx.membership && ctx.membership.role === 'owner'), onDone: async text => {
+    if (typeof fieldRowsInvalidate === 'function') fieldRowsInvalidate();
+    s.flash = text || '';
+    if (ocpAlive(s)) { s.loading = true; ocpRender(s); await ocpLoad(s); }
+  } };
+  const card = (x, caseId) => {
+    const el = ocCardEl(x, opts);
+    if (!s.field && caseId) el.appendChild(dBtn('案件ページ ›', 'linkbtn oc-page-case', () => { location.hash = '#case/' + caseId; }));
+    return el;
+  };
+  const open = board.map(b => card({ kind: 'call', id: b.phase.id, phaseId: b.phase.id, phase: b.phase, caseRow: b.caseRow, seq: b.seq, state: 'open',
+    mine: !!me && b.phase.open_call_by === me, from: b.phase.open_call_by || null, fromName: names[b.phase.open_call_by] || '不明', at: b.phase.open_call_at,
+    text: PhaseLogic.callText(b.phase, b.caseRow, b.seq) }, b.caseRow.id));
+  if (!s.loading && !s.err) {
+    const sec = (key, label, cards) => {
+      const box = mk('section', 'oc-page-sec');
+      box.dataset.state = key;
+      box.appendChild(mk('h3', 'oc-page-h', label + '（' + cards.length + '件）'));
+      if (!cards.length) box.appendChild(mk('div', 'empty oc-page-none', key === 'open' ? '今、募集中のものはありません' : 'ありません'));
+      box.append(...cards);
+      return box;
+    };
+    if (s.field) nodes.push(sec('open', '募集中（急ぎの順）', open));
+    else {
+      const rest = { taken: [], expired: [], closed: [] };
+      (s.list || []).forEach(e => {
+        if (!rest[e.state]) return; // 募集中は上（案件の今の状態から急ぎの順）
+        const c = (s.rows || []).find(r => r.id === e.case_id) || null;
+        const p = (c && (c.phases || []).find(y => y.id === e.phase_id)) || { id: e.phase_id, kind: e.kind, open_call_kind: e.call_kind, open_call_from: e.from,
+          open_call_to: e.to, scheduled_at: e.scheduled_at, scheduled_end: e.scheduled_end, open_call_expired_at: e.expired_at };
+        rest[e.state].push(card({ kind: 'call', id: e.message_id, phaseId: e.phase_id, phase: p, caseRow: c, state: e.state, takerName: e.taker_name || '（退会したメンバー）',
+          takerId: p.worker_id || null, mine: !!me && e.posted_by === me, from: e.posted_by || null, fromName: e.posted_by_name || '不明', at: e.posted_at,
+          text: [e.place || '(案件名なし)', e.title].filter(Boolean).join(' ') }, e.case_id));
+      });
+      nodes.push(mk('div', 'rep-sub oc-page-lead', '一斉配信の募集（14日以内）。期限切れは「出し直す」でもう一度募集できます'));
+      OCP_STATES.forEach(st => nodes.push(sec(st.key, st.key === 'open' ? '募集中（急ぎの順）' : st.label, st.key === 'open' ? open : rest[st.key])));
+    }
+  }
+  const page = mk('div', 'oc-page');
+  page.id = 'oc-page';
+  page.append(...nodes);
+  s.root.replaceChildren(page);
 }

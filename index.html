@@ -1450,6 +1450,14 @@
   .oc-box select,.oc-box input{min-height:44px;min-width:0;max-width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-family:inherit;font-size:16px;}
   .oc-text{font-size:15px;font-weight:700;color:var(--navy);line-height:1.5;overflow-wrap:anywhere;}
   .oc-card.active{border-color:var(--navy2);}
+  /* Task 71: 募集のページ（#f/calls・#calls） */
+  .oc-page{display:grid;gap:14px;min-width:0;}
+  .oc-page [hidden]{display:none !important;}
+  .oc-page-sec{display:grid;gap:10px;min-width:0;}
+  .oc-page-h{margin:0;font-size:15px;color:var(--navy);}
+  .oc-page .talk-cond{width:100%;align-self:stretch;box-sizing:border-box;min-width:0;}
+  .oc-page .oc-page-none{padding:10px 0;}
+  .oc-page-case{justify-self:start;min-height:36px;}
   /* Task 63: 募集の いつ・どこ・詳細（カードとタスクの詳細） */
   .oc-info{display:grid;gap:8px;min-width:0;padding:8px 10px;background:#f7f9fc;border-radius:10px;}
   .oc-i-row{display:grid;grid-template-columns:3em minmax(0,1fr);gap:8px;align-items:start;min-width:0;}
@@ -1463,8 +1471,6 @@
   .oc-i-body .rq-view{display:grid;gap:4px;padding:0;border:0;background:none;}
   .oc-i-body .rq-vhead{font-size:14px;}
   .oc-i-more[hidden]{display:none;}
-  .si-call-detail{display:grid;gap:8px;min-width:0;padding:4px 0 8px;}
-  .si-call-detail .si-call-go{justify-self:start;min-height:44px;}
   .oc-done{font-size:14px;font-weight:700;color:var(--muted);overflow-wrap:anywhere;}
   .oc-status{color:var(--amber);font-weight:700;overflow-wrap:anywhere;}
   /* Task 60: いつ来てほしいか・所要時間・到着の時刻・見た人・期限切れ */
@@ -1485,8 +1491,7 @@
   .oc-seen{font-size:13px;color:var(--muted);overflow-wrap:anywhere;}
   .oc-repost{display:grid;gap:8px;min-width:0;}
   .oc-card .oc-repost-go{display:block;width:100%;}
-  .bdg.call,.ph-c-worker.call .ph-cv{background:#fff4e5;color:var(--amber);font-weight:700;}
-  .bdg.call{border-radius:999px;}
+  .ph-c-worker.call .ph-cv{background:#fff4e5;color:var(--amber);font-weight:700;}
   .talk-flash{align-self:stretch;text-align:center;margin:4px 12px;}
   .fd-sched{display:flex;flex-wrap:wrap;gap:4px 12px;}
   .talk-back{flex:none;background:#f1f5f9;border:0;border-radius:9px;min-height:36px;padding:4px 10px;font:inherit;font-size:13px;font-weight:700;color:var(--navy2);cursor:pointer;}
@@ -1872,7 +1877,8 @@
   .si-req{font-size:12px;color:var(--text);background:#fff7ed;border:1px solid #fde3c4;border-radius:8px;padding:5px 9px;margin:4px 0;overflow-wrap:anywhere;}
   .si-visit{font-size:14px;font-weight:700;color:var(--navy);margin:4px 0;overflow-wrap:anywhere;}
   /* Task 38: カレンダー（見本: Googleカレンダーのスマホ画面。色はこのアプリの明るい配色） */
-  @media(max-width:420px){ .vt{padding:8px 10px;} }
+  @media(max-width:420px){ .vt{padding:8px 7px;} }
+  .vt{white-space:nowrap;} /* Task 71: 5つ（募集）でも折り返さない */
   .cal-wrap{max-width:1100px;padding-bottom:16px;}
   .cal{--cal-line:#e3e8ef;position:relative;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;color:var(--text);}
   .fd-wrap > .fd-cal-host{margin:0 calc(-12px - env(safe-area-inset-right,0px)) 0 calc(-12px - env(safe-area-inset-left,0px));}
@@ -2074,6 +2080,7 @@
       <button class="vt" type="button" data-view="team">チーム状況</button>
       <button class="vt" type="button" data-view="tasks">やること</button>
       <button class="vt" type="button" data-view="calendar">カレンダー</button>
+      <button class="vt" type="button" data-view="calls">募集</button>
     </div>
     <button class="rep-banner msgs" id="case-messages" type="button" hidden></button>
     <button class="rep-banner staff" id="case-staff" type="button" hidden></button>
@@ -2198,6 +2205,7 @@
       <button class="vt on" type="button" data-view="team">チーム状況</button>
       <button class="vt" type="button" data-view="tasks">やること</button>
       <button class="vt" type="button" data-view="calendar">カレンダー</button>
+      <button class="vt" type="button" data-view="calls">募集</button>
     </div>
     <div class="err" id="team-msg"></div>
     <button class="btn sm ghost inline team-retry" id="team-retry" type="button" hidden>再読み込み</button>
@@ -2225,6 +2233,7 @@
       <button class="vt" type="button" data-view="team">チーム状況</button>
       <button class="vt on" type="button" data-view="tasks">やること</button>
       <button class="vt" type="button" data-view="calendar">カレンダー</button>
+      <button class="vt" type="button" data-view="calls">募集</button>
     </div>
     <div class="tk-top">
       <button class="tk-mine on" id="tasks-mine" type="button" aria-pressed="true">✓ 自分の分だけ</button>
@@ -2256,9 +2265,33 @@
       <button class="vt" type="button" data-view="team">チーム状況</button>
       <button class="vt" type="button" data-view="tasks">やること</button>
       <button class="vt on" type="button" data-view="calendar">カレンダー</button>
+      <button class="vt" type="button" data-view="calls">募集</button>
     </div>
     <div class="err" id="cal-msg"></div>
     <div id="cal-root"></div>
+  </div>
+</section>
+
+<!-- CALLS 募集（#calls。一斉配信の募集中・決まった・期限切れ・取り消し。Task 71。中身は js/open-call-ui.js の openCallsPage が作る） -->
+<section class="screen" id="screen-calls">
+  <div class="hdr">
+    <div class="left"><div class="applogo">現</div><div class="app-name">現場ドキュメント</div></div>
+    <div class="right">
+      <div class="org"><b class="js-org-name"></b><span class="js-user-name"></span></div>
+      <button class="iconbtn js-open-billing" type="button" title="請求の一覧" aria-label="請求の一覧"><span class="ic-slot" data-icon="yen" data-size="18"></span></button>
+      <button class="iconbtn js-open-settings" type="button" title="会社マスタ設定" aria-label="会社マスタ設定"><span class="ic-slot" data-icon="settings" data-size="18"></span></button>
+      <button class="logout js-logout" type="button">ログアウト</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="viewtabs">
+      <button class="vt" type="button" data-view="cases">案件一覧</button>
+      <button class="vt" type="button" data-view="team">チーム状況</button>
+      <button class="vt" type="button" data-view="tasks">やること</button>
+      <button class="vt" type="button" data-view="calendar">カレンダー</button>
+      <button class="vt on" type="button" data-view="calls">募集</button>
+    </div>
+    <div id="calls-root"></div>
   </div>
 </section>
 
@@ -2631,86 +2664,86 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js" integrity="sha384-2zrRDgDHSYB/GN3nFW3fsZXoxEhKIr3N2h63Tc6DEOB9JJdFIu8xMJT2Cph/gBil" crossorigin="anonymous"></script>
-<script src="js/features.js?v=451d5c6"></script>
-<script src="js/icons.js?v=451d5c6"></script>
-<script src="js/ask.js?v=451d5c6"></script>
-<script src="js/crypto-util.js?v=451d5c6"></script>
-<script src="js/supabase-config.js?v=451d5c6"></script>
-<script src="js/supabase.js?v=451d5c6"></script>
-<script src="js/auth.js?v=451d5c6"></script>
-<script src="js/storage.js?v=451d5c6"></script>
-<script src="js/ics-logic.js?v=451d5c6"></script>
-<script src="js/cal-feed.js?v=451d5c6"></script>
-<script src="js/quota.js?v=451d5c6"></script>
-<script src="js/messages-api.js?v=451d5c6"></script>
-<script src="js/case-logic.js?v=451d5c6"></script>
-<script src="js/mail-templates.js?v=451d5c6"></script>
-<script src="js/phase-logic.js?v=451d5c6"></script>
-<script src="js/dt-input.js?v=451d5c6"></script>
-<script src="js/travel-logic.js?v=451d5c6"></script>
-<script src="js/travel-api.js?v=451d5c6"></script>
-<script src="js/travel-ui.js?v=451d5c6"></script>
-<script src="js/request-view.js?v=451d5c6"></script>
-<script src="js/survey-view.js?v=451d5c6"></script>
-<script src="js/case-band.js?v=451d5c6"></script>
-<script src="js/image.js?v=451d5c6"></script>
-<script src="js/cases-api.js?v=451d5c6"></script>
-<script src="js/clients-api.js?v=451d5c6"></script>
-<script src="js/phases-api.js?v=451d5c6"></script>
+<script src="js/features.js?v=fb8d652"></script>
+<script src="js/icons.js?v=fb8d652"></script>
+<script src="js/ask.js?v=fb8d652"></script>
+<script src="js/crypto-util.js?v=fb8d652"></script>
+<script src="js/supabase-config.js?v=fb8d652"></script>
+<script src="js/supabase.js?v=fb8d652"></script>
+<script src="js/auth.js?v=fb8d652"></script>
+<script src="js/storage.js?v=fb8d652"></script>
+<script src="js/ics-logic.js?v=fb8d652"></script>
+<script src="js/cal-feed.js?v=fb8d652"></script>
+<script src="js/quota.js?v=fb8d652"></script>
+<script src="js/messages-api.js?v=fb8d652"></script>
+<script src="js/case-logic.js?v=fb8d652"></script>
+<script src="js/mail-templates.js?v=fb8d652"></script>
+<script src="js/phase-logic.js?v=fb8d652"></script>
+<script src="js/dt-input.js?v=fb8d652"></script>
+<script src="js/travel-logic.js?v=fb8d652"></script>
+<script src="js/travel-api.js?v=fb8d652"></script>
+<script src="js/travel-ui.js?v=fb8d652"></script>
+<script src="js/request-view.js?v=fb8d652"></script>
+<script src="js/survey-view.js?v=fb8d652"></script>
+<script src="js/case-band.js?v=fb8d652"></script>
+<script src="js/image.js?v=fb8d652"></script>
+<script src="js/cases-api.js?v=fb8d652"></script>
+<script src="js/clients-api.js?v=fb8d652"></script>
+<script src="js/phases-api.js?v=fb8d652"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="js/report-logic.js?v=451d5c6"></script>
-<script src="js/reports-api.js?v=451d5c6"></script>
-<script src="js/photo-marks.js?v=451d5c6"></script>
-<script src="js/report-pdf.js?v=451d5c6"></script>
-<script src="js/daily-logic.js?v=451d5c6"></script>
-<script src="js/daily-pdf.js?v=451d5c6"></script>
-<script src="js/notice-logic.js?v=451d5c6"></script>
-<script src="js/notices-api.js?v=451d5c6"></script>
-<script src="js/notice-pdf.js?v=451d5c6"></script>
-<script src="js/estimate-logic.js?v=451d5c6"></script>
-<script src="js/estimates-api.js?v=451d5c6"></script>
-<script src="js/estimate-pdf.js?v=451d5c6"></script>
-<script src="js/estimate-presets-api.js?v=451d5c6"></script>
-<script src="js/estimate-presets.js?v=451d5c6"></script>
-<script src="js/estimate-layout.js?v=451d5c6"></script>
-<script src="js/estimate-import.js?v=451d5c6"></script>
-<script src="js/case-list.js?v=451d5c6"></script>
-<script src="js/clients-ui.js?v=451d5c6"></script>
-<script src="js/case-detail.js?v=451d5c6"></script>
-<script src="js/case-rooms-api.js?v=451d5c6"></script>
-<script src="js/case-rooms.js?v=451d5c6"></script>
-<script src="js/case-request.js?v=451d5c6"></script>
-<script src="js/edit-logic.js?v=451d5c6"></script>
-<script src="js/case-trash.js?v=451d5c6"></script>
-<script src="js/case-undo.js?v=451d5c6"></script>
-<script src="js/phase-ui.js?v=451d5c6"></script>
-<script src="js/phase-detail.js?v=451d5c6"></script>
-<script src="js/billing-ui.js?v=451d5c6"></script>
-<script src="js/team.js?v=451d5c6"></script>
-<script src="js/tasks.js?v=451d5c6"></script>
-<script src="js/calendar-logic.js?v=451d5c6"></script>
-<script src="js/calendar-ui.js?v=451d5c6"></script>
-<script src="js/timeline.js?v=451d5c6"></script>
-<script src="js/photo-mark-editor.js?v=451d5c6"></script>
-<script src="js/report-form.js?v=451d5c6"></script>
-<script src="js/report-ui.js?v=451d5c6"></script>
-<script src="js/report-share.js?v=451d5c6"></script>
-<script src="js/report-edit.js?v=451d5c6"></script>
-<script src="js/mail-ui.js?v=451d5c6"></script>
-<script src="js/share-logic.js?v=451d5c6"></script>
-<script src="js/share-ui.js?v=451d5c6"></script>
-<script src="js/outbox-ui.js?v=451d5c6"></script>
-<script src="js/staff-inbox.js?v=451d5c6"></script>
-<script src="js/staff-messages.js?v=451d5c6"></script>
-<script src="js/talk-logic.js?v=451d5c6"></script>
-<script src="js/schedule-ui.js?v=451d5c6"></script>
-<script src="js/open-call-ui.js?v=451d5c6"></script>
-<script src="js/talk-ui.js?v=451d5c6"></script>
-<script src="js/notice-ui.js?v=451d5c6"></script>
-<script src="js/notice-edit.js?v=451d5c6"></script>
-<script src="js/estimate-ui.js?v=451d5c6"></script>
-<script src="js/field-ui.js?v=451d5c6"></script>
-<script src="js/app.js?v=451d5c6"></script>
+<script src="js/report-logic.js?v=fb8d652"></script>
+<script src="js/reports-api.js?v=fb8d652"></script>
+<script src="js/photo-marks.js?v=fb8d652"></script>
+<script src="js/report-pdf.js?v=fb8d652"></script>
+<script src="js/daily-logic.js?v=fb8d652"></script>
+<script src="js/daily-pdf.js?v=fb8d652"></script>
+<script src="js/notice-logic.js?v=fb8d652"></script>
+<script src="js/notices-api.js?v=fb8d652"></script>
+<script src="js/notice-pdf.js?v=fb8d652"></script>
+<script src="js/estimate-logic.js?v=fb8d652"></script>
+<script src="js/estimates-api.js?v=fb8d652"></script>
+<script src="js/estimate-pdf.js?v=fb8d652"></script>
+<script src="js/estimate-presets-api.js?v=fb8d652"></script>
+<script src="js/estimate-presets.js?v=fb8d652"></script>
+<script src="js/estimate-layout.js?v=fb8d652"></script>
+<script src="js/estimate-import.js?v=fb8d652"></script>
+<script src="js/case-list.js?v=fb8d652"></script>
+<script src="js/clients-ui.js?v=fb8d652"></script>
+<script src="js/case-detail.js?v=fb8d652"></script>
+<script src="js/case-rooms-api.js?v=fb8d652"></script>
+<script src="js/case-rooms.js?v=fb8d652"></script>
+<script src="js/case-request.js?v=fb8d652"></script>
+<script src="js/edit-logic.js?v=fb8d652"></script>
+<script src="js/case-trash.js?v=fb8d652"></script>
+<script src="js/case-undo.js?v=fb8d652"></script>
+<script src="js/phase-ui.js?v=fb8d652"></script>
+<script src="js/phase-detail.js?v=fb8d652"></script>
+<script src="js/billing-ui.js?v=fb8d652"></script>
+<script src="js/team.js?v=fb8d652"></script>
+<script src="js/tasks.js?v=fb8d652"></script>
+<script src="js/calendar-logic.js?v=fb8d652"></script>
+<script src="js/calendar-ui.js?v=fb8d652"></script>
+<script src="js/timeline.js?v=fb8d652"></script>
+<script src="js/photo-mark-editor.js?v=fb8d652"></script>
+<script src="js/report-form.js?v=fb8d652"></script>
+<script src="js/report-ui.js?v=fb8d652"></script>
+<script src="js/report-share.js?v=fb8d652"></script>
+<script src="js/report-edit.js?v=fb8d652"></script>
+<script src="js/mail-ui.js?v=fb8d652"></script>
+<script src="js/share-logic.js?v=fb8d652"></script>
+<script src="js/share-ui.js?v=fb8d652"></script>
+<script src="js/outbox-ui.js?v=fb8d652"></script>
+<script src="js/staff-inbox.js?v=fb8d652"></script>
+<script src="js/staff-messages.js?v=fb8d652"></script>
+<script src="js/talk-logic.js?v=fb8d652"></script>
+<script src="js/schedule-ui.js?v=fb8d652"></script>
+<script src="js/open-call-ui.js?v=fb8d652"></script>
+<script src="js/talk-ui.js?v=fb8d652"></script>
+<script src="js/notice-ui.js?v=fb8d652"></script>
+<script src="js/notice-edit.js?v=fb8d652"></script>
+<script src="js/estimate-ui.js?v=fb8d652"></script>
+<script src="js/field-ui.js?v=fb8d652"></script>
+<script src="js/app.js?v=fb8d652"></script>
 </body>
 </html>

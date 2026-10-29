@@ -183,12 +183,13 @@ function renderTeam() {
 
 function bindTeam() {
   $('team-retry').addEventListener('click', () => openTeam());
-  // 表示切替タブ（案件一覧 ⇔ チーム状況 ⇔ やること ⇔ カレンダー）。4つの画面それぞれにある（Task 38: カレンダー）
+  // 表示切替タブ（案件一覧 ⇔ チーム状況 ⇔ やること ⇔ カレンダー ⇔ 募集）。5つの画面それぞれにある（Task 38: カレンダー・Task 71: 募集）
   document.querySelectorAll('.viewtabs .vt').forEach(b => b.addEventListener('click', () => {
     if (b.classList.contains('on')) return;
     if (b.dataset.view === 'team') openTeam();
     else if (b.dataset.view === 'tasks' && typeof openTasks === 'function') openTasks();
     else if (b.dataset.view === 'calendar' && typeof openCalendar === 'function') openCalendar();
+    else if (b.dataset.view === 'calls' && typeof openCallsScreen === 'function') openCallsScreen(); // Task 71
     else openCases();
   }));
 }

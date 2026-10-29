@@ -19,6 +19,8 @@
 //   管理者が担当者と日時を決めて登録するときは、同じ日の前後の予定との移動の時間を確かめる（TravelUi.check）
 // Task 42: ツールページの一番下に小さく「この案件を削除」（自分が登録した案件だけ。CaseTrash.fieldSection。2段階＋パスワード →
 //   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
+// Task 71: 下のタブに「募集」#f/calls（案件／募集／タスク／メッセージ／設定）。募集中だけを急ぎの順に・数の赤い丸（fieldCallBadge）。
+//   募集中の対応は「案件」「タスク」に出さない（PhaseLogic.fieldSchedule・staffInbox）
 // 下のタブバー 案件／タスク／メッセージ／設定（safe-area。Task 46: 日報作成は設定の中の項目 → #f/daily）。旧ルート #f/inbox は #f/tasks、
 //   #f/contact・#f/outbox はメッセージ #f/msg へ（Task 46: 管理者とのやり取りは LINE 風のトーク #f/msg/{案件ID}・#f/msg/all。js/talk-ui.js）。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
@@ -58,6 +60,7 @@ const fdPhaseHash = (caseId, phaseId) => '#f/case/' + String(caseId).toLowerCase
 const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/history';
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: 'home', label: '案件' },
+  { view: 'calls', hash: '#f/calls', icon: 'megaphone', label: '募集' }, // Task 71: 一斉配信の募集中（急ぎの順。js/open-call-ui.js の openCallsPage）
   { view: 'tasks', hash: '#f/tasks', icon: 'tasks', label: 'タスク' },
   { view: 'msg', hash: '#f/msg', icon: 'chat', label: 'メッセージ' }, // Task 46: 日報作成は設定の中の項目に移した（#f/daily はそのまま）
   { view: 'settings', hash: '#f/settings', icon: 'settings', label: '設定' }
@@ -129,6 +132,7 @@ function fdMatch(h) {
   if (h === '#f' || h === '#f/') return { view: 'cases' };
   if (h === '#f/tasks' || h === '#f/inbox') return { view: 'tasks' }; // Task 29: 確認（🔔）→ タスク
   if (h === '#f/daily') return { view: 'daily' };
+  if (h === '#f/calls') return { view: 'calls' }; // Task 71
   // Task 46: 管理者とのやり取り（#f/contact・古い #f/outbox）はメッセージ（LINE 風のトーク）に統合
   if (h === '#f/contact' || h === '#f/outbox' || h === '#f/msg') return { view: 'msg', key: null };
   const mm = h.match(new RegExp('^#f/msg/(all|' + FD_UUID + ')$', 'i'));
@@ -186,6 +190,7 @@ function openField(fm) {
   fdTabs();
   if (fm.view !== 'cases' && fm.view !== 'tasks') fdBadgeRefresh(seq); // 案件・タスクは読み込んだ後に数える
   if (fm.view !== 'msg' && typeof talkBadgeRefresh === 'function') talkBadgeRefresh(true); // Task 46: メッセージの未読（メッセージのタブは読み込みで数える）
+  if (fm.view !== 'cases' && fm.view !== 'calls') fieldRows().then(rows => { if (fd && fd.seq === seq) fieldCallBadge(rows); }, () => {}); // Task 71: 募集中の数
   const host = $('field-root');
   host.classList.remove('talk-in');
   host.replaceChildren();
@@ -199,6 +204,7 @@ function openField(fm) {
     fdBar('タスク');
     return openStaffInbox({ field: true, root: host });
   }
+  if (fm.view === 'calls') { fdBar('募集'); document.title = '募集 - 現場ドキュメント'; return openCallsPage({ root: host, field: true }); } // Task 71
   if (fm.view === 'daily') { fdBar('日報作成', '‹ 設定', '#f/settings'); fdRenderDaily(); return fdLoadDaily(seq); } // Task 46: 設定の中の項目
   if (fm.view === 'new') { fdBar('案件を登録', '‹ 案件', '#f'); document.title = '案件を登録 - 現場ドキュメント'; return fdRenderNew(); }
   if (fm.view === 'msg') { // Task 46: メッセージ（一覧 → 案件ごとのトーク。js/talk-ui.js）
@@ -236,6 +242,11 @@ function fdTabs() {
       bd.id = 'fd-task-badge';
       bd.hidden = true;
     }
+    if (t.view === 'calls') { // Task 71: 募集中の数（赤い丸。fieldCallBadge が入れる）
+      const bd = ic.appendChild(mk('span', 'fd-badge late'));
+      bd.id = 'fd-call-badge';
+      bd.hidden = true;
+    }
     if (t.view === 'msg') { // Task 46: メッセージの未読の数（talkBadgeSet が入れる）
       const bd = ic.appendChild(mk('span', 'fd-badge'));
       bd.id = 'fd-msg-badge';
@@ -257,6 +268,16 @@ function fieldTaskBadge(items) {
   bd.className = 'fd-badge' + (b.tone ? ' ' + b.tone : '');
   const tab = bd.closest('.fd-tab');
   if (tab) tab.setAttribute('aria-label', 'タスク' + (b.n ? ' ' + b.n + '件' : '') + (b.late ? '（期限超過 ' + b.late + '件）' : b.today ? '（本日期限 ' + b.today + '件）' : ''));
+}
+// Task 71: 募集中の数（下のタブの「募集」。赤い丸・0件は出さない）。rows = 案件の集計か、数そのもの
+function fieldCallBadge(rows) {
+  const bd = $('fd-call-badge');
+  if (!bd) return;
+  const n = typeof rows === 'number' ? rows : PhaseLogic.callBoard(rows, new Date()).length;
+  bd.hidden = !n;
+  bd.textContent = n > 99 ? '99+' : String(n);
+  const tab = bd.closest('.fd-tab');
+  if (tab) tab.setAttribute('aria-label', '募集' + (n ? ' 募集中 ' + n + '件' : ''));
 }
 async function fdBadgeRefresh(seq) {
   try {
@@ -324,6 +345,7 @@ async function fdLoadCases(seq) {
   fdRenderCases();
   if (err) return;
   fieldTaskBadge(PhaseLogic.staffInbox(rows, fdMe(), new Date(), { messages: msgs }));
+  fieldCallBadge(rows); // Task 71
   // 報告書の期限超過を管理者に知らせる（自分の担当の案件の分。1回だけ＝DB が判定。Task 29）
   try { if (await overdueSync(rows.filter(r => PhaseLogic.fieldMine(r, fdMe())))) fieldRowsInvalidate(); } catch (e) { console.warn('期限超過の確認に失敗', e); }
   // 時刻を過ぎたリマインド（お客様向け・担当者向けの前日のお知らせ）の下書きを作る（管理画面の案件一覧と同じ。サーバーの定期実行は使わない）
