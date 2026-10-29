@@ -455,7 +455,7 @@ async function openReportPdf(id) {
   st.opts = opts;
   CaseBand.set($('rpdf-place'), opts.caseRow);
   rpdfRender();
-  // Task 68: 共有（メール・LINE）。管理者と、現場用で自分が登録した案件の作業担当者だけ（js/share-ui.js）
+  // Task 68・72: 「LINEで共有」「メールで共有」。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人（js/share-ui.js）
   ShareUi.mount($('rpdf-share'), { doc: 'report', row: opts.report, caseRow: opts.caseRow, makeBlob: () => ReportPdf.toBlob(opts),
     onChange: () => { if (gen === rpdfSeq) openReportPdf(id); } });
 }

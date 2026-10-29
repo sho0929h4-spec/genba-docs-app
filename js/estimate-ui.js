@@ -1447,7 +1447,7 @@ async function openEstimatePdf(id) {
   msg.id = 'eu-pdf-msg';
   const pv = mk('div');
   pv.id = 'eu-preview';
-  const shr = mk('div', 'dsh-box'); // Task 68: 共有（メール・LINE）。管理者と、現場用で自分が登録した案件の作業担当者だけ（js/share-ui.js）
+  const shr = mk('div', 'dsh-box'); // Task 68・72: 「LINEで共有」「メールで共有」。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人（js/share-ui.js）
   shr.id = 'eu-pdf-share';
   $('estimate-pdf-root').replaceChildren(top, head, acts, shr, msg, pv);
   ShareUi.mount(shr, { doc: 'estimate', row: est, caseRow: st.caseRow, makeBlob: () => EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl),

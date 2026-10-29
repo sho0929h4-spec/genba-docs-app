@@ -455,7 +455,7 @@ const ReportsApi = (() => {
       if (row.phase_id) ins.phase_id = row.phase_id;
       return must(await sb.from('mail_drafts').insert(ins).select().single());
     },
-    // 共有した（送付済みにする・タイムライン）。via: share（スマホの共有）／mail／line。管理者と、現場用で自分が登録した案件の本人だけ（DB が断る）
+    // 共有した（送付済みにする・タイムライン）。via: share（スマホの共有）／mail／line。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人だけ（DB が断る。087）
     async shareSent(draft, via) { return must(await sb.rpc('doc_share_sent', { p_draft: draft.id, p_via: via })); },
     // 「送っていない」に戻す（管理者だけ）。draft = 送信済みのメール
     async shareUndo(draft) { return must(await sb.rpc('doc_share_undo', { p_draft: draft.id })); },

@@ -1,17 +1,20 @@
-// js/share-ui.js — 報告書・見積書の PDF プレビューの「共有」（Task 68）。文面とファイル名は ShareLogic（js/share-logic.js）
+// js/share-ui.js — 報告書・見積書の PDF プレビューの「共有」（Task 68・Task 72）。文面とファイル名は ShareLogic（js/share-logic.js）
 // ShareUi.mount(host, { doc: 'report'|'estimate', row, caseRow, makeBlob, onChange })
-//   … 共有のボタンと「送付済み（M/D H:MM）」の行（管理者は「送っていないに戻す」）を host に描く
-//   出す人: 管理者／作業担当者は現場用で自分が登録した案件（画面は created_by で出し分け、最後は DB の doc_share_sent が断る。Task 42 と同じ）
+//   … 「LINEで共有」「メールで共有」の2つのボタンと「送付済み（M/D H:MM）」の行（管理者は「送っていないに戻す」）を host に描く
+//   出す人（Task 72）: 管理者／その書類の対応の作業担当者（caseRow.phases の worker_id。管理者から振られた案件でも）／現場用で自分が登録した案件
+//     （画面は created_by・worker_id で出し分け、最後は DB の doc_share_sent（migration 087）が断る）。見積書も同じ（PDF は販売金額だけで原価は出ない）
 //   出す書類: 報告書（現地確認の記録は出さない）・見積書。下書きは「提出すると共有できます」
-// シート（× だけで閉じる）: 文面（メール用／LINE用（短め）。直せる）→
-//   ファイルを渡せる端末（navigator.canShare({ files })）: 「共有する（LINE・メールなど）」= PDF ファイル＋文面を OS の共有へ・「文面をコピー」
-//   それ以外（PC）: 「メールで送る」= mailto（件名＋本文＋PDF のリンク）／「LINEで送る」= 文面＋リンクをコピー・「LINEで開く」
+// シート（× だけで閉じる）: 押したボタンの手段の文面（LINE = 短め（宛名・署名なし）／メール = 件名＋本文。直せる）→
+//   ファイルを渡せる端末（navigator.canShare({ files })）: 「PDF と文面を共有する」= PDF ファイル＋文面を OS の共有へ・「文面をコピー」
+//   それ以外（PC）: メール = 「メールを開く」（mailto: 件名＋本文＋PDF のリンク）／LINE = 「文面とリンクをコピー」・「LINEで開く」
 //   PDF のリンクは今の送付メールの公開 PDF（mail_drafts の下書き＋ ReportsApi.preparePdfLink。推測できない URL）。
 //   共有したら ReportsApi.shareSent（DB の doc_share_sent: 送付済み・タイムライン「302号室 調査報告書を共有した（LINE）」）。1回開いたシートで記録は1回
 const ShareUi = (() => {
   const isOwner = () => !!(ctx && ctx.membership && ctx.membership.role === 'owner');
   const myId = () => (ctx && ctx.user && ctx.user.id) || null;
-  const allowed = caseRow => isOwner() || (!!caseRow && !!myId() && caseRow.created_by === myId());
+  const phaseOf = (row, caseRow) => (Array.isArray(caseRow && caseRow.phases) ? caseRow.phases : []).find(p => p && row && p.id === row.phase_id);
+  const allowed = (caseRow, row) => isOwner() || (!!caseRow && !!myId()
+    && (caseRow.created_by === myId() || (phaseOf(row, caseRow) || {}).worker_id === myId()));
   const isRecord = (doc, row) => doc === 'report' && row.work_type === 'site_check';
   const ready = (doc, row) => (doc === 'estimate' ? ['issued', 'sent', 'accepted'].includes(row.status) : row.status !== 'draft');
 
@@ -19,13 +22,17 @@ const ShareUi = (() => {
     const seq = host._shrSeq = (host._shrSeq || 0) + 1;
     host.replaceChildren();
     host.hidden = true;
-    if (!o.row || !allowed(o.caseRow) || isRecord(o.doc, o.row)) return;
+    if (!o.row || !allowed(o.caseRow, o.row) || isRecord(o.doc, o.row)) return;
     host.hidden = false;
-    if (!ready(o.doc, o.row)) { host.appendChild(mk('div', 'rep-sub', '提出すると共有（メール・LINE）できます')); return; }
-    const btn = dBtn('共有（メール・LINE）', 'btn inline', () => openSheet(o));
-    btn.id = 'dsh-open';
-    Icon.prepend(btn, 'send');
-    host.appendChild(btn);
+    if (!ready(o.doc, o.row)) { host.appendChild(mk('div', 'rep-sub', '提出すると LINE・メールで共有できます')); return; }
+    const btns = mk('div', 'dsh-btns');
+    [['line', 'LINEで共有', 'chat'], ['mail', 'メールで共有', 'mail']].forEach(([via, t, icon]) => {
+      const b = dBtn(t, 'btn inline', () => openSheet(o, via));
+      b.id = 'dsh-open-' + via;
+      Icon.prepend(b, icon);
+      btns.appendChild(b);
+    });
+    host.appendChild(btns);
     let last = null;
     try { last = await ReportsApi.lastSent(o.doc, o.row.id); } catch (e) { console.warn('送付の記録を読めませんでした', e); }
     if (seq !== host._shrSeq || !last) return;
@@ -48,16 +55,18 @@ const ShareUi = (() => {
     host.appendChild(line);
   }
 
-  function openSheet(o) {
+  // via: 'line'（短め・件名なし）| 'mail'（件名＋本文）
+  function openSheet(o, via) {
+    const line = via === 'line';
     const prev = document.getElementById('dsh-sheet');
     if (prev) prev.remove();
     const kind = ShareLogic.kindName(o.doc, o.row, o.caseRow);
     const label = ShareLogic.docLabel(o.doc, kind);
     const fname = ShareLogic.fileName(o.doc, kind, o.caseRow);
     const m0 = ctx.membership || {};
-    const build = short => ShareLogic.message({ doc: o.doc, kind, caseRow: o.caseRow, org: ctx.org || {}, me: { name: m0.display_name, tel: m0.phone }, short });
+    const m1 = ShareLogic.message({ doc: o.doc, kind, caseRow: o.caseRow, org: ctx.org || {}, me: { name: m0.display_name, tel: m0.phone }, short: line });
     const linkLabel = (o.doc === 'estimate' ? '見積書' : '報告書') + 'PDF: ';
-    const st = { short: false, file: null, mode: '', draft: null, url: '', sent: '', busy: true };
+    const st = { file: null, mode: '', draft: null, url: '', sent: '', busy: true };
 
     const bg = mk('div', 'modal-bg dsh-bg');
     bg.id = 'dsh-sheet';
@@ -66,7 +75,7 @@ const ShareUi = (() => {
     dlg.setAttribute('aria-modal', 'true');
     dlg.setAttribute('aria-labelledby', 'dsh-title');
     const hd = mk('div', 'modal-hd');
-    const h = mk('h3', null, '共有（メール・LINE）');
+    const h = mk('h3', null, line ? 'LINEで共有' : 'メールで共有');
     h.id = 'dsh-title';
     const x = dBtn('×', 'modal-x', () => { if (st.busy && st.mode) return; bg.remove(); if (st.sent && o.onChange) o.onChange(); });
     x.id = 'dsh-x';
@@ -74,15 +83,12 @@ const ShareUi = (() => {
     hd.append(h, x);
     const file = mk('div', 'rep-sub', label + ' ・ ' + fname);
     file.id = 'dsh-file';
-    const seg = mk('div', 'dsh-seg');
-    const segBtn = (t, short) => { const b = dBtn(t, 'dsh-seg-b', () => setShort(short)); b.dataset.short = short ? '1' : '0'; return b; };
-    seg.append(segBtn('メール用', false), segBtn('LINE用（短め）', true));
     const subj = document.createElement('input');
     subj.type = 'text';
     subj.id = 'dsh-subject';
     const body = document.createElement('textarea');
     body.id = 'dsh-body';
-    body.rows = 11;
+    body.rows = line ? 7 : 11;
     const ff = (t, c) => { const d = mk('div', 'ff'); const l = mk('label', null, t); l.htmlFor = c.id; d.append(l, c); return d; };
     const note = mk('div', 'rep-sub dsh-note');
     note.id = 'dsh-note';
@@ -91,19 +97,13 @@ const ShareUi = (() => {
     msg.id = 'dsh-msg';
     const out = mk('div', 'dsh-out');
     out.id = 'dsh-out';
-    dlg.append(hd, file, seg, ff('件名', subj), ff('本文', body), note, acts, msg, out);
+    subj.value = m1.subject;
+    body.value = m1.body;
+    dlg.append(hd, file, ...(line ? [] : [ff('件名', subj)]), ff('本文', body), note, acts, msg, out); // LINE に件名は無い
     bg.appendChild(dlg);
     document.body.appendChild(bg);
 
     const cur = () => ({ subject: subj.value, body: body.value });
-    function setShort(short) {
-      st.short = short;
-      const m = build(short);
-      subj.value = m.subject;
-      body.value = m.body;
-      seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.short === (short ? '1' : '0'))));
-    }
-    setShort(false);
     const sync = () => acts.querySelectorAll('button').forEach(b => { b.disabled = st.busy; });
 
     // 1回のシートで記録は1回（同じリンクでメールと LINE の両方に送っても送付の記録は1件）
@@ -135,7 +135,8 @@ const ShareUi = (() => {
     function share() {
       if (st.busy) return;
       let p;
-      try { p = navigator.share({ files: [st.file], text: cur().body }); }
+      // メールは title も渡す（件名に入れるアプリがある）
+      try { p = navigator.share(Object.assign({ files: [st.file], text: cur().body }, line ? {} : { title: cur().subject })); }
       catch (e) { msg.textContent = '共有できませんでした: ' + errText(e); return; }
       run(async () => {
         try { await p; } catch (e) { if (e && e.name === 'AbortError') return; throw e; }
@@ -190,12 +191,13 @@ const ShareUi = (() => {
       try { files = !!(navigator.canShare && navigator.share && navigator.canShare({ files: [st.file] })); } catch (e) { files = false; }
       st.mode = files ? 'files' : 'link';
       const b = (t, id, fn, cls, icon) => { const x2 = dBtn(t, cls, fn); x2.id = id; if (icon) Icon.prepend(x2, icon); return x2; };
+      const app = line ? 'LINE' : 'メール';
       if (files) {
-        note.textContent = 'PDF のファイルと本文を、LINE・メールなどのアプリに渡します。本文が入らないアプリは「文面をコピー」で貼り付けてください';
-        acts.replaceChildren(b('共有する（LINE・メールなど）', 'dsh-share', share, 'btn', 'send'), b('文面をコピー', 'dsh-copy', copyText, 'btn ghost', 'clipboard'));
+        note.textContent = 'PDF のファイルと本文をスマホの共有に渡します。出てきた一覧から' + app + 'のアプリを選んでください。本文が入らないときは「文面をコピー」で貼り付けてください';
+        acts.replaceChildren(b('PDF と文面を共有する', 'dsh-share', share, 'btn', 'send'), b('文面をコピー', 'dsh-copy', copyText, 'btn ghost', 'clipboard'));
       } else {
         note.textContent = '送るときに PDF のリンク（URL を知っている人だけが開けます）を本文に入れます';
-        acts.replaceChildren(b('メールで送る', 'dsh-mail', sendMail, 'btn', 'mail'), b('LINEで送る（文面とリンクをコピー）', 'dsh-line', sendLine, 'btn ghost', 'chat'));
+        acts.replaceChildren(line ? b('文面とリンクをコピー（LINE に貼り付け）', 'dsh-line', sendLine, 'btn', 'chat') : b('メールを開く', 'dsh-mail', sendMail, 'btn', 'mail'));
       }
       st.busy = false;
       sync();
