@@ -21,7 +21,7 @@ const PhotoMarkEditor = (() => {
   };
 
   const CSS = `
-.pme{position:fixed;inset:0;z-index:2000;background:#0f172a;color:#fff;display:flex;flex-direction:column;
+.pme{position:fixed;top:0;left:0;right:0;height:100%;height:100dvh;z-index:2000;background:#0f172a;color:#fff;display:flex;flex-direction:column;
   padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);
   font-family:'Noto Sans JP','Hiragino Kaku Gothic ProN',sans-serif;-webkit-user-select:none;user-select:none;}
 .pme *{box-sizing:border-box;}
@@ -48,6 +48,8 @@ const PhotoMarkEditor = (() => {
 .pme-txt .pme-no{background:#e2e8f0;color:#1e293b;}
 .pme-ft{display:flex;align-items:center;gap:8px;padding:8px 12px 10px;flex-wrap:wrap;}
 .pme-msg{flex:1;min-width:160px;font-size:13px;color:#cbd5e1;overflow-wrap:anywhere;}
+.pme-msg:empty{display:none;}
+.pme-acts{display:flex;gap:8px;margin-left:auto;}
 .pme-msg.err{color:#ffb3b3;font-weight:700;}
 .pme-btn{min-height:44px;padding:0 18px;border-radius:10px;font-size:15px;font-weight:700;border:1.5px solid #fff;background:transparent;color:#fff;}
 .pme-btn.pri{background:#e0001b;border-color:#e0001b;}
@@ -160,7 +162,9 @@ const PhotoMarkEditor = (() => {
     msg.setAttribute('role', 'status');
     const cancel = btn('pme-btn', 'キャンセル', 'pme-cancel', () => askClose());
     const save = btn('pme-btn pri', '保存', 'pme-save', () => doSave());
-    ft.append(msg, cancel, save);
+    const acts = mk('div', 'pme-acts');
+    acts.append(cancel, save);
+    ft.append(msg, acts);
 
     root.append(hd, tools, hint, stage, ft);
 
@@ -394,13 +398,17 @@ const PhotoMarkEditor = (() => {
     const onKey = ev => {
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); }
     };
-    const onResize = () => layout();
+    // スマホのブラウザは下のバー（アドレス欄など）の分だけ画面より背が高くなることがある。見えている高さに合わせる
+    const vv = window.visualViewport;
+    const fit = () => { if (vv) { root.style.height = vv.height + 'px'; root.style.top = vv.offsetTop + 'px'; } };
+    const onResize = () => { fit(); layout(); };
     const prevOverflow = document.documentElement.style.overflow;
     function close() {
       if (st.closed) return;
       st.closed = true;
       document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('resize', onResize);
+      if (vv) { vv.removeEventListener('resize', onResize); vv.removeEventListener('scroll', onResize); }
       document.documentElement.style.overflow = prevOverflow;
       root.remove();
       if (cur === handle) cur = null;
@@ -410,7 +418,9 @@ const PhotoMarkEditor = (() => {
 
     document.addEventListener('keydown', onKey, true);
     window.addEventListener('resize', onResize);
+    if (vv) { vv.addEventListener('resize', onResize); vv.addEventListener('scroll', onResize); }
     document.documentElement.style.overflow = 'hidden';
+    fit();
     document.body.appendChild(root);
     setTool('circle');
     toolBtns.circle.focus();
