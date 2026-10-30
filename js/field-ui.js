@@ -61,7 +61,7 @@ const fdHistHash = caseId => '#f/case/' + String(caseId).toLowerCase() + '/histo
 const FD_TABS = [
   { view: 'cases', hash: '#f', icon: 'home', label: '案件' },
   { view: 'calls', hash: '#f/calls', icon: 'megaphone', label: '募集' }, // Task 71: 一斉配信の募集中（急ぎの順。js/open-call-ui.js の openCallsPage）
-  { view: 'tasks', hash: '#f/tasks', icon: 'tasks', label: 'タスク' },
+  { view: 'tasks', hash: '#f/tasks', icon: 'tasks', label: '報告書・見積書' },
   { view: 'msg', hash: '#f/msg', icon: 'chat', label: 'メッセージ' }, // Task 46: 日報作成は設定の中の項目に移した（#f/daily はそのまま）
   { view: 'settings', hash: '#f/settings', icon: 'settings', label: '設定' }
 ];
@@ -201,7 +201,7 @@ function openField(fm) {
   if (fm.view === 'survey') { fdBar('調査の内容', ...fdSurveyBack(fd)); fdRenderSurvey(); return fdLoadSurvey(seq); }
   if (fm.view === 'tasks') {
     if (location.hash === '#f/inbox') fdReplace('#f/tasks');
-    fdBar('タスク');
+    fdBar('報告書・見積書');
     return openStaffInbox({ field: true, root: host });
   }
   if (fm.view === 'calls') { fdBar('募集'); document.title = '募集 - 現場ドキュメント'; return openCallsPage({ root: host, field: true }); } // Task 71
@@ -267,7 +267,7 @@ function fieldTaskBadge(items) {
   bd.textContent = b.n > 99 ? '99+' : String(b.n);
   bd.className = 'fd-badge' + (b.tone ? ' ' + b.tone : '');
   const tab = bd.closest('.fd-tab');
-  if (tab) tab.setAttribute('aria-label', 'タスク' + (b.n ? ' ' + b.n + '件' : '') + (b.late ? '（期限超過 ' + b.late + '件）' : b.today ? '（本日期限 ' + b.today + '件）' : ''));
+  if (tab) tab.setAttribute('aria-label', '報告書・見積書' + (b.n ? ' ' + b.n + '件' : '') + (b.late ? '（期限超過 ' + b.late + '件）' : b.today ? '（本日期限 ' + b.today + '件）' : ''));
 }
 // Task 71: 募集中の数（下のタブの「募集」。赤い丸・0件は出さない）。rows = 案件の集計か、数そのもの
 function fieldCallBadge(rows) {
@@ -456,7 +456,7 @@ function fdRenderCases() {
       const late = tasks.filter(x => x.late).length;
       const b = dBtn('', 'fd-bell' + (late ? ' late' : ''), () => { location.hash = '#f/tasks'; });
       b.id = 'fd-bell';
-      b.appendChild(Icon.prepend(mk('b', null, 'タスク ' + tasks.length + '件' + (late ? '（期限超過 ' + late + '件）' : '')), 'tasks'));
+      b.appendChild(Icon.prepend(mk('b', null, '報告書・見積書 ' + tasks.length + '件' + (late ? '（期限超過 ' + late + '件）' : '')), 'tasks'));
       b.appendChild(mk('span', 'fd-tiny', '見る ›'));
       nodes.push(b);
     }

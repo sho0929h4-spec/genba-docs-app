@@ -40,7 +40,7 @@ async function openTasks() {
 async function tkLoad(seq) {
   let res = null, errMsg = '';
   try { res = await Promise.all([CasesApi.listSummaries(), CasesApi.listMembers()]); }
-  catch (e) { errMsg = 'やることの読み込みに失敗しました: ' + errText(e); }
+  catch (e) { errMsg = '報告書・見積書の読み込みに失敗しました: ' + errText(e); }
   if (!tk || tk.seq !== seq) return; // 別の画面に移った / より新しい読み込み
   tk.loading = false;
   tk.failed = !!errMsg;

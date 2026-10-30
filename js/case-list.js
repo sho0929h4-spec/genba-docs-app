@@ -111,7 +111,7 @@ function renderCaseList() {
   const tb = $('case-tasks');
   if (tb && typeof tasksBannerCount === 'function') {
     const n = caseLoading || caseLoadFailed ? 0 : tasksBannerCount(caseRows);
-    tb.replaceChildren(Icon.prepend(mk('span', null, 'やること ' + n + '件'), 'tasks'), mk('span', 'rep-sub', '自分の分を見る →'));
+    tb.replaceChildren(Icon.prepend(mk('span', null, '報告書・見積書 ' + n + '件'), 'tasks'), mk('span', 'rep-sub', '自分の分を見る →'));
     tb.hidden = n === 0;
   }
 }
