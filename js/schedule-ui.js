@@ -487,7 +487,7 @@ function schChangeBtns(p, o, holder, run) {
   const on = PhaseLogic.schedOn();
   const row = mk('div', 'ph-acts sch-change');
   row.appendChild(dBtn('日程を変える', 'btn sm ghost inline sch-change-open', () => {
-    holder.replaceChildren(schOfferForm({ phase: p, start: on ? null : p.scheduled_at, end: on ? null : p.scheduled_end, onCancel: () => holder.replaceChildren(),
+    holder.replaceChildren(schOfferForm({ phase: p, start: on ? null : p.scheduled_at, end: on ? null : p.scheduled_end, onCancel: o.onCancel || (() => holder.replaceChildren()),
       hint: !on ? '開始の日付と時刻を選んで「この日時で確定」。終了予定は空でもかまいません（1時間として扱います）。ほかの予定と重なると保存できません'
         : '候補は空いている時間（いつから〜いつまで）と所要時間。作業担当者がその中で始まりを選びます。今の日時は取り消されます（記録はトークに残ります）',
       onConfirm: (st, en) => run(() => PhasesApi.schedConfirm(p.id, st, en), '日程を確定しました'),
@@ -524,7 +524,13 @@ function schSheet(p, caseRow, onDone) {
   const holder = mk('div', 'sch-holder');
   const run = (fn, done) => schRun(fn, p, caseRow).then(() => { close(); onDone(done); });
   dlg.append(hd, mk('div', 'lt-sub', (PhaseLogic.placeName(caseRow) || '') + '。自分で登録した案件なので、日程を決められます。'
-    + (p.scheduled_at ? '今は ' + PhaseLogic.fmtMDWHM(p.scheduled_at) + '。' : '')), schChangeBtns(p, { canManage: true }, holder, run), holder);
+    + (p.scheduled_at ? '今は ' + PhaseLogic.fmtMDWHM(p.scheduled_at) + '。' : '')));
+  // すぐ日時の欄を出す（間の「日程を変える」は押さなくてよい）。ボタンが「日程を変える」だけのときは列を隠し、キャンセルで閉じる
+  const on = PhaseLogic.schedOn();
+  const btns = schChangeBtns(p, { canManage: true, onCancel: on ? null : close }, holder, run);
+  btns.hidden = !on;
+  dlg.append(btns, holder);
+  btns.querySelector('.sch-change-open').click();
   bg.appendChild(dlg);
   document.body.appendChild(bg);
   window.addEventListener('hashchange', close);

@@ -1741,6 +1741,7 @@ function fdRenderSettings() {
     inp.addEventListener('blur', () => { if (fdSetTimer) save(); });
   });
   nodes.push(me);
+  nodes.push(EstimateTemplates.settingsCard(true));
   nodes.push(TravelUi.surveyCard({ field: true })); // Task 70: 調査の終了予定（開始から）
   if (typeof CalFeed !== 'undefined') nodes.push(CalFeed.selfCard()); // Task 55: Google カレンダーに予定を出す
   // Task 46: 日報作成は下のタブから設定の中の項目に移した（中身は今のまま）

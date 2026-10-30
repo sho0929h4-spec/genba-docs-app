@@ -330,8 +330,23 @@ const EstimateTemplates = (() => {
     load().then(draw).catch(e => body.replaceChildren(mk('div', 'err', '読み込めませんでした: ' + errText(e))));
   }
 
+  // 設定の「見積書」の枠（管理画面・現場用）: テンプレートとよく使う明細の編集シートを開く
+  function settingsCard(field) {
+    const card = mk('div', field ? 'fd-card fd-set' : 'card');
+    card.id = field ? 'fd-set-estimate' : 'card-estimate';
+    card.appendChild(mk(field ? 'b' : 'div', field ? null : 'card-ttl', '見積書'));
+    const row = mk('div', 'rep-acts');
+    const t = dBtn('テンプレートを編集', 'btn sm ghost inline', () => openEditor());
+    t.id = 'set-tpl-edit';
+    const p = dBtn('よく使う明細を編集', 'btn sm ghost inline', () => EstimatePresets.openEditor());
+    p.id = 'set-presets-edit';
+    row.append(t, p);
+    card.append(row, mk('div', 'rep-sub', 'テンプレートの登録は、見積書の画面の「この明細をテンプレートに登録」から'));
+    return card;
+  }
+
   return {
-    section, sync, openRegister, openEditor,
+    settingsCard, section, sync, openRegister, openEditor,
     reset() { list = null; loading = null; cur = null; }
   };
 })();
