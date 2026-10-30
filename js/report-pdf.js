@@ -2,7 +2,7 @@
 // グローバル: window.ReportPdf = { buildPages, preview, fit, toBlob, fileName }
 // レイアウト・寸法・文言・色は旧ツール（claude code/report-tool/index.html 1017–1099行の buildReportContent /
 // buildPhotoPage と 1019–1054行の .rp-* CSS）から写したもの。新規はワイヤーフレーム⑩（ロゴ＋会社名、
-// 現場住所・元請け・作業者、フッタの会社連絡先とページ番号 n / N）。
+// 現場住所・元請け・作業者、フッタのページ番号 n / N）。Task 76: 会社の住所・電話・メールとロゴの横の会社名は出さない。会社名とロゴは報告書ごとに消せる（pdf_company）。
 // ユーザー入力が入るので、描画はすべて createElement + textContent（innerHTML は使わない）。
 // 依存: ReportLogic（js/report-logic.js）、写真の印は PhotoMarks（js/photo-marks.js。無ければ印なし）、PDF 化だけ html2canvas 1.4.1 / jsPDF 2.5.1（index.html で読み込む）
 (function () {
@@ -56,7 +56,6 @@
 .rp-cl-key{margin-top:4px;padding-top:6px;border-top:1px dashed #c8d6e5;font-weight:700;color:#1a3a5c;}
 .rp-cover-foot{margin-top:auto;padding-top:4mm;border-top:1px solid #e2e8f0;font-size:8.5pt;color:#64748b;display:flex;justify-content:space-between;align-items:baseline;gap:4mm;}
 .rp-cf-co{font-weight:700;flex-shrink:0;max-width:55mm;overflow-wrap:anywhere;}
-.rp-cf-contact{flex:1;min-width:0;text-align:center;overflow-wrap:anywhere;}
 .rp-pno{flex-shrink:0;white-space:nowrap;}
 .rp-pp-head{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:3mm;margin-bottom:3mm;border-bottom:2.5px solid #1a3a5c;flex-shrink:0;}
 .rp-pp-co{font-size:9.5pt;font-weight:700;color:#1a3a5c;}.rp-pp-title{font-size:11pt;font-weight:700;color:#1a3a5c;letter-spacing:.1em;}
@@ -92,6 +91,8 @@
     if (text != null && text !== '') e.textContent = String(text);
     return e;
   }
+  // Task 76: 報告書の「会社名とロゴを出す」（reports.pdf_company。既定は出す）。消すと会社名（表紙の下・写真ページの上と下）とロゴを出さない
+  const showCompany = report => !report || report.pdf_company !== false;
   // 旧 today()（1125行）: 作成日は出力日 `YYYY年M月D日`
   function todayJa() {
     const d = new Date();
@@ -134,19 +135,19 @@
     const { report, caseRow, org, logoUrl } = o;
     const cfg = RL().MODES[report.work_type] || RL().MODES.investigate;
     const d = RL().normalizeData(report.data);
-    const company = trim(org.name);
+    const show = showCompany(report); // Task 76: 報告書ごとの「会社名とロゴを出す」
+    const company = show ? trim(org.name) : '';
 
     const page = el('div', 'rp-page rp-cover');
 
-    // ヘッダ: 左=ロゴ＋会社名 / 中央=タイトル / 右=案件No・作成日
+    // ヘッダ: 左=ロゴ / 中央=タイトル / 右=案件No・作成日（Task 76: ロゴの横の会社名は出さない）
     const head = el('div', 'rp-cover-head');
     const co = el('div', 'rp-co-co');
-    if (trim(logoUrl)) {
+    if (show && trim(logoUrl)) {
       const logo = imgEl(trim(logoUrl), 'rp-co-logo', '');
       watchFail(logo);
       co.appendChild(logo);
     }
-    if (company) co.appendChild(el('span', 'rp-co-name', company));
     head.appendChild(co);
     head.appendChild(el('div', 'rp-co-title', spaced('作業写真報告書')));
     const meta = el('div', 'rp-co-meta');
@@ -226,10 +227,9 @@
       page.appendChild(box);
     }
 
-    // フッタ: 会社名 / ★住所 ／ 電話 ／ メール / ★ページ番号
+    // フッタ: 会社名（設定で消せる） / ★ページ番号（Task 76: 住所・電話・メールは出さない）
     const foot = el('div', 'rp-cover-foot');
     foot.appendChild(el('span', 'rp-cf-co', company));
-    foot.appendChild(el('span', 'rp-cf-contact', [trim(org.address), trim(org.tel), trim(org.email)].filter(Boolean).join(' ／ ')));
     foot.appendChild(el('span', 'rp-pno'));
     page.appendChild(foot);
     return page;
@@ -318,7 +318,7 @@
     // Task 26: 写真は 4枚/ページ・全体表示（contain）に固定（2枚・1枚・切り抜きの切替は廃止。o.perPage / o.fit は見ない）
     const perPage = 4;
     const fit = 'contain';
-    const company = trim(o.org.name);
+    const company = showCompany(o.report) ? trim(o.org.name) : '';
     const urls = Array.isArray(o.photoUrls) ? o.photoUrls : [];
     const photos = (Array.isArray(o.report.photos) ? o.report.photos : [])
       .map((p, i) => Object.assign({}, p || {}, { url: urls[i] || '' }));

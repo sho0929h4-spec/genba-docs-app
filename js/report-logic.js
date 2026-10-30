@@ -605,9 +605,9 @@
       const time = ts ? `${ts}〜${te}` : '';
       facts.push(`■ 作業日　${p.m}月${p.d}日（${p.wd}）${time}`);
     }
-    const f2 = cfg.pickCause ? causeText(d) : d.f2, f4 = cfg.pickNext ? nextActionText(d) : d.f4;
+    const f2 = cfg.pickCause ? causeText(d) : d.f2;
     if (cfg.showF2 && oneLine(f2)) facts.push(`■ 原因　　${oneLine(f2)}`);
-    if (cfg.showF4 && oneLine(f4)) facts.push(`■ 次の対応　${oneLine(f4)}`);
+    // Task 76: 次の対応方針は社内だけの記録（依頼元へのメールに「■ 次の対応」を出さない。前に作った報告書の自由記載 f4 も）
 
     const sign = [orgName, [t(org.address), t(org.tel)].filter(Boolean).join(' ／ '), t(org.email)].filter(Boolean);
 

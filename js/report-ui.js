@@ -408,6 +408,31 @@ window.addEventListener('resize', () => {
   if (rpdf && rpdf.opts && sc && sc.classList.contains('active')) ReportPdf.fit($('rpdf-preview'));
 });
 
+// Task 76: 「会社名とロゴを出す」（報告書ごと。reports.pdf_company）。変えられるのは共有できる人と同じ（ShareUi.allowed。最後は DB が断る）。
+//   保存できたらプレビューを描き直す。ダウンロード・共有・送付メールの PDF は報告書の行（opts.report）の値で作る
+function rpdfCompanyMount(st) {
+  const box = $('rpdf-co'), chk = $('rpdf-co-chk');
+  const r = st.opts.report;
+  box.hidden = !ShareUi.allowed(st.opts.caseRow, r);
+  chk.checked = r.pdf_company !== false;
+  chk.disabled = false;
+  chk.onchange = async () => {
+    const want = chk.checked;
+    chk.disabled = true;
+    setMsg('rpdf-msg', '');
+    try {
+      await ReportsApi.setPdfCompany(r.id, want);
+      r.pdf_company = want;
+    } catch (e) {
+      if (st === rpdf) setMsg('rpdf-msg', '会社名とロゴの設定を変えられませんでした: ' + errText(e));
+    }
+    if (st !== rpdf) return; // 保存中に別の画面へ移った
+    chk.checked = r.pdf_company !== false;
+    chk.disabled = false;
+    rpdfRender();
+  };
+}
+
 // PDFを作るのに必要な材料（案件・ロゴ・写真URL・作業者名）を集める。⑩ のプレビューと ⑨ の送信時のPDF作成で共有
 async function rpdfLoadOpts(report) {
   const photos = Array.isArray(report.photos) ? report.photos : [];
@@ -438,6 +463,7 @@ async function openReportPdf(id) {
   $('rpdf-download').onclick = rpdfDownload;
   rpdfSyncControls();
   ShareUi.mount($('rpdf-share'), {}); // Task 68: 読み込むまで共有は出さない
+  $('rpdf-co').hidden = true; // Task 76: 読み込むまで「会社名とロゴを出す」も出さない
   rpdfMessage('読み込み中…', false);
 
   let opts;
@@ -455,6 +481,7 @@ async function openReportPdf(id) {
   st.opts = opts;
   CaseBand.set($('rpdf-place'), opts.caseRow);
   rpdfRender();
+  rpdfCompanyMount(st);
   // Task 68・72: 「LINEで共有」「メールで共有」。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人（js/share-ui.js）
   ShareUi.mount($('rpdf-share'), { doc: 'report', row: opts.report, caseRow: opts.caseRow, makeBlob: onStep => ReportPdf.toBlob(Object.assign({}, opts, { onStep })),
     onChange: () => { if (gen === rpdfSeq) openReportPdf(id); } });

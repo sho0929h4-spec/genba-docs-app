@@ -229,6 +229,10 @@ const ReportsApi = (() => {
     async decideNext(id, next) {
       return must(await sb.rpc('report_decide_next', { p_id: id, p_next: next }));
     },
+    // Task 76: 報告書の PDF に会社名とロゴを出すか（DB 関数 report_set_pdf_company。共有できる人だけ・提出済みでも可）→ { ok, pdf_company }
+    async setPdfCompany(id, show) {
+      return must(await sb.rpc('report_set_pdf_company', { p_id: id, p_show: !!show }));
+    },
     // Task 23 I10（原因の二重入力）: 調査の報告書の 原因・原因と判断した理由・次の対応方針 の文で、その調査フェーズの「調査結果」の
     //   空の項目だけ埋め、「調査結果のご報告」の未送信の下書きも作り直す（PhasesApi.saveResult）。失敗しても提出・確認は止めない
     //   Task 27: 次の対応方針が原因元工事／再調査（期日あり）なら、調査結果が変わらなくても下書きを作り直す（末尾の「お見積書は … までに」）
