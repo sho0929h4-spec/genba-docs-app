@@ -423,7 +423,10 @@ function nteBuild(s) {
 
   const layout = mk('div', 'nu-layout');
   layout.append(form, pvCol);
-  $('notice-root').replaceChildren(top, notice, els.val, layout);
+  // Task 79: LINE・メールで共有（js/share-ui.js。出せない人には ShareUi が隠す）
+  els.share = mk('div', 'dsh-box');
+  els.share.id = 'nt-share';
+  $('notice-root').replaceChildren(top, notice, els.val, els.share, layout);
   nteRenderContact(s);
 }
 
@@ -512,21 +515,30 @@ function nteChecked(s) {
   return d;
 }
 
-async function nteDownload(s) {
-  if (s.busy) return;
+// PDF の前の入力チェック（ダウンロード・共有で同じ。Task 79）。だめなら画面に出して false
+function nteValid(s) {
   const v = NoticeLogic.validate(nteChecked(s));
   const errs = [];
   if (!v.ok) errs.push(v.message);
   const de = nteDateError(s.data);
   if (de) errs.push(de);
-  if (errs.length) { nteShowVal(s, errs); return; }
+  if (errs.length) nteShowVal(s, errs);
+  return !errs.length;
+}
+// 1ページに収まらないときはこのまま作るか聞く
+async function nteFits(s) {
+  return !NoticePdf.check(s.data, s.caseRow).overflow
+    || askPopup('1ページに収まらず、下の部分が切れます。このままPDFを作りますか？', { title: '1ページに収まりません', okLabel: 'このまま作る' });
+}
+
+async function nteDownload(s) {
+  if (s.busy || !nteValid(s)) return;
   s.busy = 'pdf';
   nteSyncBar(s);
   let blob = null, errMsg = '';
   try {
     await nteFlush(s);
-    const chk = NoticePdf.check(s.data, s.caseRow);
-    if (chk.overflow && !(await askPopup('1ページに収まらず、下の部分が切れます。このままPDFを作りますか？', { title: '1ページに収まりません', okLabel: 'このまま作る' }))) { return; }
+    if (!(await nteFits(s))) return;
     blob = await NoticePdf.toBlob(s.data, s.caseRow);
   } catch (e) {
     errMsg = 'PDFを作成できませんでした: ' + errText(e);
@@ -566,6 +578,33 @@ async function nteDuplicate(s) {
   if (errMsg) { nteShowVal(s, [errMsg]); return; }
   if (nte !== s || !made) return;
   location.hash = '#notice/' + made.id; // → openNotice（号室の欄にフォーカス）
+}
+
+/* ---------- 共有（Task 79。報告書・見積書と同じ ShareUi・doc 'notice'） ---------- */
+function nteMountShare(s) {
+  const o = {
+    doc: 'notice', row: s.row, caseRow: s.caseRow,
+    get data() { return s.data; }, // 件名の号室・ファイル名は開いた時点の入力
+    // ダウンロードと同じ入力チェック → 保存 → 1ページに収まらないときの確認
+    before: async () => {
+      if (s.busy || !nteValid(s)) return false;
+      s.busy = 'share';
+      nteSyncBar(s);
+      try {
+        await nteFlush(s);
+        return nte === s && await nteFits(s);
+      } catch (e) {
+        nteShowVal(s, ['共有の準備ができませんでした: ' + errText(e)]);
+        return false;
+      } finally {
+        s.busy = '';
+        nteSyncBar(s);
+      }
+    },
+    makeBlob: () => NoticePdf.toBlob(s.data, s.caseRow),
+    onChange: () => { if (nte === s) ShareUi.mount(s.els.share, o); }
+  };
+  ShareUi.mount(s.els.share, o);
 }
 
 /* ---------- 入口 ---------- */
@@ -641,6 +680,7 @@ async function openNotice(id) {
   $('nt-pdf').onclick = () => nteDownload(s);
   $('nt-dup').onclick = () => nteDuplicate(s);
   nteSyncBar(s);
+  nteMountShare(s);
   nteRenderPreview(s); // 画面を表示してから描画する（非表示のままだと幅が0で縮小倍率が狂う）
   if (restored) nteFlush(s);
   // 複製した直後など、号室が空ならそこから入力してもらう

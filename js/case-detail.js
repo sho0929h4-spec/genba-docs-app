@@ -202,12 +202,12 @@ function buildDetail() {
       if (!ds || ds.length === 0) { toReports(); return; }
       if (ds.length === 1) { openMailDraft(ds[0].id); return; }
       const isNote = d => d.purpose === 'schedule' || d.purpose === 'reminder' || d.purpose === 'survey_result';
-      if (!ds.some(d => d.estimate_id || isNote(d))) { toReports(); return; }
+      if (!ds.some(d => d.estimate_id || d.notice_id || isNote(d))) { toReports(); return; }
       mailList.replaceChildren(mk('b', null, '送信待ちの下書き ' + ds.length + '件'));
       ds.forEach(d => {
         const line = mk('div', 'rep-draft-line');
         const ph = (currentCase.phases || []).find(p => p.id === d.phase_id) || null;
-        const kind = isNote(d) && typeof PhaseLogic !== 'undefined' ? PhaseLogic.mailLabel(d, ph) : d.estimate_id ? '見積書' : '報告書';
+        const kind = isNote(d) && typeof PhaseLogic !== 'undefined' ? PhaseLogic.mailLabel(d, ph) : d.estimate_id ? '見積書' : d.notice_id ? '工事掲示' : '報告書';
         line.appendChild(mk('span', 'rep-sub', kind + '・' + (d.subject || '（件名なし）')));
         line.appendChild(dBtn('下書きを確認する', 'btn sm inline', () => openMailDraft(d.id)));
         mailList.appendChild(line);

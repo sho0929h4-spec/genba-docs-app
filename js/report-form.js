@@ -694,7 +694,7 @@ function rfTakePhase(s) {
 function edRenderWorkChips(s) {
   const L = ReportLogic, d = s.f.data;
   const sel = Array.isArray(d.workChecklist) ? d.workChecklist : [];
-  const list = L.WORK_CHECKLISTS[s.f.work_type] || [];
+  const list = L.checklistItems(s.f.work_type, s.hasNotice); // Task 79: 同じ対応に工事掲示があれば「工事掲示を取り外した」
   s.els.workChips.replaceChildren(...list.map(t => edCheck(t, sel.includes(t), s.ro, on => edToggleIn(s, 'workChecklist', t, on))));
 }
 

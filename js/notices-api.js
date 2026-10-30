@@ -106,6 +106,9 @@ const NoticesApi = (() => {
       return rows[0];
     },
     async remove(id) {
+      // Task 79: 共有で作った未送信の送付メールの下書き（公開PDFも）を先に片付ける。送付済みの記録は残る（notice_id は DB が null にする。093）
+      const ds = must(await sb.from('mail_drafts').select('id').eq('notice_id', id).eq('status', 'draft')) || [];
+      for (const d of ds) await ReportsApi.deleteDraft(d.id);
       const rows = must(await sb.from('notices').delete().eq('id', id).select('id'));
       if (!rows || rows.length === 0) throw new Error('削除できませんでした');
     },

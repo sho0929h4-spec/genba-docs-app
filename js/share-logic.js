@@ -1,4 +1,6 @@
-// js/share-logic.js — 報告書・見積書の「共有」（Task 68・Task 72）の文面・ファイル名の組み立て（ブラウザ: window.ShareLogic / node: module.exports）
+// js/share-logic.js — 報告書・見積書・工事掲示の「共有」（Task 68・Task 72・Task 79）の文面・ファイル名の組み立て（ブラウザ: window.ShareLogic / node: module.exports）
+// Task 79: 工事掲示（doc 'notice'）は件名「物件名 号室 工事掲示」（号室は掲示の data.roomNo。空なら案件の号室）・書類の名前「工事掲示」・
+//   ファイル名は工事掲示の PDF と同じ NoticeLogic.fileName（= NoticePdf.fileName）
 // 件名（Task 72）: 「物件名 号室 作業内容＋書類名」=「サンプルハイツ 302号室 再調査報告書」／「サンプルハイツ 302号室 原因元工事 御見積書」（【】は付けない）
 //   作業内容 = 現地確認／調査／原因元工事／復旧工事／その他の名前。再調査で作った調査（source_phase_id あり）は「再調査」
 // 本文（メール）: 宛名 → 「いつもお世話になっております。○○の○○です。」→「表題の件につきまして、再調査報告書（御見積書）を共有いたします。」→ 結び → 署名。
@@ -7,6 +9,7 @@
 (function (root) {
   const inNode = typeof module !== 'undefined' && module.exports;
   const PL = () => (inNode ? require('./phase-logic.js') : root.PhaseLogic);
+  const NL = () => (inNode ? require('./notice-logic.js') : root.NoticeLogic);
   const str = v => String(v == null ? '' : v).trim();
   // 対応の種類 → 名前（現地確認／調査／原因元工事／復旧工事／その他）。フェーズの無い古い報告書は work_type から
   const WT_KIND = { investigate: 'survey', repair: 'cause', restore: 'repair' };
@@ -23,6 +26,7 @@
   }
   // 「調査報告書」／「原因元工事の見積書」（種類が無ければ「報告書」「見積書」）
   function docLabel(doc, kind) {
+    if (doc === 'notice') return '工事掲示';
     const k = str(kind);
     return doc === 'estimate' ? (k ? k + 'の見積書' : '見積書') : k + '報告書';
   }
@@ -34,17 +38,18 @@
     const sama = contact ? (/(様|御中|さん)$/.test(contact) ? contact : contact + '様') : 'ご担当者様';
     return [company, sama].filter(Boolean).join(' ');
   }
-  // o: { doc, kind, caseRow, org: { name, tel }, me: { name, tel }, short }
+  // o: { doc, kind, caseRow, data（工事掲示の data）, org: { name, tel }, me: { name, tel }, short }
   //   → { subject, body }
   function message(o) {
-    const c = o.caseRow || {};
+    const room = o.doc === 'notice' ? str(o.data && o.data.roomNo) : '';
+    const c = room ? Object.assign({}, o.caseRow, { room }) : (o.caseRow || {});
     const place = PL().placeName(c);
     const kind = str(o.kind);
     const orgName = str(o.org && o.org.name);
     const myName = str(o.me && o.me.name);
     const tel = str(o.me && o.me.tel) || str(o.org && o.org.tel);
     const est = o.doc === 'estimate';
-    const doc = est ? '御見積書' : kind + '報告書';
+    const doc = est ? '御見積書' : o.doc === 'notice' ? '工事掲示' : kind + '報告書';
     const subject = [place, est ? kind : '', doc].filter(Boolean).join(' ');
     const who = orgName && myName ? `${orgName}の${myName}です。` : orgName || myName ? `${orgName || myName}です。` : '';
     const what = o.short ? `${subject}を共有いたします。` : `表題の件につきまして、${doc}を共有いたします。`;
@@ -56,7 +61,9 @@
     return { subject, body: lines.join('\n') };
   }
   // 受け取った人の保存名: 「サンプルハイツ302号室_調査報告書.pdf」／「サンプルハイツ302号室_原因元工事_御見積書.pdf」
-  function fileName(doc, kind, caseRow) {
+  // 工事掲示: 「工事掲示_サンプルハイツ_302号室_2026年11月5日.pdf」（data = 掲示の data。物件名が空なら案件名）
+  function fileName(doc, kind, caseRow, data) {
+    if (doc === 'notice') return NL().fileName(data || {}, (caseRow || {}).name);
     const place = PL().placeName(caseRow || {}, '');
     const k = str(kind);
     const parts = [place, ...(doc === 'estimate' ? [k, '御見積書'] : [docLabel('report', k)])].filter(Boolean);

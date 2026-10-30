@@ -15,6 +15,8 @@ const ReportsApi = (() => {
   // 以前の送付（files バケットの {org}/cases/... の署名URL）と区別する
   const PUBLIC_PDF_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\/report\.pdf$/;
   const isPublicPdfPath = p => PUBLIC_PDF_RE.test(String(p || ''));
+  // 共有（085・093）: 書類 → 送付メールの列
+  const shareCol = doc => (doc === 'estimate' ? 'estimate_id' : doc === 'notice' ? 'notice_id' : 'report_id');
   // 公開PDFのファイルを削除して使用量を戻す（実際に消えた1件のときだけ）。消えなかった（まだ残っている）ときはエラー
   async function removePublicPdf(path) {
     const bucket = AppStorage.PUBLIC_PDF_BUCKET;
@@ -389,7 +391,7 @@ const ReportsApi = (() => {
     // （送信待ちで「PDFリンクを無効にする」を押した後は pdf_path が空なので、再送は新しい乱数フォルダ＝新しいURL）
     // fileName: 受け取った人の保存名（公開URLの ?download=）
     async preparePdfLink(draft, pdfBlob, fileName) {
-      if (!draft.report_id && !draft.estimate_id) throw new Error('元の書類が見つかりません');
+      if (!draft.report_id && !draft.estimate_id && !draft.notice_id) throw new Error('元の書類が見つかりません');
       if (!pdfBlob || !pdfBlob.size) throw new Error('PDFを作成できませんでした');
       // アップロードの前に、DBの今の状態を確認する（古いタブから再送して、無効化したPDFのURLが復活しないように）。
       // 保存先は画面の draft ではなく、DBの pdf_path を正とする
@@ -454,9 +456,9 @@ const ReportsApi = (() => {
       return size;
     },
     /* ===== 共有（Task 68 / migration 085） ===== */
-    // doc: 'report' | 'estimate'。その書類の未送信の送付メールの下書きを使う（無ければ作る）。件名・本文は共有の文面にする（送った中身の記録）
+    // doc: 'report' | 'estimate' | 'notice'（Task 79・093）。その書類の未送信の送付メールの下書きを使う（無ければ作る）。件名・本文は共有の文面にする（送った中身の記録）
     async shareDraft(doc, row, m) {
-      const col = doc === 'estimate' ? 'estimate_id' : 'report_id';
+      const col = shareCol(doc);
       const ds = must(await sb.from('mail_drafts').select('*').eq(col, row.id).eq('status', 'draft').order('created_at', { ascending: false })) || [];
       if (ds[0]) {
         const rows = must(await sb.from('mail_drafts').update({ subject: m.subject, body: m.body }).eq('id', ds[0].id).eq('status', 'draft').select());
@@ -472,7 +474,7 @@ const ReportsApi = (() => {
     async shareUndo(draft) { return must(await sb.rpc('doc_share_undo', { p_draft: draft.id })); },
     // いちばん新しい送信済みのメール（無ければ null）
     async lastSent(doc, id) {
-      const rows = must(await sb.from('mail_drafts').select('id, sent_at, status').eq(doc === 'estimate' ? 'estimate_id' : 'report_id', id).eq('status', 'sent')
+      const rows = must(await sb.from('mail_drafts').select('id, sent_at, status').eq(shareCol(doc), id).eq('status', 'sent')
         .order('sent_at', { ascending: false }).limit(1)) || [];
       return rows[0] || null;
     },

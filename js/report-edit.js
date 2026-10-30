@@ -470,7 +470,7 @@ async function edSubmit(s) {
     await edFlush(s);
     if (edPending(s)) { edShowVal(s, ['入力を保存できていません。通信を確認して、上の「再試行」を押してください'], []); return; }
     const cur = Object.assign({}, s.report, edCollect(s));
-    const { errors, warnings } = ReportLogic.validate(cur);
+    const { errors, warnings } = ReportLogic.validate(cur, { notice: s.hasNotice });
     const wd = edWords(s);
     if (!wd.rec && !cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください'); // 記録は作業担当者の欄なし（送った人が残る）
     edShowVal(s, errors, warnings);
@@ -521,13 +521,15 @@ async function openReport(id) {
   if (seq !== edSeq) return;
   ed = null;
 
-  let r, info, members;
+  let r, info, members, notices;
   try {
     r = await ReportsApi.get(id);
     if (r) {
-      [info, members] = await Promise.all([
+      [info, members, notices] = await Promise.all([
         currentCase && currentCase.id === r.case_id ? currentCase : CasesApi.getSummary(r.case_id),
-        CasesApi.listMembers()
+        CasesApi.listMembers(),
+        // Task 79: 同じ対応の工事掲示があるか（読めなくても報告書は開く＝項目を出さないだけ）
+        r.phase_id ? NoticesApi.listByCase(r.case_id).catch(e => { console.warn('工事掲示を読めませんでした', e); return []; }) : []
       ]);
     }
   } catch (e) {
@@ -544,6 +546,7 @@ async function openReport(id) {
     f: edFromRow(r), ro: r.status !== 'draft',
     dirty: false, photosDirty: false, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null,
     photoBusy: false, submitting: false, submitted: false, urls: new Map(), els: {},
+    hasNotice: !!r.phase_id && (notices || []).some(n => n.phase_id === r.phase_id), // Task 79
     onDirty: edMarkDirty, alive: () => ed === s
   };
   r.photos = Array.isArray(r.photos) ? r.photos : [];

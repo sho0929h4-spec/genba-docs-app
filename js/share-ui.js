@@ -1,9 +1,11 @@
-// js/share-ui.js — 報告書・見積書の PDF プレビューの「共有」（Task 68・Task 72）。文面とファイル名は ShareLogic（js/share-logic.js）
-// ShareUi.mount(host, { doc: 'report'|'estimate', row, caseRow, makeBlob, onChange })
+// js/share-ui.js — 報告書・見積書の PDF プレビュー・工事掲示の編集画面の「共有」（Task 68・Task 72・Task 79）。文面とファイル名は ShareLogic（js/share-logic.js）
+// ShareUi.mount(host, { doc: 'report'|'estimate'|'notice', row, caseRow, makeBlob, onChange, data?, before? })
+//   data: 工事掲示の data（件名の号室・ファイル名）。before: ボタンを押したとき、シートを開く前の確認（async → false なら開かない。工事掲示の入力チェック）
 //   … 「LINEで共有」「メールで共有」の2つのボタンと「送付済み（M/D H:MM）」の行（管理者は「送っていないに戻す」）を host に描く
 //   出す人（Task 72）: 管理者／その書類の対応の作業担当者（caseRow.phases の worker_id。管理者から振られた案件でも）／現場用で自分が登録した案件
 //     （画面は created_by・worker_id で出し分け、最後は DB の doc_share_sent（migration 087）が断る）。見積書も同じ（PDF は販売金額だけで原価は出ない）
 //   出す書類: 報告書（現地確認の記録は出さない）・見積書。下書きは「提出すると共有できます」
+//   工事掲示（Task 79）: 状態が無いのでいつでも出す。出す人は報告書と同じ（掲示の phase_id の作業担当者。phase の無い掲示は管理者と登録した本人だけ。DB は 093）
 // シート（× だけで閉じる）: 押したボタンの手段の文面（LINE = 短め（宛名・署名なし）／メール = 件名＋本文。直せる）→
 //   ファイルを渡せる端末（navigator.canShare({ files })）: 「PDF と文面を共有する」= PDF ファイル＋文面を OS の共有へ・「文面をコピー」
 //   それ以外（PC）: メール = 「メールを開く」（mailto: 件名＋本文＋PDF のリンク）／LINE = 「文面とリンクをコピー」・「LINEで開く」
@@ -16,7 +18,8 @@ const ShareUi = (() => {
   const allowed = (caseRow, row) => isOwner() || (!!caseRow && !!myId()
     && (caseRow.created_by === myId() || (phaseOf(row, caseRow) || {}).worker_id === myId()));
   const isRecord = (doc, row) => doc === 'report' && row.work_type === 'site_check';
-  const ready = (doc, row) => (doc === 'estimate' ? ['issued', 'sent', 'accepted'].includes(row.status) : row.status !== 'draft');
+  const ready = (doc, row) => (doc === 'notice' || (doc === 'estimate' ? ['issued', 'sent', 'accepted'].includes(row.status) : row.status !== 'draft'));
+  const docWord = doc => (doc === 'estimate' ? '見積書' : doc === 'notice' ? '工事掲示' : '報告書');
 
   async function mount(host, o) {
     const seq = host._shrSeq = (host._shrSeq || 0) + 1;
@@ -27,7 +30,7 @@ const ShareUi = (() => {
     if (!ready(o.doc, o.row)) { host.appendChild(mk('div', 'rep-sub', '提出すると LINE・メールで共有できます')); return; }
     const btns = mk('div', 'dsh-btns');
     [['line', 'LINEで共有', 'chat'], ['mail', 'メールで共有', 'mail']].forEach(([via, t, icon]) => {
-      const b = dBtn(t, 'btn inline', () => openSheet(o, via));
+      const b = dBtn(t, 'btn inline', async () => { if (!o.before || await o.before()) openSheet(o, via); });
       b.id = 'dsh-open-' + via;
       Icon.prepend(b, icon);
       btns.appendChild(b);
@@ -41,7 +44,7 @@ const ShareUi = (() => {
     line.appendChild(mk('span', null, '送付済み（' + PhaseLogic.fmtMDHM(last.sent_at) + '）'));
     if (isOwner()) {
       const undo = dBtn('送っていないに戻す', 'btn sm ghost inline', async b => {
-        const ok = await askPopup('この' + (o.doc === 'estimate' ? '見積書' : '報告書') + 'を「送っていない」に戻しますか？\n送付の記録を外し、送るメールの一覧に下書きとして戻します。PDF のリンクはそのままです。',
+        const ok = await askPopup('この' + docWord(o.doc) + 'を「送っていない」に戻しますか？\n送付の記録を外し、送るメールの一覧に下書きとして戻します。PDF のリンクはそのままです。',
           { title: '送っていないに戻す', okLabel: '戻す', id: 'dsh-undo-ask' });
         if (!ok) return;
         b.disabled = true;
@@ -62,10 +65,10 @@ const ShareUi = (() => {
     if (prev) prev.remove();
     const kind = ShareLogic.kindName(o.doc, o.row, o.caseRow);
     const label = ShareLogic.docLabel(o.doc, kind);
-    const fname = ShareLogic.fileName(o.doc, kind, o.caseRow);
+    const fname = ShareLogic.fileName(o.doc, kind, o.caseRow, o.data);
     const m0 = ctx.membership || {};
-    const m1 = ShareLogic.message({ doc: o.doc, kind, caseRow: o.caseRow, org: ctx.org || {}, me: { name: m0.display_name, tel: m0.phone }, short: line });
-    const linkLabel = (o.doc === 'estimate' ? '見積書' : '報告書') + 'PDF: ';
+    const m1 = ShareLogic.message({ doc: o.doc, kind, caseRow: o.caseRow, data: o.data, org: ctx.org || {}, me: { name: m0.display_name, tel: m0.phone }, short: line });
+    const linkLabel = docWord(o.doc) + 'PDF: ';
     const st = { file: null, mode: '', draft: null, url: '', sent: '', busy: true };
 
     const bg = mk('div', 'modal-bg dsh-bg');

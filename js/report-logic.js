@@ -85,6 +85,14 @@
       '写真の手ブレがないか確認した'
     ]
   };
+  // Task 79: 工事の報告書（原因元工事 repair・復旧工事 restore）で、同じ対応（phase_id）に工事掲示があるときだけ作業チェックリストの最後に出す
+  const NOTICE_REMOVED = '工事掲示を取り外した';
+  const NOTICE_WORK_TYPES = ['repair', 'restore'];
+  // 入力画面の作業チェックリストの項目（hasNotice = 報告書と同じ対応に工事掲示がある）
+  function checklistItems(workType, hasNotice) {
+    const list = WORK_CHECKLISTS[workType] || [];
+    return hasNotice && NOTICE_WORK_TYPES.includes(workType) ? list.concat(NOTICE_REMOVED) : list;
+  }
   // 旧ツールの鍵の3項目（古い報告書 data.keyChecklist の読み替え用だけ。新しい入力は data.keyBorrowed / keyReturned。Task 21）
   const KEY_CHECKLIST = [
     '鍵を借りた（借りていない場合はチェック不要）',
@@ -301,7 +309,8 @@
   // PDF のチェックリストの行 → [{ on, text, key? }]（今の作業チェックリストの項目だけ → 鍵を選んでいればその行）
   function checklistLines(data, workType) {
     const d = normalizeData(data);
-    const list = WORK_CHECKLISTS[workType] || WORK_CHECKLISTS.investigate;
+    // Task 79: 「工事掲示を取り外した」は工事の報告書でチェックしていれば出す（出したときだけチェックできる）
+    const list = checklistItems(WORK_CHECKLISTS[workType] ? workType : 'investigate', true);
     const out = arr(d.workChecklist).map(trim).filter(t => list.includes(t)).map(text => ({ on: true, text }));
     if (d.keyStatus) out.push({ on: true, text: KEY_TEXT[d.keyStatus], key: true });
     return out;
@@ -480,7 +489,7 @@
 
   // 旧 validate（750–771行）。物件名は案件から来るので対象外
   function validate(report, opts) {
-    const o = opts || {}; // o.today: 'YYYY-MM-DD'（テスト用。省略は日本時間の今日）
+    const o = opts || {}; // o.today: 'YYYY-MM-DD'（テスト用。省略は日本時間の今日）。o.notice: 同じ対応に工事掲示がある（Task 79）
     const errors = [], warnings = [];
     const cfg = modeOf(report.work_type);
     const d = normalizeData(report.data);
@@ -499,6 +508,10 @@
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
     // Task 61: 鍵を「返却した」ときだけ返却時の写真
     if (d.keyStatus === 'returned' && keyPhotoCount(report.photos) === 0) warnings.push('鍵返却の写真がありません（写真の区分「鍵返却」）');
+    // Task 79: 項目を出しているのにチェックが無い（注意だけ。提出はできる）
+    if (checklistItems(report.work_type, o.notice).includes(NOTICE_REMOVED) && !arr(d.workChecklist).includes(NOTICE_REMOVED)) {
+      warnings.push('「' + NOTICE_REMOVED + '」にチェックがありません');
+    }
     const ts = trim(report.time_start), te = trim(report.time_end);
     if (!ts) warnings.push('作業開始時刻が未入力です');
     if (ts && te && te < ts) errors.push('作業終了時間が開始時間より前になっています');
@@ -728,7 +741,7 @@
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
     normalizeCauses, normalizeNext, causeText, nextActionText, applyInit, workInit, reapplyInit, legacyChips, isYmd, hasCause,
     MODES, WORK_TYPE_LABEL, isRecord, STATUS_LABEL, INV_ITEMS, RESTORE_PLACES, RESTORE_PARTS, AFTER_STATUS, AFTER_OK, afterNeedsReason,
-    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
+    LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, NOTICE_REMOVED, checklistItems, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, validateNext, submitData, nextPending, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,

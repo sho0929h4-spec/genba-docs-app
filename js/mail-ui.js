@@ -1,5 +1,6 @@
 // js/mail-ui.js — ⑨ 依頼者へ送る報告書・見積書メールの下書き確認・送信（#mail/{id}）… openMailDraft(id)  （Task 7 / Phase 4 Task 5）
 // 見積の下書き（draft.estimate_id）は文言（見積書PDF 等）・戻り先（見積書一覧）を出し分け、送信済みにした後 EstimatesApi.onMailSent を呼ぶ
+// Task 79: 工事掲示の共有を「送っていない」に戻した下書き（draft.notice_id・purpose notice）も同じ画面で送れる（PDF は NoticePdf・戻り先は工事掲示の一覧）
 // ユーザー入力は createElement + textContent / value で描画する（innerHTML は使わない）
 // mk() は case-list.js、dBtn / errText は case-detail.js、edField / edInput / edTextarea / edHm は report-form.js、
 // rpdfLoadOpts は report-ui.js、showScreen / renderHeaders / setMsg / $ は app.js のものを使う
@@ -15,18 +16,19 @@
 const ML_DELAY = 1000;                       // 入力から保存までの待ち（ミリ秒）
 // 見積の下書き（draft.estimate_id）と報告書の下書き（draft.report_id）で文言・戻り先を出し分ける
 const mlIsEst = s => !!(s && s.draft && s.draft.estimate_id);
+const mlIsNotice = s => !!(s && s.draft && s.draft.notice_id);
 // 調査日・工事日の連絡／リマインド／調査結果のご報告（purpose schedule / reminder / survey_result。対応フェーズ）:
 // 書類なし・PDFなし・送る相手は依頼元から選ぶ・戻り先は案件
 const ML_NOTE_TITLE = { schedule: '日程の連絡メール', reminder: 'リマインドのメール', survey_result: '調査結果のご報告メール',
   staff_notice: '担当者へのメール' }; // staff_notice: 担当者への確認依頼・前日のお知らせ（Task 6b。送る相手は作業担当者だけ）
 const mlIsStaff = s => !!(s && s.draft && s.draft.purpose === 'staff_notice');
 const mlIsNote = s => !!(s && s.draft && !s.draft.estimate_id && !s.draft.report_id && !!ML_NOTE_TITLE[s.draft.purpose]);
-const mlDoc = s => (mlIsEst(s) ? '見積書' : '報告書');
+const mlDoc = s => (mlIsEst(s) ? '見積書' : mlIsNotice(s) ? '工事掲示' : '報告書');
 const mlLinkLabel = s => mlDoc(s) + 'PDF: ';
 // s.returnTo: 「送るメール」（#outbox）・「やること」（#tasks）から開いたときはそこへ戻る（openMailDraftFrom）
 // 日程連絡・リマインド・調査結果・担当者へのメール（フェーズのメール）は、そのフェーズの詳細ページ（Task 9）へ戻る
 const mlPhaseHash = s => (mlIsNote(s) && s.draft.phase_id ? '#case/' + s.draft.case_id + '/phase/' + s.draft.phase_id : null);
-const mlListHash = s => s.returnTo || mlPhaseHash(s) || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : '/reports'));
+const mlListHash = s => s.returnTo || mlPhaseHash(s) || ('#case/' + s.draft.case_id + (mlIsNote(s) ? '' : mlIsEst(s) ? '/estimates' : mlIsNotice(s) ? '/notices' : '/reports'));
 const mlBackLabel = s => (s.returnTo === '#outbox' || s.returnTo === '#f/outbox' ? '← 送るメール' : s.returnTo === '#tasks' ? '← 報告書・見積書'
   : mlPhaseHash(s) ? '← ' + (mlPhase(s) ? PhaseLogic.phaseTitle(mlPhase(s)) : 'フェーズ') + 'に戻る'
     : mlIsNote(s) ? '← 案件' : '← ' + mlDoc(s) + '一覧');
@@ -370,6 +372,7 @@ function mlSenderNote() {
 
 // 受け取った人が保存するPDFの名前（添付の表示と公開URLの ?download= で同じ名前）
 function mlPdfName(s) {
+  if (mlIsNotice(s)) return s.notice ? NoticePdf.fileName(s.notice.data, s.caseRow) : '工事掲示.pdf';
   return mlIsEst(s)
     ? (s.estimate && typeof EstimateLogic !== 'undefined' ? EstimateLogic.fileName(s.estimate) : '見積書.pdf')
     : ReportLogic.fileName(s.caseRow && s.caseRow.name, s.report ? s.report.room : '');
@@ -377,7 +380,7 @@ function mlPdfName(s) {
 
 function mlAttachment(s) {
   const est = mlIsEst(s);
-  const src = est ? s.estimate : s.report;
+  const src = est ? s.estimate : mlIsNotice(s) ? s.notice : s.report;
   const name = mlPdfName(s);
   const box = mk('div', 'ml-att');
   box.id = 'ml-att';
@@ -448,7 +451,7 @@ function mlComposeCard(s) {
   card.appendChild(edField('本文', body, s.ro || mlIsNote(s) ? '' : '「{{PDF_LINK}}」の行には、送信時に' + mlDoc(s) + 'PDFのリンクが入ります', 'ml-body-ff'));
   if (!mlIsNote(s)) card.appendChild(mlAttachment(s));
   else if (!s.ro) card.appendChild(mlCopyTextBtn(s));
-  if (!mlIsEst(s) && !mlIsNote(s)) {
+  if (!mlIsEst(s) && !mlIsNote(s) && !mlIsNotice(s)) {
     const quote = mk('div', 'ml-att ml-att-off', '＋ 見積書を添付（見積書機能の追加後に使えます）');
     quote.style.marginTop = '8px';
     card.appendChild(quote);
@@ -692,6 +695,10 @@ async function mlMakePdf(s) {
     const logo = org.logo_path ? await AppStorage.getUrl(org.logo_path).catch(() => '') : '';
     return EstimatePdf.toBlob(s.estimate, s.caseRow, org, logo || '');
   }
+  if (mlIsNotice(s)) {
+    if (!s.notice) throw new Error('元の工事掲示が見つかりません');
+    return NoticePdf.toBlob(s.notice.data, s.caseRow);
+  }
   if (!s.report) throw new Error('元の報告書が見つかりません');
   const opts = await rpdfLoadOpts(s.report);
   if (!mlAlive(s)) throw new Error('画面が切り替わりました');
@@ -835,7 +842,7 @@ async function mlOpen(id) {
   if (seq !== mlSeq) return;
   ml = null;
 
-  let draft, caseRow, report = null, estimate = null;
+  let draft, caseRow, report = null, estimate = null, notice = null;
   try {
     draft = await ReportsApi.getDraft(id);
     if (draft) {
@@ -844,6 +851,7 @@ async function mlOpen(id) {
         draft.report_id ? ReportsApi.get(draft.report_id) : Promise.resolve(null)
       ]);
       if (draft.estimate_id && typeof EstimatesApi !== 'undefined') estimate = await EstimatesApi.get(draft.estimate_id);
+      if (draft.notice_id) notice = await NoticesApi.get(draft.notice_id);
     }
   } catch (e) {
     if (seq !== mlSeq) return;
@@ -869,7 +877,7 @@ async function mlOpen(id) {
     caseRow = PhasesApi.withWorker(caseRow, phase.worker_id, members);
   }
   const s = {
-    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate, returnTo,
+    id: draft.id, gen: seq, draft, caseRow: caseRow || { name: '' }, report, estimate, notice, returnTo,
     ro: draft.status !== 'draft', phase: 'edit', mail: null,
     f: { to: draft.to_email || '', cc: draft.cc || '', subject: draft.subject || '', body: draft.body || '',
       recipients: Array.isArray(draft.recipients) ? draft.recipients.slice() : [] },

@@ -79,7 +79,7 @@ async function obLoad(seq) {
   obRender();
 }
 
-const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', survey_result: 'ob-p-res', estimate: 'ob-p-doc', report: 'ob-p-doc', staff_notice: 'ob-p-rem' };
+const OB_PILL = { schedule: 'ob-p-sched', reminder: 'ob-p-rem', survey_result: 'ob-p-res', estimate: 'ob-p-doc', report: 'ob-p-doc', notice: 'ob-p-doc', staff_notice: 'ob-p-rem' };
 
 function obItemEl(it) {
   const d = it.draft;

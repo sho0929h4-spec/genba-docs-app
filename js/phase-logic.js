@@ -771,6 +771,7 @@
     if (d.purpose === 'survey_result') return '調査結果のご報告';
     if (d.purpose === 'staff_notice') return d.remind_slot ? '担当者への前日のお知らせ' : '担当者への確認依頼';
     if (d.purpose === 'estimate' || d.estimate_id) return '見積書の送付';
+    if (d.purpose === 'notice' || d.notice_id) return '工事掲示の送付'; // Task 79
     return '報告書の送付';
   }
   // 宛先の種類（recipients）→ 「元請・入居者・加害部屋 402」（元請・物件オーナー・入居者・関係する部屋の順）。
