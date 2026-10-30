@@ -13,7 +13,7 @@
   const IMG_TIMEOUT_MS = 20000;
 
   // 段階ごとの時間の上限。iPhone で「作成中」のまま止まる件: 止まった段階を出して失敗にする（opts.onStep(段階) で画面にも出す）
-  const STEP_TIMEOUT_MS = 60000;
+  const STEP_TIMEOUT_MS = 30000;
   const FONT_WAIT_MS = 5000; // 文字の準備は待ちきれなくても先へ進む
   function step(opts, label, p) {
     if (opts && typeof opts.onStep === 'function') opts.onStep(label);
@@ -606,6 +606,7 @@
     let blob;
     for (const [quality, scale] of PDF_ATTEMPTS) {
       if (typeof opts.onAttempt === 'function') opts.onAttempt(quality, scale);
+      if (typeof opts.onStep === 'function') opts.onStep('準備'); // ここも出なければ PDF を作り始めていない
       blob = await renderPdf(opts, quality, scale);
       if (blob.size <= max) return blob;
     }

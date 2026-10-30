@@ -150,7 +150,7 @@ function siFieldItemEl(it) {
   row.appendChild(main);
   row.appendChild(mk('span', 'si-chev', '›'));
   row.setAttribute('aria-label', [r.place, r.kindText, r.todo, r.due && (dueItem ? '期限 ' + r.due : r.due), r.sendback ? '差し戻し中' : ''].filter(Boolean).join(' '));
-  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || !p) return row; // Task 71: 募集中はタスクに出さない（「募集」のページ） // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
+  if (it.type === 'message' || it.type === 'conditions' || it.type === 'schedule' || it.type === 'decide' || !p) return row; // Task 75: 次の対応を決めるは削除・差し戻しの対象外 // Task 71: 募集中はタスクに出さない（「募集」のページ） // Task 47: 工事の条件を確認・Task 50: 日程調整は削除・差し戻しの対象外
   // Task 43: 小さな「…」→ 行の下にメニュー（もう一度押すと閉じる）
   //   「…」は行の右端（「›」の場所）に重ねる（行の幅を減らさない＝4項目が1行に収まる）
   const wrap = mk('div', 'si-fwrap');
@@ -263,6 +263,7 @@ const siKey = it => (it.type === 'message' ? 'msg-' + it.message.id : it.type ==
 //   見積書作成 → 見積の作成／続き、報告書作成 → 報告書の作成／続き、確認依頼・翌日の予定 → その対応のツールページ（「確認した」は依頼内容の一番下）、
 //   管理者からの返事・催促 → 既読にして、その案件のメッセージのトーク（Task 46: #f/msg/{案件ID}。案件の無い返事（日報への返事）は全体 #f/msg/all）
 async function siFieldOpen(it) {
+  if (it.type === 'decide') { location.hash = '#report/' + it.report.id; return; } // Task 75: 報告書を開くと「次の対応を決める」画面
   if (it.type === 'estimate') return siMakeEstimate(it);
   if (it.type === 'report') return siMakeReport(it);
   if (it.type === 'message') return siOpenMessage(it);
@@ -343,6 +344,11 @@ function siItemEl(it) {
     const rb = dBtn(rd ? '報告書の続きを書く' : '報告書を書く', 'btn sm inline si-make-rep', () => siMakeReport(it));
     rb.disabled = busy;
     acts.insertBefore(rb, open);
+  }
+  if (it.type === 'decide') { // Task 75
+    const db = dBtn('次の対応を決める', 'btn sm inline si-decide', () => { location.hash = '#report/' + it.report.id; });
+    db.disabled = busy;
+    acts.insertBefore(db, open);
   }
   if (it.type === 'notice') {
     const ack = dBtn('確認した', 'btn sm ghost inline si-ack', () => siAck(it));

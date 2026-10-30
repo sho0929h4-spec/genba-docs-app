@@ -180,6 +180,7 @@ function tkActionBtn(it) {
     return b;
   };
   switch (it.action) {
+    case 'decide': return it.reportId ? btn('次の対応を決める', () => { location.hash = '#report/' + it.reportId; }) : null; // Task 75: 報告書を開くと決める画面
     case 'make_estimate':
       // 下書きがあれば続きを開く（Task 23: 提出するまで行が残る）
       return it.estimateId ? btn('見積の続きを書く', () => { location.hash = '#estimate/' + it.estimateId; })

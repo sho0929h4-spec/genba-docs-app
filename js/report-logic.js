@@ -119,7 +119,7 @@
     afterReasonLabel: '理由 *',
     afterReasonPlaceholder: '「正常に復旧」でない理由（必須・自由記載）',
     f2Label: '原因',
-    f2Hint: '分からないときは「不明」を押してください（次の対応方針は「再調査」になります）',
+    f2Hint: '分からないときは「不明」を押してください（提出したあとに決める次の対応は「再調査」か「その他」になります）',
     reasonLabel: '原因と判断した理由',
     reasonHint: 'そう判断した根拠・確認した事実など（自由記載）',
     // Task 26: 記載例（薄い文字）。社内・現場用・担当者URL のページ（r.html）で共通
@@ -138,8 +138,8 @@
     workItemOtherPlaceholder: 'その他の作業（自由記載）',
     // Task 45: 「見積書の提出予定日」（必須。何を入れる欄かの説明つき。DB の列・管理者あての連絡の「見積書提案期日」は同じもの）
     estimateDueLabel: '見積書の提出予定日',
-    estimateDueHint: '原因元工事の見積書をいつまでに出すかの日付です。提出すると、作業担当者のタスクに「原因元工事の見積書作成」（この日が期限）が入ります',
-    resurveyDueHint: '再調査の見積書をいつまでに出すかの日付です。提出すると「調査（次の回）」が作られ、作業担当者のタスクに「再調査の見積書作成」（この日が期限）が入ります',
+    estimateDueHint: '原因元工事の見積書をいつまでに出すかの日付です。決めると、作業担当者のタスクに「原因元工事の見積書作成」（この日が期限）が入ります',
+    resurveyDueHint: '再調査の見積書をいつまでに出すかの日付です。決めると「調査（次の回）」が作られ、作業担当者のタスクに「再調査の見積書作成」（この日が期限）が入ります',
     unknownNextHint: '原因が「不明」なので「再調査」か「その他」を選んでください（「不明」を外すと原因元工事も選べます）',
     resurveyReasonLabel: '再調査の理由',
     // Task 29: 見積書提案期日が今日＋2日より先のとき
@@ -189,7 +189,7 @@
         { label: '原　因', field: 'f2' },
         { label: '原因と判断した理由', field: 'reason' },
         { label: '作業実施内容', field: 'f1' },
-        { label: '次の対応方針', field: 'f4', next: true },
+        // Task 75: 次の対応方針は社内だけの記録（PDF・結果表に出さない。前に作った報告書も）
         { label: '入居者からの申し送り', field: 'tenantNote' }
       ]
     },
@@ -495,24 +495,7 @@
     if (cfg.checkGroups.length > 0 && chipsForPdf(report).length === 0) warnings.push(`${cfg.checkCardTitle}が1件も選択されていません`);
     // Task 26: 対応後の状況が「正常に復旧」以外なら理由が必須
     if (cfg.showAfter && afterNeedsReason(d) && !trim(d.afterNote)) errors.push(`「対応後の状況」が「${trim(d.afterSel)}」のときは理由を入れてください`);
-    // Task 20: 次の対応方針（原因元工事は見積書提案期日が必須・再調査は理由と内容が必須）
-    if (cfg.pickNext) {
-      const n = d.nextAction;
-      // Task 45 / 61: 原因が「不明」なら次の対応方針は「再調査」か「その他」（その他は内容が必須）
-      if (cfg.pickCause && hasCause(d, CAUSE_UNKNOWN)) {
-        if (n.type !== 'resurvey' && n.type !== 'other') errors.push('原因が「不明」のときは、次の対応方針を「再調査」か「その他」にしてください');
-        else if (n.type === 'other' && !trim(n.other)) errors.push('「その他」の内容を入れてください');
-      }
-      if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書の提出予定日を入れてください');
-      if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書の提出予定日を入れてください'); // Task 21
-      if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
-      if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
-      // Task 29: 期日が今日＋2日より先なら、理由といつまでに提出できるか（日付）が必須
-      if ((n.type === 'cause' || n.type === 'resurvey') && estimateDueNeedsReason(n.estimateDue, o.today)) {
-        if (!trim(n.estimateDueReason)) errors.push('見積書の提出予定日が2日より先です。「理由」を入れてください');
-        if (!isYmd(n.estimateDueBy)) errors.push('見積書の提出予定日が2日より先です。「いつまでに提出できるか」を入れてください');
-      }
-    }
+    // Task 75: 次の対応方針は提出したあとの「次の対応を決める」画面で決める（validateNext）。提出には要らない
     if (arr(report.photos).length === 0) warnings.push('写真が1枚もアップロードされていません');
     // Task 61: 鍵を「返却した」ときだけ返却時の写真
     if (d.keyStatus === 'returned' && keyPhotoCount(report.photos) === 0) warnings.push('鍵返却の写真がありません（写真の区分「鍵返却」）');
@@ -520,6 +503,42 @@
     if (!ts) warnings.push('作業開始時刻が未入力です');
     if (ts && te && te < ts) errors.push('作業終了時間が開始時間より前になっています');
     return { errors, warnings };
+  }
+
+  // Task 75: 「次の対応を決める」画面の入力チェック（data = 報告書の data。nextAction を見る）→ エラーの文の配列
+  //   1つ選ぶ（必須）。原因元工事・再調査は見積書の提出予定日（今日＋2日より先なら理由といつまでに提出できるか）。再調査は理由と内容。
+  //   原因が「不明」なら「再調査」か「その他」だけ（その他は内容が必須）
+  function validateNext(data, opts) {
+    const o = opts || {};
+    const d = normalizeData(data);
+    const n = d.nextAction, errors = [];
+    if (!n.type) return ['次の対応を1つ選んでください'];
+    if (hasCause(d, CAUSE_UNKNOWN)) {
+      if (n.type !== 'resurvey' && n.type !== 'other') errors.push('原因が「不明」のときは、次の対応方針を「再調査」か「その他」にしてください');
+      else if (n.type === 'other' && !trim(n.other)) errors.push('「その他」の内容を入れてください');
+    }
+    if (n.type === 'cause' && !isYmd(n.estimateDue)) errors.push('「原因元工事」の見積書の提出予定日を入れてください');
+    if (n.type === 'resurvey' && !isYmd(n.estimateDue)) errors.push('「再調査」の見積書の提出予定日を入れてください');
+    if (n.type === 'resurvey' && !trim(n.reason)) errors.push('「再調査」の理由を入れてください');
+    if (n.type === 'resurvey' && !trim(n.detail)) errors.push('「再調査」の内容を入れてください');
+    if ((n.type === 'cause' || n.type === 'resurvey') && estimateDueNeedsReason(n.estimateDue, o.today)) {
+      if (!trim(n.estimateDueReason)) errors.push('見積書の提出予定日が2日より先です。「理由」を入れてください');
+      if (!isYmd(n.estimateDueBy)) errors.push('見積書の提出予定日が2日より先です。「いつまでに提出できるか」を入れてください');
+    }
+    return errors;
+  }
+  // Task 75: 提出するときの data。調査は次の対応方針を空にして「まだ決めていない」印（nextPending）を付ける（DB の report_decide_next が外す）
+  function submitData(workType, data) {
+    const d = normalizeData(data);
+    if (workType === 'investigate') { d.nextAction = emptyNext(); d.nextPending = true; }
+    return d;
+  }
+  // Task 75: 次の対応をまだ決めていない提出済みの調査の報告書か。報告書の行（data あり）と case_summaries の reports（next_pending）のどちらも受ける
+  function nextPending(r) {
+    if (!r || typeof r !== 'object') return false;
+    if (r.next_pending === true) return true;
+    const d = r.data && typeof r.data === 'object' ? r.data : null;
+    return !!d && r.work_type === 'investigate' && !!r.status && r.status !== 'draft' && d.nextPending === true && !normalizeNext(d.nextAction).type;
   }
 
   // 旧 buildReportContent の resultRows（998–1002行）: rRows の並び・値がない行は出さない
@@ -712,7 +731,7 @@
     LEAK_STATUS, LEAK_ACTIONS, LEAK_ACTION_MAIN_VALVE, LEAK_ACTION_OTHER, WORK_CHECKLISTS, KEY_CHECKLIST, KEY_STATUS, KEY_TEXT, PHASES, PHASE_COLORS, FREE_CHIP, TEXT, PDF_LINK,
     LEGACY_PHASES, PHOTO_FREE, PHOTO_KEY, PHASE_NOTE_MAX, photoPhaseKey, photoPhase, photoPhaseOut, keyPhotoCount, keyInfo, checklistLines,
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
-    emptyData, normalizeData, validate, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
+    emptyData, normalizeData, validate, validateNext, submitData, nextPending, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
     buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote,
     ROOMS_MAX, ROOM_ROLE_LABEL, reportRooms, startRooms, roomsText
   };

@@ -209,8 +209,11 @@ const ReportsApi = (() => {
       if (cur.status !== 'draft') throw new Error('この報告書はすでに提出されています');
       const { errors } = RL().validate(cur);
       if (errors.length) throw new Error(errors.join('\n'));
+      // Task 75: 調査は次の対応方針を空にして「まだ決めていない」印を付けて提出（決めるのは提出したあとの画面 = decideNext）
+      const patch = { status: 'submitted', submitted_at: now(), submitted_by: ctx.user.id, submitted_via: 'member' };
+      if (cur.work_type === 'investigate') patch.data = RL().submitData(cur.work_type, cur.data);
       const rows = must(await sb.from('reports')
-        .update({ status: 'submitted', submitted_at: now(), submitted_by: ctx.user.id, submitted_via: 'member' })
+        .update(patch)
         .eq('id', cur.id).eq('status', 'draft').select());
       if (!rows || rows.length === 0) throw new Error('この報告書はすでに提出されています');
       const row = rows[0];
@@ -221,6 +224,10 @@ const ReportsApi = (() => {
       // DB のトリガー（migration 037 reports_next_action）が同じ更新の中で行う（share_submit と同じ処理。期日が無ければ DB も提出を拒否する）
       // 次やること（case_actions）への「報告書を確認する」の追加はやめた（対応フェーズ。確認待ちは報告書の状態 submitted で分かる）
       return row;
+    },
+    // Task 75: 提出済みの調査の報告書の次の対応を決める（DB 関数 report_decide_next。1回だけ）→ { ok, type, phase_id }
+    async decideNext(id, next) {
+      return must(await sb.rpc('report_decide_next', { p_id: id, p_next: next }));
     },
     // Task 23 I10（原因の二重入力）: 調査の報告書の 原因・原因と判断した理由・次の対応方針 の文で、その調査フェーズの「調査結果」の
     //   空の項目だけ埋め、「調査結果のご報告」の未送信の下書きも作り直す（PhasesApi.saveResult）。失敗しても提出・確認は止めない

@@ -478,20 +478,23 @@ async function edSubmit(s) {
     if (warnings.length && !(await askPopup('このまま' + wd.vb + 'しますか？\n\n' + warnings.map(w => '・' + w).join('\n'), { title: wd.vb + 'の前に確認', okLabel: wd.vb + 'する' }))) return;
     // Task 45・48: 現場用は提出の前の見積書のタスクを覚えておき、提出の後に増えた分を移る前に「タスクに追加されました」（画面全体）で知らせる
     const before = typeof fieldTaskKeys === 'function' ? fieldTaskKeys(s.info && s.info.phases ? s.info : null) : null;
+    let submittedRow = null;
     try {
-      await ReportsApi.submit(s.report);
+      submittedRow = await ReportsApi.submit(s.report);
     } catch (e) {
       edShowVal(s, [wd.vb + 'できませんでした: ' + errText(e)], []);
       return;
     }
-    const added = before ? await fieldNoteAddedTasks(s.report.case_id, before) : [];
     s.submitted = true;
     s.ro = true;
     clearTimeout(s.timer);
     edLsDel(s.id);
+    // Task 75: 調査は「次の対応を決める」画面へ（決めた後の行き先はその画面が決める）
+    if (submittedRow && ReportLogic.nextPending(submittedRow)) { await NextDecide.open({ report: submittedRow, caseRow: s.info && s.info.phases ? s.info : null, before }); return; }
     const fb = (typeof fieldBack === 'function' ? fieldBack(s.report.case_id) : null);
     // Task 48: タスクが増えたら、移る前に画面全体のポップアップ（「確認」を押すまで閉じない）→ 押したら移る（その間に別の画面へ移っていたらそのまま）
     const here = location.hash;
+    const added = before ? await fieldNoteAddedTasks(s.report.case_id, before) : [];
     if (added.length) await fieldAddedPopup(added);
     if (location.hash === here) location.hash = fb ? fb.hash : '#case/' + s.report.case_id + (wd.rec ? '' : '/reports');
   } finally {
@@ -606,6 +609,8 @@ async function openReport(id) {
 
   if (fresh || selfWorker || (retype && !restored)) edMarkDirty(s); // 既定の作業日・固定した作業区分・自分を入れた作業者をサーバーにも保存する
   else if (restored) edFlush(s);
+  // Task 75: 提出したまま次の対応を決めていない調査の報告書なら「次の対応を決める」画面（決められる人だけ）
+  if (ReportLogic.nextPending(r)) NextDecide.open({ report: r, caseRow: s.info && s.info.phases ? s.info : null });
 }
 
 // フェーズ付きの報告書 → { type: 作業区分, title: '調査 1回目' }。フェーズが見つからないときは今の区分のまま固定。フェーズ無しは null（従来どおり選べる）

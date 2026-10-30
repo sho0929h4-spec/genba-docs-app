@@ -629,6 +629,7 @@ async function fdLoadCase(seq) {
     if (!fd || fd.seq !== seq) return;
   }
   fdRenderCase();
+  if (!s.err && s.data) NextDecide.checkCase(s.data.caseRow); // Task 75: 決めていない調査の報告書があれば「次の対応を決める」画面
 }
 
 // Task 31: ページの対応（#f/case/{id}/phase/{phaseId}）。この案件に無ければ null

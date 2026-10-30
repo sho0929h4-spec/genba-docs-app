@@ -543,6 +543,7 @@
   /* ---------- やること（#tasks。Task 17） ---------- */
   // 🔴（自社）の段階の種類 → グループ。action は行の右のボタン（画面 js/tasks.js が決める操作の種類）
   const TASK_GROUPS = [
+    { key: 'decide', label: '次の対応を決める', action: 'decide' }, // Task 75: 調査の報告書を提出したまま次の対応を決めていない（安全網）
     { key: 'estimate', label: '見積書作成必要', action: 'make_estimate' },
     { key: 'send_estimate', label: '見積書を送付', action: 'send_estimate' },
     { key: 'schedule', label: '日程調整必要', action: 'schedule' },
@@ -597,6 +598,18 @@
         const own = stage(p, null, now, { me, members: o.members });
         const st = own.key === 'waiting' ? workerStage(p, now, { me, members: o.members }) : own;
         const othersWrite = own.key === 'waiting' && st.key === 'write';
+        // Task 75: 次の対応をまだ決めていない調査の報告書（提出したあと決めずに離れた）
+        listOf(p.reports).filter(r => RL().nextPending(r)).forEach(r => {
+          const w = p.worker_id || null, who = w || c.assignee_id || null;
+          all.push({
+            group: 'decide', action: 'decide', caseId: c.id || null, caseName: str(c.name), room: str(c.room),
+            phaseId: p.id || null, kind: p.kind, title: phaseTitle(p, p.seq != null ? p.seq : count[p.kind]), key: 'decide',
+            label: '次の対応を決める', text: '次の対応を決める', date: r.submitted_at || null, late: false, due: null, who,
+            whoName: !who ? '' : nameOf.get(who) || (who === w ? str(p.worker_name) : str(c.assignee_name)) || '不明',
+            mine: !!me && (c.assignee_id === me || w === me || r.submitted_by === me),
+            reportId: r.id || null, reportStatus: r.status || null, reportState: null, estimateId: null, phase: p, caseRow: c
+          });
+        });
         const todo = p.kind === 'survey' ? estimateTodo(p, now) : null;
         if (todo) {
           const seq0 = p.seq != null ? p.seq : count[p.kind];
@@ -1435,7 +1448,7 @@
   //   place: 物件名 号室（日報への返事は「📝 日報」）／kind: フェーズの種類（無ければ ''）／todo: やること（短い言葉）／
   //   due: 報告書・見積書は「10/22（木）まで」（調査の報告書は時刻つき「10/21（水）15:00まで」）・超過は「…まで・超過」（late）、
   //        確認依頼・翌日の予定は「10/22（木）13:00〜」（日時未定）、管理者からの連絡は届いた時刻「10/21（水）14:05」
-  const TASK_TODO = { report: '報告書作成', estimate: '見積書作成', notice: '確認依頼', tomorrow: '翌日の予定', conditions: '工事の条件を確認' };
+  const TASK_TODO = { decide: '次の対応を決める', report: '報告書作成', estimate: '見積書作成', notice: '確認依頼', tomorrow: '翌日の予定', conditions: '工事の条件を確認' };
   const DUE_TYPES = ['report', 'estimate', 'schedule']; // 期限のあるタスク（Task 50: 日程調整も）
   // 一斉配信の知らせの件名から先頭の対応の名前（「調査 」「調査 2回目 」）を外す
   const callBody = x => { const t = str(x.label), pre = str(x.title) ? str(x.title) + ' ' : ''; return pre && t.startsWith(pre) ? t.slice(pre.length) : t.replace(/^.*?\d+回目 /, ''); };
@@ -1745,6 +1758,9 @@
         // Task 71: 一斉配信の募集中はタスクに出さない（下のタブの「募集」のページ。callBoard）
         if (!meId || p.worker_id !== meId || p.lost_at) continue; // Task 47: 失注はタスクから外す
         const title = phaseTitle(p, p.seq != null ? p.seq : count[p.kind]);
+        // Task 75: 提出したまま次の対応を決めていない調査の報告書（押すと報告書を開く＝決める画面が出る）
+        listOf(p.reports).filter(r => RL().nextPending(r)).forEach(r => out.push({ type: 'decide', caseRow: c, phase: p, title, report: r,
+          label: '次の対応を決める', due: null, dueAt: null, late: false, from: '', fromAt: r.submitted_at || null, tomorrow: false, brief: '' }));
         // Task 21・23: 作業担当者が自分・見積書の期限あり・まだ提出していない（下書きでは消えない）
         // Task 45: 名前は「原因元工事の見積書作成（期限 M/D）」など。調査の報告書を出したら「調査の見積書作成」（期限 = 提出の翌日）
         const todo = estimateTodo(p, now) || surveyEstimateTodo(p, now);
@@ -1793,7 +1809,7 @@
       x.visit = x.phase ? visitLine(x.phase.plan, x.caseRow) : '';
       x.sendback = x.type === 'message' ? null : taskFlag(x.phase, x.type, 'sendback');
     });
-    const rank = { call: -1, nudge: 0, message: 1, report: 2, estimate: 3, schedule: 3.5, conditions: 4, notice: 5, tomorrow: 6 };
+    const rank = { call: -1, nudge: 0, message: 1, decide: 1.5, report: 2, estimate: 3, schedule: 3.5, conditions: 4, notice: 5, tomorrow: 6 };
     const dueMs = x => (x.dueAt ? ms(x.dueAt) : ms(jstAt(+x.due.slice(0, 4), +x.due.slice(5, 7), +x.due.slice(8, 10), 0, 0)));
     const t = x => (x.type === 'message' ? -ms(x.fromAt) : x.due ? dueMs(x) : x.phase.scheduled_at ? ms(x.phase.scheduled_at) : Infinity);
     const rk = x => (x.nudge ? rank.nudge : rank[x.type]);

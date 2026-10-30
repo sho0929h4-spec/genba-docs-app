@@ -514,7 +514,7 @@
       work_date: f.work_date,
       time_start: f.time_start || null,
       time_end: f.time_end || null,
-      data: ReportLogic.normalizeData(f.data),
+      data: ReportLogic.submitData(f.work_type, f.data), // Task 75: 調査は次の対応方針を空にして「まだ決めていない」印（決めるのは社内）
       photos
     };
     let error = null;

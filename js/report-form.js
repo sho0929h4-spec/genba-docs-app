@@ -388,8 +388,8 @@ function rfBuildForm(s, opts) {
   longField('rp-f2', 'f2', T.legacyF2, T.f2Hint, 'f2Wrap');
   longField('rp-reason', 'reason', T.reasonLabel, T.reasonHint, 'reasonWrap', T.reasonPlaceholder); // Task 26: 記載例
   els.reason.classList.add('rep-reason'); // 記載例が全部見える高さ（index.html / r.html の CSS）
-  edNextPicker(s, content);
-  // Task 61: 次の対応方針の下に入居者からの申し送り（任意・調査のとき）
+  // Task 75: 次の対応方針はここで書かない（提出したあとの「次の対応を決める」画面 js/next-decide.js が edNextPicker を使う）
+  // Task 61: 入居者からの申し送り（任意・調査のとき）
   longField('rp-tenant-note', 'tenantNote', T.tenantNoteLabel, T.tenantNoteHint, 'tenantWrap');
   els.tenantNote.maxLength = 1000;
   longField('rp-f4', 'f4', T.legacyF4, T.f4Hint, 'f4Wrap');
@@ -530,7 +530,7 @@ function edRenderCauseInputs(s) {
   s.els.causeInputs.hidden = rows.length === 0;
 }
 
-/* ---------- 次の対応方針（1つ選ぶ。Task 20） ---------- */
+/* ---------- 次の対応方針（1つ選ぶ。Task 20。Task 75 から「次の対応を決める」画面 js/next-decide.js だけが使う） ---------- */
 // 原因元工事 → 見積書提案期日（必須）／再調査 → 理由・再調査の内容（必須）／その他 → 自由記載。選んだものをもう一度押すと選ばない状態に
 function edNextPicker(s, parent) {
   const L = ReportLogic, T = L.TEXT, d = s.f.data, els = s.els;
@@ -733,10 +733,9 @@ function edApplyMode(s) {
   edApplyLeak(s);
   e.afterWrap.hidden = !cfg.showAfter;
   e.causeWrap.hidden = !cfg.pickCause;
-  e.nextWrap.hidden = !cfg.pickNext;
   e.f2Wrap.hidden = !cfg.showF2 || (cfg.pickCause && !s.legacy.f2);
   e.reasonWrap.hidden = !cfg.showReason;
-  e.f4Wrap.hidden = !cfg.showF4 || (cfg.pickNext && !s.legacy.f4);
+  e.f4Wrap.hidden = !cfg.showF4 || !!cfg.pickNext; // Task 75: 古い自由記載の次の対応方針も入力画面に出さない（data には残る）
   e.tenantWrap.hidden = !cfg.pickNext;
   // Task 61: 調査は「作業実施内容」を「原因と判断した理由」の下に（ほかの区分は今まで通り一番上）
   const at = k === 'investigate' ? e.reasonWrap.nextSibling : e.leakWrap;

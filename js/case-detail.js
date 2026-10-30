@@ -108,6 +108,7 @@ async function loadCase(id) {
   currentCase = row;
   caseMembers = members || [];
   buildDetail();
+  NextDecide.checkCase(row); // Task 75: 決めていない調査の報告書があれば「次の対応を決める」画面
 }
 
 // 部分更新。'' = 成功 or 古い応答として破棄 / 文字列 = 失敗メッセージ

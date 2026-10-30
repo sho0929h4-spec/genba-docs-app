@@ -1573,7 +1573,7 @@ async function openEstimatePdf(id) {
   const shr = mk('div', 'dsh-box'); // Task 68・72: 「LINEで共有」「メールで共有」。管理者・その対応の作業担当者・現場用で自分が登録した案件の本人（js/share-ui.js）
   shr.id = 'eu-pdf-share';
   $('estimate-pdf-root').replaceChildren(top, head, acts, shr, msg, pv);
-  ShareUi.mount(shr, { doc: 'estimate', row: est, caseRow: st.caseRow, makeBlob: () => EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl),
+  ShareUi.mount(shr, { doc: 'estimate', row: est, caseRow: st.caseRow, makeBlob: onStep => EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl, { onStep }),
     onChange: () => { if (st === eup) { eup = null; openEstimatePdf(id); } } });
   try {
     EstimatePdf.preview(pv, est, st.caseRow, ctx.org || {}, st.logoUrl);
@@ -1590,7 +1590,7 @@ async function eupDownload(st) {
   btn.textContent = 'PDFを作成中…';
   setMsg('eu-pdf-msg', '');
   let blob = null, msg = '';
-  try { blob = await EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl); }
+  try { blob = await EstimatePdf.toBlob(st.est, st.caseRow, ctx.org || {}, st.logoUrl, { onStep: t => { if (st === eup) btn.textContent = 'PDFを作成中…（' + t + '）'; } }); }
   catch (e) { msg = 'PDFを作成できませんでした: ' + errText(e); }
   st.busy = false;
   if (st !== eup) return;
