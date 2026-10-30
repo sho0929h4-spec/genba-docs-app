@@ -21,6 +21,8 @@
 //   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
 // Task 71: 下のタブに「募集」#f/calls（案件／募集／タスク／メッセージ／設定）。募集中だけを急ぎの順に・数の赤い丸（fieldCallBadge）。
 //   募集中の対応は「案件」「タスク」に出さない（PhaseLogic.fieldSchedule・staffInbox）
+// Task 77: ツールページの「現地の記録」（その日の自分の対応。現場に着いた／現場を出た・押し直し。fdArriveBox）と、報告書・見積書の入力画面を
+//   開いている間を数える（fieldRoute → WorkLog.route。js/work-log.js）。どちらも work_logs に入り、日報（DailyLogic.build の logs）に自動で出る
 // 下のタブバー 案件／タスク／メッセージ／設定（safe-area。Task 46: 日報作成は設定の中の項目 → #f/daily）。旧ルート #f/inbox は #f/tasks、
 //   #f/contact・#f/outbox はメッセージ #f/msg へ（Task 46: 管理者とのやり取りは LINE 風のトーク #f/msg/{案件ID}・#f/msg/all。js/talk-ui.js）。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
@@ -164,6 +166,7 @@ function fdRedirectOf(h) {
 function fieldRoute() {
   const h = location.hash;
   const fm = fdMatch(h);
+  if (typeof WorkLog !== 'undefined') WorkLog.route(isFieldMode() ? h : ''); // Task 77: 報告書・見積書の入力画面を開いている間を数える
   if (!isFieldMode()) {
     fdSetMode(false);
     if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' || fm.view === 'survey' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '')
@@ -585,7 +588,8 @@ async function fdLoadCase(seq) {
       CasesApi.getSummary(s.caseId),
       ReportsApi.listByCase(s.caseId),
       EstimatesApi.listByCase(s.caseId),
-      NoticesApi.listByCase(s.caseId)
+      NoticesApi.listByCase(s.caseId),
+      WorkLog.listMine().catch(e => { console.warn('現地の記録を読み込めませんでした', e); return []; }) // Task 77
     ]);
   } catch (e) { err = '案件を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
@@ -606,7 +610,7 @@ async function fdLoadCase(seq) {
   }
   if (!err) {
     if (!res[0]) s.err = '案件が見つかりません';
-    else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [], shares };
+    else s.data = { caseRow: res[0], reports: res[1] || [], estimates: (res[2] || []).flatMap(x => x.versions || []), notices: res[3] || [], shares, logs: res[4] || [] };
   }
   // Task 31: 古いリンク #f/case/{id} → 自分が担当で未完了の直近の対応のページ（無ければ過去の対応履歴）
   if (!s.err && s.data && s.view === 'case' && !s.phaseId) {
@@ -713,6 +717,8 @@ function fdRenderCase() {
     sc.appendChild(dBtn('メッセージで日程を見る ›', 'linkbtn fd-sched-talk', () => { location.hash = '#f/msg/' + c.id; }));
     nodes.push(sc);
   }
+  const arrive = fdArriveBox(s, c, sel);
+  if (arrive) nodes.push(arrive);
   const msg = mk('div', 'ob-msg', s.msg || '');
   msg.id = 'fd-msg';
   msg.setAttribute('role', 'status');
@@ -745,6 +751,47 @@ function fdRenderCase() {
   const trash = typeof CaseTrash !== 'undefined' ? CaseTrash.fieldSection(c) : null;
   if (trash) nodes.push(trash);
   host.replaceChildren(...nodes);
+}
+
+// Task 77: 現地の記録（その日の自分の対応だけ）。「現場に着いた」「現場を出た」= 押した時刻（行く回ごと）。押し直し = 時刻を今に直す。日報に入る
+function fdArriveBox(s, c, p) {
+  const today = PhaseLogic.jstYmd(new Date());
+  const visits = DailyLogic.visitsOf(s.data.logs, p.id);
+  if (!visits.length && !(DailyLogic.mine(c, p, fdMe()) && PhaseLogic.jstYmd(p.scheduled_at) === today)) return null;
+  const box = mk('div', 'fd-arrive');
+  box.id = 'fd-arrive';
+  box.appendChild(mk('div', 'fd-arrive-h', '現地の記録（' + DailyLogic.ymdMDW(today) + '）'));
+  visits.forEach((v, i) => box.appendChild(mk('div', 'fd-arrive-row', (visits.length > 1 ? (i + 1) + '回目 ' : '') + DailyLogic.visitText(v))));
+  const last = visits[visits.length - 1];
+  const act = (label, cls, fn, done) => {
+    const b = dBtn(label, cls, () => fdArriveAct(s, fn, done));
+    b.disabled = !!s.busy;
+    return b;
+  };
+  const btns = mk('div', 'fd-arrive-btns');
+  if (last && !last.left_at) {
+    btns.append(act('現場を出た', 'btn', () => WorkLog.stamp(last.id, 'left_at'), '現場を出た時刻を記録しました'),
+      act('着いた時刻を今に直す', 'btn ghost', () => WorkLog.stamp(last.id, 'arrived_at'), '着いた時刻を直しました'));
+  } else {
+    btns.append(act(last ? 'もう一度 着いた' : '現場に着いた', 'btn', () => WorkLog.arrive(c.id, p.id), '現場に着いた時刻を記録しました'));
+    if (last) btns.append(act('出た時刻を今に直す', 'btn ghost', () => WorkLog.stamp(last.id, 'left_at'), '出た時刻を直しました'));
+  }
+  box.appendChild(btns);
+  box.appendChild(mk('span', 'fd-tiny', '押した時刻が日報に入ります。押し直すと直せます'));
+  return box;
+}
+async function fdArriveAct(s, fn, done) {
+  if (s.busy) return;
+  s.busy = 'arrive';
+  fdRenderCase();
+  try {
+    await fn();
+    s.data.logs = await WorkLog.listMine();
+    s.msg = done;
+    s.toolErr = '';
+  } catch (e) { s.toolErr = '記録できませんでした: ' + errText(e); }
+  s.busy = '';
+  if (fdAlive(s)) fdRenderCase();
 }
 
 /* ---------- #f/case/{id}/history 過去の対応履歴（Task 31） ---------- */
@@ -1018,22 +1065,23 @@ function fdDailyDraftSet(d) {
   try { localStorage.setItem(fdDailyKey(d.model.ymd), JSON.stringify({ sel: d.sel, note: d.noteTouched ? d.note : null })); } catch (e) { /* 覚えられない端末ではこの画面の間だけ */ }
 }
 async function fdLoadDaily(seq) {
-  let rows = [], list = [], sent = [], times = [], notices = [], err = '';
+  let rows = [], list = [], sent = [], times = [], notices = [], logs = [], err = '';
   const me = fdMe();
   const now = new Date();
   const ymd = PhaseLogic.jstYmd(now);
   const dayStart = PhaseLogic.jstAt(+ymd.slice(0, 4), +ymd.slice(5, 7), +ymd.slice(8, 10), 0, 0).toISOString();
   try {
-    [rows, list, sent, notices] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 }),
-      StaffMessagesApi.list({ fromUser: me, limit: 200 }), NoticesApi.listMineSince(dayStart)]);
-    const pre = DailyLogic.build({ rows, me, now });
-    times = await ReportsApi.timesForPhases(pre.times.map(t => t.phaseId));
+    await WorkLog.flushed(); // Task 77: 書いていた分の保存が済んでから読む
+    [rows, list, sent, notices, logs] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 }),
+      StaffMessagesApi.list({ fromUser: me, limit: 200 }), NoticesApi.listMineSince(dayStart), WorkLog.listMine(ymd)]);
+    const pre = DailyLogic.build({ rows, me, now, logs });
+    times = await ReportsApi.timesForPhases(pre.times.map(t => t.phaseId).filter(Boolean));
   } catch (e) { err = '日報を読み込めませんでした: ' + errText(e); }
   if (!fd || fd.seq !== seq) return;
   const mine = (list || []).filter(m => m.source === 'daily' && m.from_user === me);
   const ids = new Set(mine.map(m => m.id));
   const replies = (list || []).filter(m => m.reply_to && ids.has(m.reply_to));
-  const model = DailyLogic.build({ rows: rows || [], me, now, times, notices, messages: sent });
+  const model = DailyLogic.build({ rows: rows || [], me, now, times, notices, messages: sent, logs: logs || [] });
   const d0 = mine.find(m => m.daily_date === model.ymd) || null;
   const prev = fd.daily && fd.daily.model && fd.daily.model.ymd === model.ymd ? fd.daily : null;
   const draft = fdDailyDraftGet(model.ymd) || {};

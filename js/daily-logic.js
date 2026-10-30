@@ -7,6 +7,10 @@
 //   3. {翌日 M/D（曜）}に対応するタスク: 翌日の予定（日時のある対応）＋ 期限が翌日までのタスク（報告書・見積）
 //   4. かかった時間: 1. の現場ごとに、報告書の作業開始〜終了時間があればその時間（自動）。無ければ時間のチップを押して選ぶ。
 //      移動時間は任意のチップ。合計は自動
+// Task 77: work_logs（js/work-log.js）から自動で足す
+//   - 現地の着・出（ツールページのボタン）: 1. の行に「着 9:05 〜 出 11:40」。4. の現場の時間は 出−着（両方ある回の合計。報告書の作業時間より優先）
+//   - 報告書・見積書を書いていた分: 4. に「報告書作成（物件名 号室 種類）40分」（チップで選び直せる）。
+//     提出していないものは 2. に「報告書作成中（…）」「見積書作成中（…）」
 // 日付はすべて具体の日付（「本日」「明日」の言葉は使わない＝Task 31 の決まり。見出しも「10/21（水）に…」）。
 // 時刻は日本時間（PhaseLogic と同じく実行環境のタイムゾーンに依存しない）。
 // 選んだ状態 sel = { off: { [行のkey]: true }（外した行）, chip: { [時間のkey]: 分 | 'other' }, other: { [時間のkey]: '2.5'（時間） },
@@ -71,6 +75,17 @@
   }
   // 自分の対応か（作業担当者が自分。作業担当者が空なら案件の担当者が自分）
   const mine = (c, p, me) => !!me && (p.worker_id === me || (!p.worker_id && !p.open_call_at && c.assignee_id === me)); // Task 51: 募集中は案件の担当者の日報に入れない
+  // Task 77: その対応の現地の記録（kind 'site'。着いた順）と1回分の文「着 9:05 〜 出 11:40」（出ていなければ「出 —」）
+  const visitsOf = (logs, phaseId) => listOf(logs).filter(l => l.kind === 'site' && l.phase_id === phaseId && l.arrived_at)
+    .sort((a, b) => (ms(a.arrived_at) || 0) - (ms(b.arrived_at) || 0));
+  const visitText = v => `着 ${hm(v.arrived_at)} 〜 出 ${v.left_at ? hm(v.left_at) : '—'}`;
+  // 現地の時間（着・出の両方ある回の 出−着 の合計）→ { minutes, text, src } | null
+  function siteTime(logs, phaseId) {
+    const done = visitsOf(logs, phaseId).filter(v => v.left_at && ms(v.left_at) >= ms(v.arrived_at));
+    if (!done.length) return null;
+    const minutes = done.reduce((n, v) => n + Math.round((ms(v.left_at) - ms(v.arrived_at)) / 60000), 0);
+    return { minutes, text: done.map(v => `${hm(v.arrived_at)}〜${hm(v.left_at)}`).join('・'), src: '現地の記録' };
+  }
   // 報告書の作業開始〜終了（times = [{ phase_id, time_start, time_end }]。両方ある最後のもの）→ { minutes, text } | null
   function autoTime(times, phaseId) {
     const list = listOf(times).filter(t => t.phase_id === phaseId && hmMin(t.time_start) != null && hmMin(t.time_end) != null);
@@ -79,12 +94,12 @@
     let n = hmMin(t.time_end) - hmMin(t.time_start);
     if (n <= 0) n += 24 * 60; // 日をまたいだ作業
     const fmt = s => { const v = hmMin(s); return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`; };
-    return { minutes: n, text: `${fmt(t.time_start)}〜${fmt(t.time_end)}` };
+    return { minutes: n, text: `${fmt(t.time_start)}〜${fmt(t.time_end)}`, src: '報告書の作業時間' };
   }
 
   // 日報の中身を組み立てる
   //   o: { rows: case_summaries の行, me, now, times: 報告書の作業時間, notices: 自分が作った工事掲示（{ id, case_id, phase_id, created_at }）,
-  //        messages: 自分が送った連絡（staff_messages の行） }
+  //        messages: 自分が送った連絡（staff_messages の行）, logs: 自分のその日の work_logs（Task 77） }
   //   → { ymd, nextYmd, dayLabel, nextLabel, sections: [{ key, title, items: [{ key, text, sub: [文], at }] }], times: [{ key, label, auto }] }
   function build(o) {
     const opt = o || {};
@@ -97,6 +112,7 @@
     const sites = [], done = [], next = [];
     const caseById = new Map();
     const phaseInfo = new Map(); // phaseId → { c, p, title }
+    const docInfo = new Map();   // 'report:id' / 'estimate:id' → 報告書・見積書（case_summaries の要素）
     for (const c of listOf(opt.rows)) {
       if (c.deleted_at) continue;
       caseById.set(c.id, c);
@@ -104,6 +120,8 @@
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
         phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[p.kind]) });
+        listOf(p.reports).forEach(r => docInfo.set('report:' + r.id, r));
+        listOf(p.estimates).forEach(e => docInfo.set('estimate:' + e.id, e));
       }
     }
     const placeOf = c => L.placeName(c) || '（物件名なし）';
@@ -111,12 +129,15 @@
       const place = placeOf(c);
       const base = { caseId: c.id, phaseId: p.id || null };
       // 1. その日行った現場（自分の対応で、予定がその日）
-      if (mine(c, p, me) && isDay(p.scheduled_at, ymd)) {
+      const visits = visitsOf(opt.logs, p.id); // Task 77: 予定が別の日でもその日に着いた対応は入れる
+      if ((mine(c, p, me) && isDay(p.scheduled_at, ymd)) || visits.length) {
         const st = L.stage(p, null, nowAt, { me });
         const need = L.fieldStageLabel(st) || (st.label ? `なし（✓ ${st.label}）` : 'なし');
-        sites.push(Object.assign({ key: 'site:' + p.id, at: ms(p.scheduled_at), text: `${hm(p.scheduled_at)} ${place} ${title}`,
-          sub: [`行く部屋: ${L.visitText(p.plan, c)}`, `報告書: ${reportStateText(p.reports)}`, `必要な対応: ${need}`] }, base));
-        res.times.push({ key: 'time:' + p.id, phaseId: p.id, label: `${place} ${title}`, auto: autoTime(opt.times, p.id), at: ms(p.scheduled_at) });
+        const at = isDay(p.scheduled_at, ymd) ? ms(p.scheduled_at) : ms(visits[0].arrived_at);
+        sites.push(Object.assign({ key: 'site:' + p.id, at, text: `${hm(at)} ${place} ${title}`,
+          sub: (visits.length ? [`現地: ${visits.map(visitText).join('、')}`] : [])
+            .concat([`行く部屋: ${L.visitText(p.plan, c)}`, `報告書: ${reportStateText(p.reports)}`, `必要な対応: ${need}`]) }, base));
+        res.times.push({ key: 'time:' + p.id, phaseId: p.id, label: `${place} ${title}`, auto: siteTime(opt.logs, p.id) || autoTime(opt.times, p.id), at });
       }
       // 2. 処理したタスク
       listOf(p.reports).forEach(r => {
@@ -171,6 +192,22 @@
       done.push({ key: 'done:msg:' + m.id, caseId: m.case_id, phaseId: m.phase_id || null, at: ms(m.created_at),
         text: `${hm(m.created_at)} 管理者に${m.reply_to ? '返事' : '連絡'}「${str(m.subject)}」${c ? ' ' + placeOf(c) : ''}`, sub: [] });
     });
+    // Task 77: 報告書・見積書を書いていた分（4. の時間の行）と、提出していないものは 2. に「作成中」
+    listOf(opt.logs).forEach(l => {
+      if ((l.kind !== 'report' && l.kind !== 'estimate') || !(l.minutes > 0)) return;
+      const info = phaseInfo.get(l.phase_id);
+      const c = info ? info.c : caseById.get(l.case_id);
+      if (!c) return;
+      const id = l.kind === 'report' ? l.report_id : l.estimate_id;
+      const name = (l.kind === 'report' ? '報告書' : '見積書') + '作成';
+      const what = `${placeOf(c)}${info ? ' ' + info.title : ''}`;
+      const at = ms(l.updated_at) || ms(l.created_at);
+      res.times.push({ key: `time:${l.kind}:${id}`, label: `${name}（${what}）`, preset: l.minutes, at });
+      const doc = docInfo.get(l.kind + ':' + id);
+      if (doc && doc.status === 'draft') {
+        done.push({ key: `done:wip:${l.kind}:${id}`, caseId: c.id, phaseId: l.phase_id || null, at, text: `${name}中（${what}）`, sub: [] });
+      }
+    });
     const byAt = (a, b) => (a.at || 0) - (b.at || 0) || String(a.text || a.label).localeCompare(String(b.text || b.label), 'ja');
     [sites, done, next, res.times].forEach(x => x.sort(byAt));
     res.sections = [
@@ -189,7 +226,8 @@
     if (t.auto) return t.auto.minutes;
     const v = sel && sel.chip ? sel.chip[t.key] : undefined;
     if (v === 'other') return otherMinutes(sel.other && sel.other[t.key]);
-    return Number.isFinite(v) && v > 0 ? v : null;
+    if (Number.isFinite(v) && v > 0) return v;
+    return t.preset > 0 ? t.preset : null; // Task 77: 書いていた分（チップを選べばそちら）
   }
   // 合計 → { work（現場の合計）, travel（移動。選んでいなければ 0）, total, missing（含める行で時間が未選択の数）, text }
   function totals(model, sel) {
@@ -205,7 +243,7 @@
   }
   // 時間の行の右に出す文: 自動 '2時間30分（9:00〜11:30・報告書の作業時間）'／選んだ '1時間'／未選択 '未選択'
   function timeText(t, sel) {
-    if (t.auto) return `${fmtDuration(t.auto.minutes)}（${t.auto.text}・報告書の作業時間）`;
+    if (t.auto) return `${fmtDuration(t.auto.minutes)}（${t.auto.text}・${t.auto.src || '報告書の作業時間'}）`;
     const n = timeMinutes(t, sel);
     return n == null ? '未選択' : fmtDuration(n);
   }
@@ -246,6 +284,7 @@
   }
 
   const api = { TIME_CHIPS, TRAVEL_CHIPS, PHOTOS_MAX, NOTE_HEAD, ymdMDW, ymdLong, fmtDuration, otherMinutes, reportStateText, autoTime,
+    mine, visitsOf, visitText, siteTime,
     build, timeMinutes, totals, timeText, heading, view, text, noteOf };
   if (inNode) module.exports = api;
   else root.DailyLogic = api;
