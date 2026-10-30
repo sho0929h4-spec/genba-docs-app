@@ -519,6 +519,9 @@ function eueBuild(s) {
   dl.id = 'eu-units';
   EU_UNITS.forEach(u => { const o = document.createElement('option'); o.value = u; dl.appendChild(o); });
   c2.appendChild(dl);
+  // 見積書のテンプレート（Task 78）: 明細が空のときだけ明細の上に「テンプレートから作る」。登録・編集のボタンは明細の下（よく使う明細の下）
+  const tpl = ro ? null : EstimateTemplates.section(s, { apply: t => eueApplyTemplate(s, t) });
+  if (tpl) c2.appendChild(tpl.picker);
   const lh = mk('div', 'eu-lines-h' + (ro ? ' ro' : ''));
   lh.setAttribute('aria-hidden', 'true'); // 各欄には見えないラベルがある
   // 原価（Task 19）。単価（表示のみ）は2行目の原価の下
@@ -535,6 +538,7 @@ function eueBuild(s) {
   // よく使う明細（定型・Task 11 / Task 22）: 明細の下の唯一の追加候補（見積のフェーズの種類＋共通のボタン）。読み取り専用では出さない。
   // 固定のクイック追加（現場管理費・交通費・諸経費）は Task 22 で廃止（EstimateLogic.QUICK は残す。既存の諸経費の自動行は表示・再計算だけ続ける）
   if (!ro) c2.appendChild(EstimatePresets.section(s, { add: p => eueAddPreset(s, p) }));
+  if (tpl) c2.appendChild(tpl.actions);
   const q = mk('div', 'eu-quick eu-adj-row');
   els.adj = eueCheck('eu-adjust', '税込合計を00に', s.lines.some(eueIsAdj), on => eueToggleAdjust(s, on));
   els.adj.classList.add('eu-adj-chk');
@@ -1064,6 +1068,7 @@ function eueTotals(s) {
   $('eu-t-post-box').hidden = !t.postTax;
   if (s.els.adj) s.els.adj.querySelector('input').checked = s.lines.some(eueIsAdj);
   EstimateImport.refresh(s); // 粗利の枠
+  EstimateTemplates.sync(s); // 明細が空のときだけ「テンプレートから作る」（Task 78）
   if (s.els.qMsg && t.subtotal < 0) s.els.qMsg.textContent = '小計がマイナスです。金額を見直してください（このままでは保存されません）';
   else if (s.els.qMsg && s.els.qMsg.textContent.startsWith('小計')) s.els.qMsg.textContent = '';
 }
@@ -1257,6 +1262,16 @@ function eueAddPreset(s, preset) {
   eueLinesRebuilt(s);
   const el = s.els.lines.querySelector('[data-id="' + l.id + '"] .eu-amt');
   if (el && !l.amount) el.focus({ preventScroll: false });
+}
+
+// 「テンプレートから作る」: 明細が空（初期の空行だけ）のとき、明細をテンプレートの行で置き換える（空行は消す）。行は写し
+function eueApplyTemplate(s, tpl) {
+  if (s.readOnly || !EstimateLogic.isBlankEstimate(s.lines)) return;
+  const ls = EstimateLogic.templateToLines(tpl);
+  if (!ls.length) return;
+  s.lines = ls;
+  s.els.qMsg.textContent = '';
+  eueLinesRebuilt(s);
 }
 
 function eueAddLine(s) {

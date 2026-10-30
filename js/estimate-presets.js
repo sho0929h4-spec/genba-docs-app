@@ -559,6 +559,8 @@ const EstimatePresets = (() => {
 
   return {
     section, openRegister, openEditor,
+    // 見積書のテンプレート（js/estimate-templates.js・Task 78）が同じシート・入力欄・段の決まりを使う
+    ui: { sheet, input, field, lineText, canCompany, myId, defaultTier, TIER_LABEL },
     // テスト・別画面から: 次に開いたとき読み直す
     reset() { list = null; loading = null; cur = null; }
   };

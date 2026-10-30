@@ -474,6 +474,62 @@
     return list.map((p, k) => ({ id: p.id, sort: k, old: num(p.sort) })).filter(x => x.sort !== x.old).map(x => ({ id: x.id, sort: x.sort }));
   }
 
+  // ── 見積書のテンプレート（行のまとまり・Task 78 / migration 092 estimate_templates）─────────────────
+  // tpl = { id, name, lines: [{description, detail?, quantity, unit, amount}], sort, owner_user_id, created_at }
+  // 段（自分専用／会社共通）・並び・↑↓ は定型と同じ presetTier / nextPresetSort(list, undefined) / movePreset（kind が無い＝全部同じ組）
+  const TEMPLATE_MAX_LINES = 30;
+  const TEMPLATE_NAME_MAX = 40;
+  // 明細が空の見積書（作ったばかり・初期の空行だけ）か
+  const isBlankEstimate = lines => !(lines || []).some(isRealLine);
+  // 明細行 → テンプレートの行（DB の形）。写すのは 摘要・詳細・数量・単位・金額。
+  // 原価・諸経費の自動行・値引きの調整行・税対象外・空の行は写さない（単価は保存しない＝金額÷数量で出る）
+  function linesToTemplate(lines) {
+    return (lines || []).filter(l => l && isRealLine(l) && !l.isAutoShokehi && !l.postTax && !l.isAdjust).map(l => {
+      const out = { description: String(l.description == null ? '' : l.description).trim(), quantity: num(l.quantity),
+        unit: String(l.unit == null ? '' : l.unit), amount: Math.round(num(l.amount)) || 0 };
+      const detail = String(l.detail == null ? '' : l.detail).trim();
+      if (detail) out.detail = detail;
+      return out;
+    });
+  }
+  // テンプレート → 明細行（新しい id。行は写しなので後でテンプレートを消しても見積書は変わらない）
+  function templateToLines(tpl) {
+    return ((tpl && tpl.lines) || []).map(l => newLine({
+      description: String(l.description == null ? '' : l.description),
+      detail: String(l.detail == null ? '' : l.detail),
+      quantity: finite(l.quantity) && Number(l.quantity) >= 0 ? Number(l.quantity) : 1,
+      unit: l.unit == null ? '' : String(l.unit),
+      amount: Math.round(num(l.amount)) || 0
+    }));
+  }
+  // ボタンに出す合計（税抜）
+  const templateTotal = tpl => ((tpl && tpl.lines) || []).reduce((s, l) => s + Math.round(num(l.amount)), 0);
+  // 名前の初期値 = 1行目の摘要（摘要が空なら最初の摘要のある行。40字まで）
+  function templateDefaultName(tlines) {
+    const l = (tlines || []).find(x => x && String(x.description || '').trim());
+    return chars(l ? String(l.description).trim() : '').slice(0, TEMPLATE_NAME_MAX).join('');
+  }
+  // DB の check（092）と同じ判定。{ ok, errors }
+  function validateTemplate(t) {
+    const errors = [];
+    const x = t || {};
+    const name = String(x.name == null ? '' : x.name);
+    if (!name.trim()) errors.push('名前を入力してください');
+    else if (chars(name).length > TEMPLATE_NAME_MAX) errors.push('名前は' + TEMPLATE_NAME_MAX + '字までです');
+    const ls = Array.isArray(x.lines) ? x.lines : [];
+    if (!ls.length) errors.push('登録できる明細の行がありません（摘要か金額の入った行が要ります）');
+    else if (ls.length > TEMPLATE_MAX_LINES) errors.push('テンプレートは' + TEMPLATE_MAX_LINES + '行までです（今は' + ls.length + '行）。行を減らしてから登録してください');
+    ls.forEach((l, i) => {
+      const at = (i + 1) + '行目: ';
+      if (chars(l.description).length > 200) errors.push(at + '摘要は200字までです');
+      if (l.detail != null && chars(l.detail).length > 500) errors.push(at + '詳細は500字までです');
+      if (chars(l.unit).length > 10) errors.push(at + '単位は10字までです');
+      if (typeof l.quantity !== 'number' || !Number.isFinite(l.quantity) || l.quantity < 0 || l.quantity > 1000000) errors.push(at + '数量が正しくありません');
+      if (typeof l.amount !== 'number' || !Number.isInteger(l.amount) || Math.abs(l.amount) > 1e12) errors.push(at + '金額は整数の円で入力してください');
+    });
+    return { ok: errors.length === 0, errors };
+  }
+
 
   // ── 原価・利益率・業者の見積PDFの読み込み（対応フェーズ Task 19。旧 invoice.html applyProfit / updateProfitSummary・
   //    utils/pdf_parser.py の Strategy 2「pypdf text + regex」を移植）────────────────────────────────
@@ -833,7 +889,8 @@
     pdfTextLines, parseEstimateText, extractTotals, dedupSummary,
     SHEET_HEADS, sheetHeadRole, sheetNum, detectColumns, rowsToItems, parseCsv,
     PRESET_KINDS, PRESET_KIND_LABEL, PRESET_LABEL_MAX,
-    presetAmount, presetTier, presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset
+    presetAmount, presetTier, presetToLine, lineToPreset, presetDefaultLabel, validatePreset, presetKindsFor, presetsFor, groupPresets, nextPresetSort, movePreset,
+    TEMPLATE_MAX_LINES, TEMPLATE_NAME_MAX, isBlankEstimate, linesToTemplate, templateToLines, templateTotal, templateDefaultName, validateTemplate
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.EstimateLogic = api;
