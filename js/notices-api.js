@@ -1,6 +1,7 @@
 // js/notices-api.js — 工事掲示のDBアクセス（Supabase 呼び出しはここに集約）
 // 依存: NoticeLogic（js/notice-logic.js）、グローバル sb / ctx（js/supabase.js / js/app.js）
-// notices の列権限（migration 013）: room, work_name, work_date, work_date_end, work_date_tbd, data だけ更新できる。
+// notices の列権限（migration 013・020・094）: room, work_name, work_date, work_date_end, work_date_tbd, data, phase_id, issued_at だけ更新できる。
+// issued_at（Task 80）は markIssued だけが書く（data からは作らないので NOTICE_COLS には入れない）。
 // 一覧用の列（room / work_name / work_date / work_date_end / work_date_tbd）は data から必ず同期する（唯一の源は data）。
 const NoticesApi = (() => {
   const NL = () => window.NoticeLogic;
@@ -104,6 +105,10 @@ const NoticesApi = (() => {
       const rows = must(await sb.from('notices').update(patchOf(data)).eq('id', id).select());
       if (!rows || rows.length === 0) throw new Error('保存できませんでした（掲示が削除された可能性があります）');
       return rows[0];
+    },
+    // Task 80: ダウンロードした（最初の1回だけ。時刻はサーバーの now()・以降は変わらない＝migration 094 のトリガー）。共有は doc_share_sent が入れる
+    async markIssued(id) {
+      must(await sb.from('notices').update({ issued_at: new Date().toISOString() }).eq('id', id).is('issued_at', null));
     },
     async remove(id) {
       // Task 79: 共有で作った未送信の送付メールの下書き（公開PDFも）を先に片付ける。送付済みの記録は残る（notice_id は DB が null にする。093）

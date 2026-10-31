@@ -556,6 +556,8 @@ async function nteDownload(s) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
+  // Task 80: 出した記録（報告書の「工事掲示を取り外した」の条件）。失敗してもダウンロードは済んでいる
+  NoticesApi.markIssued(s.id).catch(e => console.warn('ダウンロードの記録に失敗', e));
 }
 
 // 今の入力を元に、号室を空にした新しい掲示を作って開く

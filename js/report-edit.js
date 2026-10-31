@@ -470,7 +470,7 @@ async function edSubmit(s) {
     await edFlush(s);
     if (edPending(s)) { edShowVal(s, ['入力を保存できていません。通信を確認して、上の「再試行」を押してください'], []); return; }
     const cur = Object.assign({}, s.report, edCollect(s));
-    const { errors, warnings } = ReportLogic.validate(cur, { notice: s.hasNotice });
+    const { errors, warnings } = ReportLogic.validate(cur, { notice: s.hasNotice, resurvey: s.resurvey });
     const wd = edWords(s);
     if (!wd.rec && !cur.worker_id && !String(cur.worker_name || '').trim()) errors.push('作業担当者を選んでください'); // 記録は作業担当者の欄なし（送った人が残る）
     edShowVal(s, errors, warnings);
@@ -528,7 +528,7 @@ async function openReport(id) {
       [info, members, notices] = await Promise.all([
         currentCase && currentCase.id === r.case_id ? currentCase : CasesApi.getSummary(r.case_id),
         CasesApi.listMembers(),
-        // Task 79: 同じ対応の工事掲示があるか（読めなくても報告書は開く＝項目を出さないだけ）
+        // Task 79・80: 同じ対応の工事掲示を出したか（読めなくても報告書は開く＝項目を出さないだけ）
         r.phase_id ? NoticesApi.listByCase(r.case_id).catch(e => { console.warn('工事掲示を読めませんでした', e); return []; }) : []
       ]);
     }
@@ -546,7 +546,9 @@ async function openReport(id) {
     f: edFromRow(r), ro: r.status !== 'draft',
     dirty: false, photosDirty: false, timer: null, chain: Promise.resolve(), saveState: '', saveErr: '', lastSaved: null,
     photoBusy: false, submitting: false, submitted: false, urls: new Map(), els: {},
-    hasNotice: !!r.phase_id && (notices || []).some(n => n.phase_id === r.phase_id), // Task 79
+    // Task 80: 共有かダウンロードをした掲示（issued_at）だけ。再調査は案件の対応（case_summaries の phases の kind・source_phase_id）から
+    hasNotice: !!r.phase_id && (notices || []).some(n => n.phase_id === r.phase_id && n.issued_at),
+    resurvey: !!r.phase_id && !!info && Array.isArray(info.phases) && PhaseLogic.isResurvey(info.phases.find(p => p.id === r.phase_id)),
     onDirty: edMarkDirty, alive: () => ed === s
   };
   r.photos = Array.isArray(r.photos) ? r.photos : [];
