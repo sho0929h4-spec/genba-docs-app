@@ -9,8 +9,8 @@
 //      移動時間は任意のチップ。合計は自動
 // Task 77: work_logs（js/work-log.js）から自動で足す
 //   - 現地の着・出（ツールページのボタン）: 1. の行に「着 9:05 〜 出 11:40」。4. の現場の時間は 出−着（両方ある回の合計。報告書の作業時間より優先）
-//   - 報告書・見積書を書いていた分: 4. に「報告書作成（物件名 号室 種類）40分」（チップで選び直せる）。
-//     提出していないものは 2. に「報告書作成中（…）」「見積書作成中（…）」
+//   Task 81: 報告書・見積書を書いていた時間は数えない（4. の「報告書作成 n分」・2. の「作成中」は出さない。
+//     既にある kind 'report' / 'estimate' の行は読まない。提出したものは 2. の「提出」の行のまま）
 // 日付はすべて具体の日付（「本日」「明日」の言葉は使わない＝Task 31 の決まり。見出しも「10/21（水）に…」）。
 // 時刻は日本時間（PhaseLogic と同じく実行環境のタイムゾーンに依存しない）。
 // 選んだ状態 sel = { off: { [行のkey]: true }（外した行）, chip: { [時間のkey]: 分 | 'other' }, other: { [時間のkey]: '2.5'（時間） },
@@ -112,7 +112,6 @@
     const sites = [], done = [], next = [];
     const caseById = new Map();
     const phaseInfo = new Map(); // phaseId → { c, p, title }
-    const docInfo = new Map();   // 'report:id' / 'estimate:id' → 報告書・見積書（case_summaries の要素）
     for (const c of listOf(opt.rows)) {
       if (c.deleted_at) continue;
       caseById.set(c.id, c);
@@ -120,8 +119,6 @@
       for (const p of listOf(c.phases)) {
         count[p.kind] = (count[p.kind] || 0) + 1;
         phaseInfo.set(p.id, { c, p, title: L.phaseTitle(p, p.seq != null ? p.seq : count[p.kind]) });
-        listOf(p.reports).forEach(r => docInfo.set('report:' + r.id, r));
-        listOf(p.estimates).forEach(e => docInfo.set('estimate:' + e.id, e));
       }
     }
     const placeOf = c => L.placeName(c) || '（物件名なし）';
@@ -192,22 +189,6 @@
       done.push({ key: 'done:msg:' + m.id, caseId: m.case_id, phaseId: m.phase_id || null, at: ms(m.created_at),
         text: `${hm(m.created_at)} 管理者に${m.reply_to ? '返事' : '連絡'}「${str(m.subject)}」${c ? ' ' + placeOf(c) : ''}`, sub: [] });
     });
-    // Task 77: 報告書・見積書を書いていた分（4. の時間の行）と、提出していないものは 2. に「作成中」
-    listOf(opt.logs).forEach(l => {
-      if ((l.kind !== 'report' && l.kind !== 'estimate') || !(l.minutes > 0)) return;
-      const info = phaseInfo.get(l.phase_id);
-      const c = info ? info.c : caseById.get(l.case_id);
-      if (!c) return;
-      const id = l.kind === 'report' ? l.report_id : l.estimate_id;
-      const name = (l.kind === 'report' ? '報告書' : '見積書') + '作成';
-      const what = `${placeOf(c)}${info ? ' ' + info.title : ''}`;
-      const at = ms(l.updated_at) || ms(l.created_at);
-      res.times.push({ key: `time:${l.kind}:${id}`, label: `${name}（${what}）`, preset: l.minutes, at });
-      const doc = docInfo.get(l.kind + ':' + id);
-      if (doc && doc.status === 'draft') {
-        done.push({ key: `done:wip:${l.kind}:${id}`, caseId: c.id, phaseId: l.phase_id || null, at, text: `${name}中（${what}）`, sub: [] });
-      }
-    });
     const byAt = (a, b) => (a.at || 0) - (b.at || 0) || String(a.text || a.label).localeCompare(String(b.text || b.label), 'ja');
     [sites, done, next, res.times].forEach(x => x.sort(byAt));
     res.sections = [
@@ -227,7 +208,7 @@
     const v = sel && sel.chip ? sel.chip[t.key] : undefined;
     if (v === 'other') return otherMinutes(sel.other && sel.other[t.key]);
     if (Number.isFinite(v) && v > 0) return v;
-    return t.preset > 0 ? t.preset : null; // Task 77: 書いていた分（チップを選べばそちら）
+    return null;
   }
   // 合計 → { work（現場の合計）, travel（移動。選んでいなければ 0）, total, missing（含める行で時間が未選択の数）, text }
   function totals(model, sel) {

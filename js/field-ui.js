@@ -21,8 +21,8 @@
 //   rpc field_trash_case。DB が現場用の登録かも確かめる）。削除の後は「案件」タブに戻り案内を1回（fieldSetFlash）
 // Task 71: 下のタブに「募集」#f/calls（案件／募集／タスク／メッセージ／設定）。募集中だけを急ぎの順に・数の赤い丸（fieldCallBadge）。
 //   募集中の対応は「案件」「タスク」に出さない（PhaseLogic.fieldSchedule・staffInbox）
-// Task 77: ツールページの「現地の記録」（その日の自分の対応。現場に着いた／現場を出た・押し直し。fdArriveBox）と、報告書・見積書の入力画面を
-//   開いている間を数える（fieldRoute → WorkLog.route。js/work-log.js）。どちらも work_logs に入り、日報（DailyLogic.build の logs）に自動で出る
+// Task 77: ツールページの「現地の記録」（その日の自分の対応。現場に着いた／現場を出た・押し直し。fdArriveBox。js/work-log.js）。
+//   work_logs に入り、日報（DailyLogic.build の logs）に自動で出る（Task 81: 報告書・見積書を開いている時間は数えない）
 // 下のタブバー 案件／タスク／メッセージ／設定（safe-area。Task 46: 日報作成は設定の中の項目 → #f/daily）。旧ルート #f/inbox は #f/tasks、
 //   #f/contact・#f/outbox はメッセージ #f/msg へ（Task 46: 管理者とのやり取りは LINE 風のトーク #f/msg/{案件ID}・#f/msg/all。js/talk-ui.js）。
 // 現場用では送付・連絡メールの下書きは出さない（Task 23 C2）
@@ -166,7 +166,6 @@ function fdRedirectOf(h) {
 function fieldRoute() {
   const h = location.hash;
   const fm = fdMatch(h);
-  if (typeof WorkLog !== 'undefined') WorkLog.route(isFieldMode() ? h : ''); // Task 77: 報告書・見積書の入力画面を開いている間を数える
   if (!isFieldMode()) {
     fdSetMode(false);
     if (fm) fdReplace(fm.view === 'case' || fm.view === 'history' || fm.view === 'survey' ? '#case/' + fm.caseId + (fm.phaseId ? '/phase/' + fm.phaseId : '')
@@ -739,7 +738,7 @@ function fdRenderCase() {
     estimate: () => fdToolBtn(s, 'estimate', 'receipt', '見積書作成', t.estimate, () => fdOpenEstimate(s, c, sel, phases, t.estimate)),
     notice: () => fdToolBtn(s, 'notice', 'megaphone', '工事掲示', t.notice, () => fdOpenNotice(s, c, sel, phases, t.notice))
   };
-  PhaseLogic.toolOrder(sel.kind).forEach(k => tools.appendChild(mkTool[k]()));
+  PhaseLogic.toolOrder(sel.kind, sel).forEach(k => tools.appendChild(mkTool[k]()));
   nodes.push(tools);
   const err = mk('div', 'err', s.toolErr || '');
   err.id = 'fd-tool-err';
@@ -1071,7 +1070,6 @@ async function fdLoadDaily(seq) {
   const ymd = PhaseLogic.jstYmd(now);
   const dayStart = PhaseLogic.jstAt(+ymd.slice(0, 4), +ymd.slice(5, 7), +ymd.slice(8, 10), 0, 0).toISOString();
   try {
-    await WorkLog.flushed(); // Task 77: 書いていた分の保存が済んでから読む
     [rows, list, sent, notices, logs] = await Promise.all([fieldRows(), StaffMessagesApi.list({ noCase: true, limit: 300 }),
       StaffMessagesApi.list({ fromUser: me, limit: 200 }), NoticesApi.listMineSince(dayStart), WorkLog.listMine(ymd)]);
     const pre = DailyLogic.build({ rows, me, now, logs });

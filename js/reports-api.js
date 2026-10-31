@@ -237,7 +237,6 @@ const ReportsApi = (() => {
     },
     // Task 23 I10（原因の二重入力）: 調査の報告書の 原因・原因と判断した理由・次の対応方針 の文で、その調査フェーズの「調査結果」の
     //   空の項目だけ埋め、「調査結果のご報告」の未送信の下書きも作り直す（PhasesApi.saveResult）。失敗しても提出・確認は止めない
-    //   Task 27: 次の対応方針が原因元工事／再調査（期日あり）なら、調査結果が変わらなくても下書きを作り直す（末尾の「お見積書は … までに」）
     async syncSurveyResult(report) {
       try {
         if (!report || report.work_type !== 'investigate' || !report.phase_id || typeof PhasesApi === 'undefined') return null;
@@ -248,10 +247,9 @@ const ReportsApi = (() => {
         // Task 25: 原因は報告書の号室の区画へ（調査結果は号室ごと）
         const next = window.PhaseLogic.resultFromReport(ph.result, { cause: RL().causeText(d), reason: d.reason, next: RL().nextActionText(d) },
           { room: report.room, caseRow });
-        const promise = window.PhaseLogic.estimatePromise(d.nextAction);
-        if (!next && !promise) return null;
+        if (!next) return null; // Task 81: メールの結びは次の対応方針で変わらない
         const seq = Array.isArray(caseRow.phases) ? ((caseRow.phases.find(p => p.id === ph.id) || {}).seq) : null;
-        return await PhasesApi.saveResult(ph, next || ph.result, caseRow, window.PhaseLogic.phaseTitle(ph, seq), { next: d.nextAction });
+        return await PhasesApi.saveResult(ph, next, caseRow, window.PhaseLogic.phaseTitle(ph, seq));
       } catch (e) { console.warn('調査結果への反映に失敗', e); return null; }
     },
     // Task 27: 担当者URLから提出された調査の報告書（ログインなしの提出は下書きを作れない）→ 管理画面を開いたときに「調査結果のご報告」を作り直す。

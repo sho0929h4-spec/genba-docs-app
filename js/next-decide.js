@@ -49,7 +49,10 @@ const NextDecide = (() => {
     const h = mk('h2', 'nd-h', '次の対応を決める');
     h.id = 'nd-h';
     const place = mk('div', 'nd-place', [caseRow ? PhaseLogic.placeName(caseRow) : '', title].filter(Boolean).join(' ・ '));
-    const lead = mk('p', 'nd-lead', '調査の報告書を提出しました。次の対応を1つ選んで「決める」を押してください（決めるまでこの画面は閉じません）。');
+    // Task 81: 自分が提出していない報告書（協力業者の URL・ほかの人）は「提出された」。中身は下の要約で読める
+    const lead = mk('p', 'nd-lead', (r.submitted_by && r.submitted_by === me() ? '調査の報告書を提出しました。' : '提出された調査の報告書の次の対応を決めます。')
+      + '報告書の中身を読んで、次の対応を1つ選んで「決める」を押してください（決めるまでこの画面は閉じません）。');
+    const sum = summary(r);
     const s = { f: { data: ReportLogic.normalizeData(r.data) }, els: {}, ro: false, onDirty: () => { err.replaceChildren(); } };
     const body = mk('div', 'rep-card nd-body');
     const err = mk('div', 'err nd-err');
@@ -60,7 +63,7 @@ const NextDecide = (() => {
     const ok = dBtn('決める', 'btn nd-ok', () => decide());
     ok.id = 'nd-ok';
     acts.appendChild(ok);
-    box.append(h, place, lead, body, err, acts);
+    box.append(h, place, lead, sum, body, err, acts);
     bg.appendChild(box);
     document.body.appendChild(bg);
     document.body.classList.add('nd-open');
@@ -99,6 +102,7 @@ const NextDecide = (() => {
     // 決めた後（原因元工事・再調査）: 見積書を今作るか、タスクに入れて後で作るか
     function after(n, phaseId) {
       h.textContent = '見積書をどうしますか';
+      sum.remove();
       lead.textContent = '決めました: ' + ReportLogic.nextActionText({ nextAction: n });
       body.replaceChildren(mk('div', 'nd-q', '見積書を今作るか、タスクに入れて後で作るかを選んでください。'));
       err.replaceChildren();
@@ -135,6 +139,28 @@ const NextDecide = (() => {
       if (added.length) await fieldAddedPopup(added);
       location.hash = to;
     }
+  }
+
+  // Task 81: 報告書の要約（読むだけ。ReportLogic.decideSummary）。長い文は先頭だけ出して「もっと見る」で全部
+  const SUM_MAX = 80;
+  function summary(r) {
+    const card = mk('div', 'rep-card nd-sum');
+    card.id = 'nd-sum';
+    card.appendChild(mk('h3', 'nd-sum-h', '報告書の中身'));
+    const dl = mk('dl', 'nd-sum-dl');
+    ReportLogic.decideSummary(r).forEach(x => {
+      const dd = mk('dd', 'nd-sum-v');
+      const full = String(x.value);
+      if (Array.from(full).length <= SUM_MAX) dd.textContent = full;
+      else {
+        const t = mk('span', null, Array.from(full).slice(0, SUM_MAX).join('') + '…');
+        const more = dBtn('もっと見る', 'linkbtn nd-more', () => { t.textContent = full; more.remove(); });
+        dd.append(t, more);
+      }
+      dl.append(mk('dt', 'nd-sum-k', x.label), dd);
+    });
+    card.appendChild(dl);
+    return card;
   }
 
   return { open, checkCase, canDecide, isOpen: () => !!cur };

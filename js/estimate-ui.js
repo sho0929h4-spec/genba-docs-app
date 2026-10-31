@@ -730,7 +730,10 @@ function eueNoticeOffer(s) {
   const nt = s.nt;
   const openLink = (label, n) => { const a = dBtn(label, 'linkbtn eu-nt-open', () => { location.hash = '#notice/' + n.id; }); a.id = 'eu-nt-open'; return a; };
   const nodes = [];
-  if (nt.made) nodes.push(mk('div', 'eu-nt-msg', '工事掲示の下書きを作りました（案件ページの表の「工事掲示」から直せます）'), openLink('工事掲示を開く ›', nt.made));
+  if (nt.made) {
+    const where = typeof fieldHidesAdmin === 'function' && fieldHidesAdmin() ? 'この対応のツールページの「工事掲示」' : '案件ページの表の「工事掲示」'; // Task 81: 現場用には案件ページの表が無い
+    nodes.push(mk('div', 'eu-nt-msg', '工事掲示の下書きを作りました（' + where + 'から直せます）'), openLink('工事掲示を開く ›', nt.made));
+  }
   else if (nt.list === null) nodes.push(mk('div', 'eu-nt-msg', '工事掲示を確認しています…'));
   else if (nt.list.length) nodes.push(mk('div', 'eu-nt-msg', '工事掲示はもうあります'), openLink('開く ›', nt.list[0]));
   else {
@@ -820,8 +823,9 @@ function eueActsCard(s) {
     if (can.ok && (!admin || owner)) btn(admin ? '再編集する（同じ番号のまま直す）' : '再編集して管理者に知らせる', 'eu-reedit', 'btn ghost inline', () => eueReedit(s));
     else if (!admin && s.latest && can.reason && !canNew) note = mk('div', 'rep-sub eu-reedit-no', can.reason);
   }
-  // Task 35 B: 減額対応で作った新しい版（まだ提出していない下書き）は、やめて前の版に戻せる（管理者だけ）
-  if (st === 'draft' && v >= 2 && !r.number && admin && owner) btn('この版をやめて前の版に戻す', 'eu-cancel-ver', 'btn ghost inline', () => eueCancelVer(s));
+  // Task 35 B: 減額対応で作った新しい版（まだ提出していない下書き）は、やめて前の版に戻せる
+  //   Task 81: 管理者（現場用でも）か、その版を作った本人（DB の cancel_estimate_version と同じ）
+  if (st === 'draft' && v >= 2 && !r.number && (owner || (ctx && ctx.user && r.created_by === ctx.user.id))) btn('この版をやめて前の版に戻す', 'eu-cancel-ver', 'btn ghost inline', () => eueCancelVer(s));
   if (v >= 2) btn('前の版との差分', 'eu-diff-open', 'btn sm ghost inline', () => { location.hash = '#estimate/' + s.id + '/diff'; });
   if (!row.firstChild && !note) return null;
   if (row.firstChild) card.appendChild(row);

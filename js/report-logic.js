@@ -738,6 +738,17 @@
     if (list.length === 1 && !list[0].role) return list[0].room;
     return list.map(roomHead).filter(uniq).join('・');
   }
+  // Task 81: 次の対応を決める画面に出す報告書の要約（読むだけ）→ [{ label, value }]。値の無い行は出さない（写真は0枚でも出す）
+  function decideSummary(report) {
+    const r = report || {};
+    return [
+      { label: '号室', value: roomsText(r) },
+      { label: '作業日', value: [fmtDateJa(r.work_date), timeRange(r.time_start, r.time_end)].filter(Boolean).join(' ') },
+      ...resultRows(r).filter(x => !x.next).map(x => ({ label: x.label.replace(/\s/g, ''), value: x.value })),
+      { label: '対応後の状況', value: afterStatusText(normalizeData(r.data)) },
+      { label: '写真', value: arr(r.photos).length + '枚' }
+    ].filter(x => x.value);
+  }
 
   const api = {
     INV_WORK_ITEMS, WORK_ITEM_OTHER, CAUSES, CAUSE_UNKNOWN, NEXT_ACTIONS, WORK_TYPE_OF_PHASE,
@@ -748,7 +759,7 @@
     ESTIMATE_DUE_DAYS, jstToday, estimateDueNeedsReason,
     emptyData, normalizeData, validate, validateNext, submitData, nextPending, resultRows, chipsForPdf, fmtDateJa, timeRange, fileName,
     buildMail, mailtoUrl, buildMailto, statusLabel, needsCheck, submittedByOther, PHOTO_NOTE, photoNote,
-    ROOMS_MAX, ROOM_ROLE_LABEL, reportRooms, startRooms, roomsText
+    ROOMS_MAX, ROOM_ROLE_LABEL, reportRooms, startRooms, roomsText, decideSummary
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ReportLogic = api;

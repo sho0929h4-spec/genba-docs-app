@@ -570,7 +570,7 @@ async function nteDuplicate(s) {
   let made = null, errMsg = '';
   try {
     await nteFlush(s);
-    made = await NoticesApi.duplicate({ case_id: s.row.case_id, data: nteClone(s.data) });
+    made = await NoticesApi.duplicate({ case_id: s.row.case_id, phase_id: s.row.phase_id, data: nteClone(s.data) }); // Task 81: 一覧の複製と同じく対応（phase_id）も引き継ぐ
   } catch (e) {
     errMsg = '複製できませんでした: ' + errText(e);
   } finally {

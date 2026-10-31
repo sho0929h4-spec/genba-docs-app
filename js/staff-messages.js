@@ -127,7 +127,7 @@ function smRender() {
       if (s.caseId) location.hash = '#case/' + s.caseId; else openCases();
     }));
     nodes.push(mk('h2', 'ob-h', '現場からの連絡'));
-    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、調査報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「タスク」に出ます。メールは送りません）'));
+    nodes.push(mk('div', 'rep-sub ob-lead', 'スタッフが現場用の画面から送った連絡・日報と、調査報告の提出・報告書の期限超過などの自動のお知らせです。読んだら「既読にする」、返事は「返事を書く」（スタッフの「報告書・見積書」のタブに出ます。メールは送りません）'));
     if (s.caseId) {
       const c = smCaseOf(s.caseId);
       const f = mk('div', 'sm-filter');
@@ -136,7 +136,7 @@ function smRender() {
       nodes.push(f);
     }
   } else {
-    nodes.push(mk('div', 'rep-sub ob-lead', '案件の管理者に連絡できます（アプリの中だけ。メールは送りません）。返事は「タスク」とこの画面に出ます'));
+    nodes.push(mk('div', 'rep-sub ob-lead', '案件の管理者に連絡できます（アプリの中だけ。メールは送りません）。返事は「報告書・見積書」のタブとこの画面に出ます'));
     const nb = dBtn('＋ 連絡する', 'btn sm-new-btn', () => smOpenSheet({ rows: s.rows, onSent: () => smAfterSend(s) }));
     nb.id = 'sm-new';
     nb.disabled = s.loading || !!s.err;
@@ -339,7 +339,7 @@ async function smSendReply(g, text) {
   if (err) { s.replyErr = err; smRender(); return; }
   s.reply = null;
   s.replyDraft = null;
-  s.msg = '返事を送りました' + (s.field ? '（管理者の画面に出ます）' : '（スタッフの「タスク」に出ます）');
+  s.msg = '返事を送りました' + (s.field ? '（管理者の画面に出ます）' : '（スタッフの「報告書・見積書」のタブに出ます）');
   await smLoad(s.seq);
 }
 

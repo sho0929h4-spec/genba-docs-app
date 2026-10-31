@@ -212,20 +212,15 @@ const PhasesApi = (() => {
     //   未送信の下書きがあれば件名・本文を更新して「今回は送らない」を外す（宛先も送る相手も空なら既定を入れる）。無ければ、何か入っているときだけ作る。
     //   最初の保存（保存前の result が {}）のときだけタイムラインに「…の調査結果を記録した」。以後の変更は記録しない
     //   result: PhaseLogic.normalizeResult の形。戻り値 { phase, draft, first }（draft は未送信の下書き or null）
-    //   Task 27: 本文の末尾の文は、このフェーズで提出された調査の報告書（一番新しい提出）の次の対応方針で決まる（PhaseLogic.estimatePromiseText）。
-    //     opts.next（呼ぶ側が分かっているとき = 提出の直後）が無ければ読む。中身が同じなら case_phases は書かない（提出の直後の作り直し）
-    async saveResult(phase, result, caseRow, title, opts) {
-      const o = opts || {};
+    async saveResult(phase, result, caseRow, title) {
       const r = PL().normalizeResult(result);
       const first = !phase.result || typeof phase.result !== 'object' || Object.keys(phase.result).length === 0;
-      const same = !first && JSON.stringify(PL().normalizeResult(phase.result)) === JSON.stringify(r);
-      const row = same && o.next !== undefined ? Object.assign({}, phase, { result: r }) : await api.update(phase.id, { result: r });
+      const row = await api.update(phase.id, { result: r });
       let draft = null;
       try {
-        const next = o.next !== undefined ? o.next : await api.surveyNext(phase.id);
         const open = must(await sb.from('mail_drafts').select('*').eq('phase_id', phase.id).eq('purpose', 'survey_result')
           .eq('status', 'draft').order('created_at', { ascending: false }));
-        const mail = keys => PL().surveyResultMail({ phase: row, caseRow, org: ctx.org, me: me(), recipients: keys, next });
+        const mail = keys => PL().surveyResultMail({ phase: row, caseRow, org: ctx.org, me: me(), recipients: keys });
         if (open && open.length) {
           const d = open[0];
           let keys = Array.isArray(d.recipients) ? d.recipients : [];
@@ -269,14 +264,6 @@ const PhasesApi = (() => {
         } catch (e) { console.warn('報告書の初期値を入れ直せませんでした', e); }
       }
       return { phase: row, draft, first };
-    },
-
-    // Task 27: このフェーズで提出された調査の報告書（提出・確認・送付済みのうち一番新しい提出）の次の対応方針（data.nextAction）。無ければ null
-    async surveyNext(phaseId) {
-      const reps = must(await sb.from('reports').select('id, data, status, submitted_at').eq('phase_id', phaseId).eq('work_type', 'investigate')
-        .in('status', ['submitted', 'confirmed', 'sent']).not('submitted_at', 'is', null).order('submitted_at', { ascending: false }).limit(1)) || [];
-      const d = reps[0] && reps[0].data;
-      return d && typeof d === 'object' && d.nextAction && typeof d.nextAction === 'object' ? d.nextAction : null;
     },
 
     // 現場担当への指示（case_phases.plan。028。Task 9）を保存し、未送信の担当者へのメール（staff_notice: 確認依頼・前日のお知らせ）の

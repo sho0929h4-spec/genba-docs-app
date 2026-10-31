@@ -963,13 +963,13 @@
     }
     return src;
   }
-  function wrapMail(caseRow, recipients, org, me, bodyLines) {
+  function wrapMail(caseRow, recipients, org, me, bodyLines, closing) {
     const lines = [];
     const ad = addresseeLines(caseRow, recipients);
     if (ad.length) lines.push(...ad, '');
     lines.push(GREETING);
     if (str(org && org.name)) lines.push(`${str(org.name)}でございます。`);
-    lines.push(...bodyLines, '', CLOSING);
+    lines.push(...bodyLines, '', closing || CLOSING);
     const sig = signature(org, me);
     if (sig.length) lines.push('', ...sig);
     return lines.join('\n');
@@ -1588,33 +1588,10 @@
     if (on.has('other')) out.push(...NL().bodySentences({ workTypes: { other: true }, otherWorkText: r.cautionOther }));
     return out.filter((t, i) => t && out.indexOf(t) === i);
   }
-  // Task 27: ご報告メールの末尾の文。next = 提出された調査の報告書の「次の対応方針」（data.nextAction: { type, estimateDue }）。
-  //   原因元工事 → 「お見積書は {期日の翌日} までにお送りいたします。」、再調査 → 「再調査のうえ、お見積書は … までにお送りいたします。」、
-  //   それ以外・期日なし → 「お見積書は別途お送りいたします。」（今までの文）。翌日は日付だけで計算（estimate_due は日本時間の日付）
-  const ESTIMATE_LATER = 'お見積書は別途お送りいたします。';
-  // 'YYYY-MM-DD' → 10月26日（月）（日付だけで読む。タイムゾーンに依存しない）
-  function fmtYmdLong(ymd) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
-    if (!m) return '';
-    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-    return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${WEEK[d.getUTCDay()]}）`;
-  }
-  // → { type, due（担当者の期日）, sendBy（お客様に送る日 = 翌日）} or null
-  function estimatePromise(next) {
-    const n = next && typeof next === 'object' ? next : {};
-    const due = str(n.estimateDue);
-    if ((n.type !== 'cause' && n.type !== 'resurvey') || !/^\d{4}-\d{2}-\d{2}$/.test(due) || !fmtYmdLong(due)) return null;
-    return { type: n.type, due, sendBy: ymdAdd(due, 1) };
-  }
-  function estimatePromiseText(next) {
-    const p = estimatePromise(next);
-    if (!p) return ESTIMATE_LATER;
-    const t = `お見積書は${fmtYmdLong(p.sendBy)}までにお送りいたします。`;
-    return p.type === 'resurvey' ? '再調査のうえ、' + t : t;
-  }
+  // Task 81: ご報告メールの結び（Task 27 の「お見積書は {期日} までにお送りいたします。」「再調査のうえ、…」「別途お送り…」は出さない＝ユーザー決定）
+  const SURVEY_CLOSING = 'ご確認のほど、よろしくお願いいたします。';
   // 調査結果のご報告（purpose survey_result）→ { subject, body }。空の欄の見出しは出さない。宛名・書き出し・署名は日程連絡と同じ形
-  //   Task 27: next（提出された調査の報告書の次の対応方針）で末尾の文が変わる（estimatePromiseText）
-  function surveyResultMail({ phase, caseRow, org, me, recipients, next } = {}) {
+  function surveyResultMail({ phase, caseRow, org, me, recipients } = {}) {
     const p = phase || {};
     const r = normalizeResult(p.result);
     const lines = [];
@@ -1644,9 +1621,8 @@
         if (rooms && t === drainText) lines.push(`　（排水制限のかかる号室: ${rooms}）`);
       });
     }
-    lines.push('', estimatePromiseText(next));
     return { subject: subjectOf('調査結果のご報告', 'survey', caseRow),
-      body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines) };
+      body: wrapMail(caseRow, rcptOf(recipients, caseRow, 'survey_result'), org, me, lines, SURVEY_CLOSING) };
   }
   /* ---- 作業担当者への確認依頼（Task 6b） ---- */
   // カードへのリンク（base: アプリの URL。# 以降は付け直す）。opts.field: 担当者がスタッフ → 現場用のツールページ #f/case/{id}（Task 18）
@@ -2926,7 +2902,8 @@
   // Task 59: ツールの並びと名前（管理者の案件ページ・現場用のツールページ）。調査（再調査も）は工事掲示を出さない
   const TOOL_NAMES = { schedule: '日程調整', report: '報告書作成', estimate: '見積書作成', notice: '工事掲示' };
   // Task 65: 現地確認は 日程調整 → 現地確認の記録 → 見積書作成（工事掲示なし。記録は報告書の画面を使う）
-  const toolOrder = kind => (kind === 'survey' || kind === 'site_check' ? ['schedule', 'report', 'estimate'] : ['schedule', 'estimate', 'notice', 'report']);
+  // Task 81: 対応 p を渡すと、再調査は工事掲示も出す（現場用のツールページ。見積書を出した後に掲示を開く入口）
+  const toolOrder = (kind, p) => (kind === 'survey' || kind === 'site_check' ? ['schedule', 'report', 'estimate'].concat(isResurvey(p) ? ['notice'] : []) : ['schedule', 'estimate', 'notice', 'report']);
   const toolName = (kind, key) => (kind === 'site_check' && key === 'report' ? '現地確認の記録' : TOOL_NAMES[key]);
   // 日程調整のカードの今の日時: 「10/30（金）10:00〜12:00」／「未定」
   const schedText = p => slotText({ start: (p || {}).scheduled_at, end: (p || {}).scheduled_end }) || '未定';
@@ -3195,7 +3172,7 @@
     BRIEF_SUSPECTS, BRIEF_TASKS, BRIEF_PRIORITY, VISIT_HEAD, VISIT_MAX, VISIT_ROOMS_HEAD, visitDefault, visitSelected, visitRooms, visitText, visitLine, visitShort, visitLines, visitToggle, visitTaskRows, fieldTaskRow, TASK_TODO, taskBadge, taskDueGroups, TASK_VIEWS, taskView, taskViewCounts, surveyEstimateTodo, estimateTaskName, taskFlag, taskSendbacks, normalizeBrief, briefLines, hasBrief, briefSummary, briefRoomHead, photoRooms, planRoomChoices, setBriefSection, STAFF_TAILS,
     scheduleForm, introLine, reeditMark, canReedit, canNewVersion, newVersionBases, phaseRow, workerCell, nudgeText, workerCol, nudgeInfo, caseNow,
     phaseLink, staffNoticeMail, staffReminderMail, dueStaffReminders, workerState, staffInbox,
-    MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, ESTIMATE_LATER, fmtYmdLong, estimatePromise, estimatePromiseText, latestSurveyResult,
+    MOVE_ITEMS_TEXT, cautionChoices, normalizeResult, hasResult, resultRoomFor, cautionSentences, surveyResultMail, SURVEY_CLOSING, latestSurveyResult,
     reportInit, reportFields, resultFromReport, estimateNoteExtra, noticeInit, MESSAGE_SUBJECTS, messageForMe, messageThreads,
     billingBasis, billingAmount, billToLabel, groupBilling,
     BILL_STATUS_LABEL, BILLING_MODE_LABEL, billStatus, yen, parseYen, ymLabel, addMonth, billingMonthOf, showsBilling,
